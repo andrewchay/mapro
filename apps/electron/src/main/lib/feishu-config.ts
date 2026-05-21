@@ -18,7 +18,7 @@ import type {
   FeishuBotConfig,
   FeishuMultiBotConfig,
   FeishuBotConfigInput,
-} from '@proma/shared'
+} from '@ma-proma/shared'
 
 // ===== 加密/解密 =====
 

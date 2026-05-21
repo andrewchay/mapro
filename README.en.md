@@ -105,7 +105,7 @@ Proma supports Doubao-powered streaming voice input, both inside Proma and acros
 | Qwen | Supported | Supported | Anthropic-compatible protocol |
 | Custom endpoint | Supported | Not yet | OpenAI-compatible protocol |
 
-Agent mode is powered by Claude Agent SDK, so it currently requires an Anthropic or Anthropic-compatible channel. Chat mode uses Provider Adapters from `@proma/core` to support different protocols.
+Agent mode is powered by Claude Agent SDK, so it currently requires an Anthropic or Anthropic-compatible channel. Chat mode uses Provider Adapters from `@ma-proma/core` to support different protocols.
 
 ## Local Data
 
@@ -151,10 +151,10 @@ Current package versions:
 
 | Package | Version | Responsibility |
 | --- | --- | --- |
-| `@proma/electron` | `0.9.12` | Electron desktop app |
-| `@proma/shared` | `0.1.17` | shared types, IPC constants, config, utilities |
-| `@proma/core` | `0.2.9` | Provider Adapters, SSE, Shiki highlighting |
-| `@proma/ui` | `0.1.3` | shared React UI components |
+| `@ma-proma/electron` | `0.9.12` | Electron desktop app |
+| `@ma-proma/shared` | `0.1.17` | shared types, IPC constants, config, utilities |
+| `@ma-proma/core` | `0.2.9` | Provider Adapters, SSE, Shiki highlighting |
+| `@ma-proma/ui` | `0.1.3` | shared React UI components |
 
 Common commands:
 

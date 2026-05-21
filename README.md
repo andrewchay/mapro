@@ -107,7 +107,7 @@ Proma 支持豆包的流式语音输入功能，并且支持在 Proma 内使用�
 | 通义千问 | 支持 | 支持 | Anthropic 兼容协议 |
 | 自定义端点 | 支持 | 暂不支持 | OpenAI 兼容协议 |
 
-Agent 模式底层使用 Claude Agent SDK，因此目前要求渠道提供 Anthropic 或 Anthropic 兼容协议。Chat 模式则通过 `@proma/core` 的 Provider Adapter 统一接入不同协议。
+Agent 模式底层使用 Claude Agent SDK，因此目前要求渠道提供 Anthropic 或 Anthropic 兼容协议。Chat 模式则通过 `@ma-proma/core` 的 Provider Adapter 统一接入不同协议。
 
 ## 本地数据
 
@@ -153,10 +153,10 @@ proma-v2/
 
 | 包 | 版本 | 职责 |
 | --- | --- | --- |
-| `@proma/electron` | `0.9.12` | Electron 桌面应用 |
-| `@proma/shared` | `0.1.17` | 共享类型、IPC 常量、配置和工具 |
-| `@proma/core` | `0.2.9` | Provider Adapter、SSE、Shiki 高亮 |
-| `@proma/ui` | `0.1.3` | 共享 React UI 组件 |
+| `@ma-proma/electron` | `0.9.12` | Electron 桌面应用 |
+| `@ma-proma/shared` | `0.1.17` | 共享类型、IPC 常量、配置和工具 |
+| `@ma-proma/core` | `0.2.9` | Provider Adapter、SSE、Shiki 高亮 |
+| `@ma-proma/ui` | `0.1.3` | 共享 React UI 组件 |
 
 常用命令：
 

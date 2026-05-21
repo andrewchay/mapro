@@ -12,8 +12,8 @@ import { atomWithStorage } from 'jotai/utils'
 import {
   BUILTIN_DEFAULT_ID,
   BUILTIN_DEFAULT_PROMPT,
-} from '@proma/shared'
-import type { SystemPromptConfig, SystemPrompt } from '@proma/shared'
+} from '@ma-proma/shared'
+import type { SystemPromptConfig, SystemPrompt } from '@ma-proma/shared'
 import { userProfileAtom } from './user-profile'
 
 /** 提示词编辑侧栏是否打开 */

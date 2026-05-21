@@ -19,7 +19,7 @@ import {
   getDefaultSkillsDir,
   parseSkillVersion,
 } from './config-paths'
-import type { AgentWorkspace, WorkspaceMcpConfig, SkillMeta, SkillImportSource, OtherWorkspaceSkillsGroup, WorkspaceCapabilities, SkillFileNode, SkillFileContent } from '@proma/shared'
+import type { AgentWorkspace, WorkspaceMcpConfig, SkillMeta, SkillImportSource, OtherWorkspaceSkillsGroup, WorkspaceCapabilities, SkillFileNode, SkillFileContent } from '@ma-proma/shared'
 
 interface AgentWorkspacesIndex {
   version: number

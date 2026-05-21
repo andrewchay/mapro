@@ -1,5 +1,5 @@
 {
-  "name": "@proma/core",
+  "name": "@ma-proma/core",
   "version": "0.2.9",
   "license": "Apache-2.0",
   "description": "proma core types,storage and core logic with agents",
@@ -14,7 +14,7 @@
     "./highlight": "./src/highlight/index.ts"
   },
   "dependencies": {
-    "@proma/shared": "workspace:*",
+    "@ma-proma/shared": "workspace:*",
     "shiki": "^3.22.0"
   },
   "peerDependencies": {

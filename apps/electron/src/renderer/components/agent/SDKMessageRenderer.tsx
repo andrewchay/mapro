@@ -50,13 +50,13 @@ import type {
   SDKToolUseBlock,
   SDKToolResultBlock,
   RecoveryAction,
-} from '@proma/shared'
+} from '@ma-proma/shared'
 import {
   THINKING_SIGNATURE_ERROR_CODE,
   THINKING_SIGNATURE_ERROR_TITLE,
   THINKING_SIGNATURE_ERROR_MESSAGE,
   isThinkingSignatureError,
-} from '@proma/shared'
+} from '@ma-proma/shared'
 import type { ToolActivity } from '@/atoms/agent-atoms'
 
 // ===== SDKMessageRenderer Props =====

@@ -25,8 +25,8 @@ import type {
   FeishuChatMessage,
   FeishuUpdateBindingInput,
   FeishuBotConfig,
-} from '@proma/shared'
-import { FEISHU_IPC_CHANNELS, AGENT_IPC_CHANNELS } from '@proma/shared'
+} from '@ma-proma/shared'
+import { FEISHU_IPC_CHANNELS, AGENT_IPC_CHANNELS } from '@ma-proma/shared'
 import { getDecryptedBotAppSecret } from './feishu-config'
 import { agentEventBus, runAgentHeadless, stopAgent, isAgentSessionActive } from './agent-service'
 import { createAgentSession, listAgentSessions, getAgentSessionMeta } from './agent-session-manager'

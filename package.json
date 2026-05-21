@@ -1,7 +1,7 @@
 {
-  "name": "proma",
+  "name": "ma-proma",
   "version": "0.1.0",
-  "description": "The next gen ai software with general agents",
+  "description": "MA-Proma - forked from Proma, the next gen ai software with general agents",
   "type": "module",
   "private": true,
   "workspaces": [
@@ -9,10 +9,10 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "bun run --filter='@proma/electron' dev",
-    "electron:dev": "bun run --filter='@proma/electron' dev",
-    "electron:build": "bun run --filter='@proma/electron' build",
-    "electron:start": "bun run --filter='@proma/electron' start",
+    "dev": "bun run --filter='@ma-proma/electron' dev",
+    "electron:dev": "bun run --filter='@ma-proma/electron' dev",
+    "electron:build": "bun run --filter='@ma-proma/electron' build",
+    "electron:start": "bun run --filter='@ma-proma/electron' start",
     "build": "bun run --filter='*' build",
     "typecheck": "bun run --filter='*' typecheck",
     "test": "bun test"

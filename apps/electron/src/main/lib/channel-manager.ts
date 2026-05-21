@@ -20,11 +20,11 @@ import type {
   FetchModelsInput,
   FetchModelsResult,
   ProviderType,
-} from '@proma/shared'
-import { PROVIDER_DEFAULT_URLS } from '@proma/shared'
+} from '@ma-proma/shared'
+import { PROVIDER_DEFAULT_URLS } from '@ma-proma/shared'
 import { getFetchFn } from './proxy-fetch'
 import { getEffectiveProxyUrl } from './proxy-settings-service'
-import { normalizeAnthropicBaseUrl, normalizeBaseUrl, normalizeVersionedAnthropicBaseUrl } from '@proma/core'
+import { normalizeAnthropicBaseUrl, normalizeBaseUrl, normalizeVersionedAnthropicBaseUrl } from '@ma-proma/core'
 
 /** 当前配置版本 */
 const CONFIG_VERSION = 1

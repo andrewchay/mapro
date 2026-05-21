@@ -32,7 +32,7 @@ import {
 import { settingsTabAtom, settingsOpenAtom } from '@/atoms/settings-tab'
 import { appModeAtom } from '@/atoms/app-mode'
 import { chatToolsAtom } from '@/atoms/chat-tool-atoms'
-import type { McpServerEntry, SkillMeta, OtherWorkspaceSkillsGroup, WorkspaceMcpConfig } from '@proma/shared'
+import type { McpServerEntry, SkillMeta, OtherWorkspaceSkillsGroup, WorkspaceMcpConfig } from '@ma-proma/shared'
 import { SettingsSection, SettingsCard, SettingsRow } from './primitives'
 import { McpServerForm } from './McpServerForm'
 import { SkillFilesPanel } from './SkillFilesPanel'

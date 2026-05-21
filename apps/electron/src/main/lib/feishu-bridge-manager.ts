@@ -12,7 +12,7 @@ import type {
   FeishuBotBridgeState,
   FeishuTestResult,
   FeishuBotConfig,
-} from '@proma/shared'
+} from '@ma-proma/shared'
 import { FeishuBridge } from './feishu-bridge'
 import { getFeishuMultiBotConfig, getFeishuBotById, getDecryptedBotAppSecret } from './feishu-config'
 

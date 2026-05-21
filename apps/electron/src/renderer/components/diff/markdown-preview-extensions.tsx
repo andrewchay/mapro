@@ -11,9 +11,9 @@ import { TableCell } from '@tiptap/extension-table-cell'
 import { TableHeader } from '@tiptap/extension-table-header'
 import DOMPurify from 'dompurify'
 import katex from 'katex'
-import { highlightCode, highlightToTokens, getDisplayName } from '@proma/core'
-import type { HighlightTokensResult } from '@proma/core'
-import type { FileAccessOptions } from '@proma/shared'
+import { highlightCode, highlightToTokens, getDisplayName } from '@ma-proma/core'
+import type { HighlightTokensResult } from '@ma-proma/core'
+import type { FileAccessOptions } from '@ma-proma/shared'
 
 type FileAccessRef = { current: FileAccessOptions | undefined }
 /** 传 null 表示当前编辑器无会话/文件上下文（如 ScratchPad），跳过路径解析。 */
