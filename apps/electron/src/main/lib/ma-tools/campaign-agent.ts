@@ -1,0 +1,334 @@
+/**
+ * CampaignAgent — Campaign 专属管理工具（Chat Tool）
+ *
+ * 让 AI Agent 可以通过对话读取和修改 Campaign 数据：
+ * - 获取 Campaign 详情
+ * - 修改 Campaign 基本信息
+ * - 获取/修改 KOL Brief
+ * - 获取/修改 KOL 候选池状态
+ * - 触发内容审核
+ *
+ * 绑定到 Campaign 详情页的聊天面板中使用。
+ */
+
+import type { ToolCall, ToolResult, ToolDefinition } from '@ma-proma/core'
+import type { ChatToolMeta } from '@ma-proma/shared'
+import {
+  getCampaignById,
+  getPoolKOLs,
+  getBrief,
+  saveBrief,
+  createContentAudit,
+} from '../campaign-manager'
+
+// =====================================================================
+// 工具元数据
+// =====================================================================
+
+export const CAMPAIGN_AGENT_TOOL_META: ChatToolMeta = {
+  id: 'ma-campaign-agent',
+  name: 'MA Campaign 管理',
+  description: '通过对话读取和修改 Campaign 数据：获取详情、修改信息、管理KOL Brief、触发审核等。专为 Campaign 内嵌聊天面板设计。',
+  params: [
+    { name: 'action', type: 'string', description: '操作类型：get_campaign/update_campaign/get_brief/update_brief/get_kols/update_kol_status/audit_content', required: true },
+    { name: 'campaign_id', type: 'string', description: 'Campaign ID', required: true },
+    { name: 'data', type: 'string', description: 'JSON 格式的操作数据', required: false },
+  ],
+  icon: 'Target',
+  category: 'builtin',
+  executorType: 'builtin',
+  systemPromptAppend: `
+<ma_campaign_agent_instructions>
+你拥有 **MA Campaign 管理** 能力（CampaignAgent）。
+
+你可以通过对话直接读取和修改 Campaign 数据：
+- **ma_campaign_get** — 获取 Campaign 详情
+- **ma_campaign_update** — 修改 Campaign 名称、品牌、品类、预算、周期、阶段、状态
+- **ma_campaign_brief_get** — 获取 KOL 的 Brief
+- **ma_campaign_brief_update** — 修改 KOL 的 Brief
+- **ma_campaign_kol_list** — 获取 KOL 候选池列表
+- **ma_campaign_kol_status** — 修改 KOL 在候选池中的状态
+- **ma_campaign_audit** — 触发内容审核
+
+当用户要求修改 Campaign 数据时，先读取当前数据，然后执行修改，最后确认修改结果。
+</ma_campaign_agent_instructions>`,
+}
+
+export const CAMPAIGN_AGENT_TOOL_DEFINITIONS: ToolDefinition[] = [
+  {
+    name: 'ma_campaign_get',
+    description: 'Get campaign details by ID. Returns full campaign info including name, brand, category, budget, dates, phase, status, and all KOL pool data.',
+    parameters: {
+      type: 'object',
+      properties: {
+        campaign_id: { type: 'string', description: 'Campaign ID' },
+      },
+      required: ['campaign_id'],
+    },
+  },
+  {
+    name: 'ma_campaign_update',
+    description: 'Update campaign basic information. Fields: name, brand, category, budget, start_date, end_date, status, current_phase.',
+    parameters: {
+      type: 'object',
+      properties: {
+        campaign_id: { type: 'string', description: 'Campaign ID' },
+        name: { type: 'string', description: 'New campaign name' },
+        brand: { type: 'string', description: 'Brand name' },
+        category: { type: 'string', description: 'Product category' },
+        budget: { type: 'number', description: 'Budget in 万元' },
+        start_date: { type: 'string', description: 'Start date (YYYY-MM-DD)' },
+        end_date: { type: 'string', description: 'End date (YYYY-MM-DD)' },
+        status: { type: 'string', description: 'Status: draft/active/paused/completed/cancelled' },
+        current_phase: { type: 'number', description: 'Current phase (1-3)' },
+      },
+      required: ['campaign_id'],
+    },
+  },
+  {
+    name: 'ma_campaign_brief_get',
+    description: 'Get KOL brief by campaign ID and KOL ID.',
+    parameters: {
+      type: 'object',
+      properties: {
+        campaign_id: { type: 'string', description: 'Campaign ID' },
+        kol_id: { type: 'string', description: 'KOL ID' },
+      },
+      required: ['campaign_id', 'kol_id'],
+    },
+  },
+  {
+    name: 'ma_campaign_brief_update',
+    description: 'Update KOL brief content.',
+    parameters: {
+      type: 'object',
+      properties: {
+        campaign_id: { type: 'string', description: 'Campaign ID' },
+        kol_id: { type: 'string', description: 'KOL ID' },
+        content: { type: 'string', description: 'New brief content (markdown)' },
+      },
+      required: ['campaign_id', 'kol_id', 'content'],
+    },
+  },
+  {
+    name: 'ma_campaign_kol_list',
+    description: 'Get all KOLs in the campaign pool.',
+    parameters: {
+      type: 'object',
+      properties: {
+        campaign_id: { type: 'string', description: 'Campaign ID' },
+      },
+      required: ['campaign_id'],
+    },
+  },
+  {
+    name: 'ma_campaign_kol_status',
+    description: 'Update KOL status in the campaign pool.',
+    parameters: {
+      type: 'object',
+      properties: {
+        campaign_id: { type: 'string', description: 'Campaign ID' },
+        kol_id: { type: 'string', description: 'KOL ID' },
+        status: { type: 'string', description: 'New status: candidate/shortlisted/contacted/confirmed/completed/rejected' },
+      },
+      required: ['campaign_id', 'kol_id', 'status'],
+    },
+  },
+  {
+    name: 'ma_campaign_audit',
+    description: 'Trigger content audit for a KOL.',
+    parameters: {
+      type: 'object',
+      properties: {
+        campaign_id: { type: 'string', description: 'Campaign ID' },
+        kol_id: { type: 'string', description: 'KOL ID' },
+        kol_name: { type: 'string', description: 'KOL name' },
+        brand: { type: 'string', description: 'Brand name' },
+        platform: { type: 'string', description: 'Platform' },
+        content_description: { type: 'string', description: 'Content description' },
+      },
+      required: ['campaign_id', 'kol_id', 'kol_name', 'brand', 'platform', 'content_description'],
+    },
+  },
+]
+
+// =====================================================================
+// 可用性检查
+// =====================================================================
+
+export function isCampaignAgentAvailable(): boolean {
+  return true
+}
+
+// =====================================================================
+// 工具执行
+// =====================================================================
+
+const TOOL_NAMES = [
+  'ma_campaign_get',
+  'ma_campaign_update',
+  'ma_campaign_brief_get',
+  'ma_campaign_brief_update',
+  'ma_campaign_kol_list',
+  'ma_campaign_kol_status',
+  'ma_campaign_audit',
+]
+
+export function isCampaignAgentToolCall(toolName: string): boolean {
+  return TOOL_NAMES.includes(toolName)
+}
+
+export async function executeCampaignAgentTool(tc: ToolCall): Promise<ToolResult> {
+  try {
+    const args = tc.arguments as Record<string, unknown>
+    const campaignId = String(args.campaign_id ?? '')
+
+    switch (tc.name) {
+      case 'ma_campaign_get': {
+        const campaign = getCampaignById(campaignId)
+        if (!campaign) {
+          return { toolName: tc.name, success: false, error: 'Campaign not found' }
+        }
+        const kols = getPoolKOLs(campaignId)
+        return {
+          toolName: tc.name,
+          success: true,
+          result: JSON.stringify({ campaign, kols: kols.length, kolList: kols }, null, 2),
+        }
+      }
+
+      case 'ma_campaign_update': {
+        // 更新 Campaign 信息
+        const db = getDb()
+        const updateFields: string[] = []
+        const values: (string | number)[] = []
+
+        const fieldMap: Record<string, string> = {
+          name: 'name',
+          brand: 'brand',
+          category: 'category',
+          budget: 'budget',
+          start_date: 'start_date',
+          end_date: 'end_date',
+          status: 'status',
+          current_phase: 'current_phase',
+        }
+
+        for (const [key, dbKey] of Object.entries(fieldMap)) {
+          if (args[key] !== undefined) {
+            updateFields.push(`${dbKey} = ?`)
+            values.push(args[key] as string | number)
+          }
+        }
+
+        if (updateFields.length === 0) {
+          return { toolName: tc.name, success: false, error: 'No fields to update' }
+        }
+
+        updateFields.push('updated_at = ?')
+        values.push(Date.now())
+        values.push(campaignId)
+
+        db.run(`UPDATE campaigns SET ${updateFields.join(', ')} WHERE id = ?`, values)
+        const updated = getCampaignById(campaignId)
+        return {
+          toolName: tc.name,
+          success: true,
+          result: JSON.stringify({ updated: !!updated, campaign: updated }, null, 2),
+        }
+      }
+
+      case 'ma_campaign_brief_get': {
+        const kolId = String(args.kol_id ?? '')
+        const brief = getBrief(campaignId, kolId)
+        return {
+          toolName: tc.name,
+          success: true,
+          result: brief
+            ? JSON.stringify(brief, null, 2)
+            : 'No brief found for this KOL',
+        }
+      }
+
+      case 'ma_campaign_brief_update': {
+        const kolId = String(args.kol_id ?? '')
+        const content = String(args.content ?? '')
+        if (!content) {
+          return { toolName: tc.name, success: false, error: 'Content is required' }
+        }
+        const brief = saveBrief({
+          campaignId,
+          kolId,
+          content,
+          aiGenerated: false,
+        })
+        return {
+          toolName: tc.name,
+          success: true,
+          result: JSON.stringify({ saved: true, brief }, null, 2),
+        }
+      }
+
+      case 'ma_campaign_kol_list': {
+        const kols = getPoolKOLs(campaignId)
+        return {
+          toolName: tc.name,
+          success: true,
+          result: JSON.stringify(kols, null, 2),
+        }
+      }
+
+      case 'ma_campaign_kol_status': {
+        const kolId = String(args.kol_id ?? '')
+        const status = String(args.status ?? '')
+        const db = getDb()
+        db.run(
+          'UPDATE campaign_kol_pool SET status = ?, updated_at = ? WHERE campaign_id = ? AND kol_id = ?',
+          status,
+          Date.now(),
+          campaignId,
+          kolId,
+        )
+        return {
+          toolName: tc.name,
+          success: true,
+          result: JSON.stringify({ campaignId, kolId, status }, null, 2),
+        }
+      }
+
+      case 'ma_campaign_audit': {
+        const kolId = String(args.kol_id ?? '')
+        const kolName = String(args.kol_name ?? '')
+        const brand = String(args.brand ?? '')
+        const platform = String(args.platform ?? '')
+        const contentDescription = String(args.content_description ?? '')
+        const result = await createContentAudit({
+          campaignId,
+          kolId,
+          kolName,
+          brand,
+          product: brand,
+          platform,
+          contentType: '图文',
+          contentDescription,
+        })
+        return {
+          toolName: tc.name,
+          success: !!result,
+          result: result
+            ? JSON.stringify({ auditId: result.auditId, status: result.auditStatus, overallScore: result.overallScore }, null, 2)
+            : 'Audit failed',
+        }
+      }
+
+      default:
+        return { toolName: tc.name, success: false, error: `Unknown action: ${tc.name}` }
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    return { toolName: tc.name, success: false, error: msg }
+  }
+}
+
+// 辅助函数：需要导入 getDb
+import { getDb } from '../campaign-manager'

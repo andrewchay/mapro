@@ -8,13 +8,17 @@
 import * as React from 'react'
 import { useSetAtom, useAtomValue } from 'jotai'
 import { toast } from 'sonner'
-import { ExternalLink, Eye, EyeOff, Loader2, CheckCircle2, XCircle, Trash2 } from 'lucide-react'
+import {
+  ExternalLink, Eye, EyeOff, Loader2, CheckCircle2, XCircle, Trash2, Users,
+  Brain, Target, Search, MessageSquare, Sparkles, Lightbulb, BarChart3,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { MemorySettings } from './MemorySettings'
 import { SettingsSection, SettingsCard } from './primitives'
 import { chatToolsAtom } from '@/atoms/chat-tool-atoms'
+import { cn } from '@/lib/utils'
 
 /** 刷新全局工具列表 atom */
 async function refreshChatTools(setter: (tools: Awaited<ReturnType<typeof window.electronAPI.getChatTools>>) => void): Promise<void> {
@@ -389,6 +393,254 @@ function NanoBananaSettings(): React.ReactElement {
   )
 }
 
+/** KOL 数据 MCP Server 设置区域 */
+function KOLDataMcpSettings(): React.ReactElement {
+  const [enabled, setEnabled] = React.useState(false)
+  const [loading, setLoading] = React.useState(true)
+  const setChatTools = useSetAtom(chatToolsAtom)
+
+  React.useEffect(() => {
+    window.electronAPI.getChatTools().then((tools) => {
+      const tool = tools.find((t) => t.meta.id === 'ma-kol-data-mcp')
+      if (tool) setEnabled(tool.enabled)
+    }).catch((err: unknown) => {
+      console.error('[KOL Data MCP 设置] 加载失败:', err)
+    }).finally(() => {
+      setLoading(false)
+    })
+  }, [])
+
+  const handleToggle = async (checked: boolean): Promise<void> => {
+    try {
+      await window.electronAPI.updateChatToolState('ma-kol-data-mcp', { enabled: checked })
+      setEnabled(checked)
+      await refreshChatTools(setChatTools)
+      toast.success(checked ? 'KOL 数据 MCP 已启用' : 'KOL 数据 MCP 已禁用')
+    } catch (error) {
+      console.error('[KOL Data MCP 设置] 切换失败:', error)
+    }
+  }
+
+  if (loading) {
+    return <div className="text-sm text-muted-foreground py-8 text-center">加载中...</div>
+  }
+
+  return (
+    <SettingsSection
+      title="KOL 数据 MCP"
+      description="启用后 Agent 可使用 KOL 搜索、详情获取、数据同步和 AI 分析工具"
+      action={
+        <Switch
+          checked={enabled}
+          onCheckedChange={handleToggle}
+        />
+      }
+    >
+      <SettingsCard divided={false}>
+        <div className="space-y-4 p-4">
+          <div className="rounded-lg bg-muted/50 p-3 space-y-2 text-sm text-muted-foreground">
+            <p>将 KOL 数据采集源（新榜、JustOneAPI）封装为 MCP Server，供 Agent 模式调用。</p>
+            <p className="text-xs">提供的工具：</p>
+            <ul className="text-xs list-disc list-inside space-y-1">
+              <li><span className="text-foreground font-medium">search_kols</span> — 本地 KOL 数据库搜索</li>
+              <li><span className="text-foreground font-medium">get_kol_detail</span> — 获取 KOL 完整详情</li>
+              <li><span className="text-foreground font-medium">sync_kol_data</span> — 从 API 同步数据（需配置凭据）</li>
+              <li><span className="text-foreground font-medium">analyze_kol</span> — AI 深度分析 KOL 数据</li>
+              <li><span className="text-foreground font-medium">get_kol_stats</span> — 数据库统计概览</li>
+              <li><span className="text-foreground font-medium">seed_mock_data</span> — 填充示例数据</li>
+            </ul>
+            <p className="text-xs mt-2">API 同步凭据复用「KOL 搜索」工具的配置。</p>
+          </div>
+        </div>
+      </SettingsCard>
+    </SettingsSection>
+  )
+}
+
+/** MA 营销工具设置区域 */
+function MAToolsSettings(): React.ReactElement {
+  const tools = useAtomValue(chatToolsAtom)
+  const setChatTools = useSetAtom(chatToolsAtom)
+  const [justoneToken, setJustoneToken] = React.useState('')
+  const [newrankKey, setNewrankKey] = React.useState('')
+  const [loading, setLoading] = React.useState(true)
+  const savedCredsRef = React.useRef({ justoneToken: '', newrankKey: '' })
+
+  // 分类定义：名称 + 图标组件 + 描述
+  const groups = [
+    {
+      name: '策略洞察',
+      items: [
+        { id: 'ma-strategy-iq', name: '策略生成', icon: Lightbulb, desc: '解析品牌Brief，生成完整社交营销策略提案' },
+      ],
+    },
+    {
+      name: 'KOL 数据',
+      items: [
+        { id: 'ma-match-ai', name: 'KOL 匹配', icon: Target, desc: '基于品牌需求智能筛选推荐合适的 KOL/KOC' },
+        { id: 'ma-kol-search', name: 'KOL 搜索', icon: Search, desc: '本地数据库搜索 + 外部API数据采集（新榜/JustOne）' },
+        { id: 'ma-kol-data-mcp', name: 'KOL 数据 MCP', icon: Users, desc: 'Agent模式专用：搜索/详情/同步/分析/统计' },
+      ],
+    },
+    {
+      name: '智能建联',
+      items: [
+        { id: 'ma-connect-bot', name: '智能建联', icon: MessageSquare, desc: '生成个性化KOL邀约话术、谈判策略与合同建议' },
+      ],
+    },
+    {
+      name: '创意内容',
+      items: [
+        { id: 'ma-creative-pilot', name: '创意指导', icon: Sparkles, desc: '为KOL内容创作提供Brief、脚本建议与合规审核' },
+      ],
+    },
+  ]
+
+  React.useEffect(() => {
+    Promise.all([
+      window.electronAPI.getChatTools(),
+      window.electronAPI.getChatToolCredentials('ma-kol-search'),
+    ]).then(([allTools, credentials]) => {
+      // 工具状态由 atom 自动维护，这里只加载凭据
+      if (credentials.justoneToken) {
+        setJustoneToken(credentials.justoneToken)
+        savedCredsRef.current.justoneToken = credentials.justoneToken
+      }
+      if (credentials.newrankKey) {
+        setNewrankKey(credentials.newrankKey)
+        savedCredsRef.current.newrankKey = credentials.newrankKey
+      }
+    }).catch((err: unknown) => {
+      console.error('[MA 工具设置] 加载失败:', err)
+    }).finally(() => {
+      setLoading(false)
+    })
+  }, [])
+
+  const handleToggle = async (toolId: string, checked: boolean): Promise<void> => {
+    try {
+      await window.electronAPI.updateChatToolState(toolId, { enabled: checked })
+      await refreshChatTools(setChatTools)
+      toast.success(checked ? `已启用` : `已禁用`)
+    } catch (error) {
+      console.error(`[MA 工具设置] 切换失败: ${toolId}`, error)
+    }
+  }
+
+  const handleSaveCredentials = React.useCallback(async (): Promise<void> => {
+    const current = {
+      justoneToken: justoneToken.trim(),
+      newrankKey: newrankKey.trim(),
+    }
+    const saved = savedCredsRef.current
+    if (current.justoneToken === saved.justoneToken && current.newrankKey === saved.newrankKey) return
+    try {
+      await window.electronAPI.updateChatToolCredentials('ma-kol-search', current)
+      savedCredsRef.current = current
+      await refreshChatTools(setChatTools)
+      toast.success('KOL 搜索凭据已保存')
+    } catch (error) {
+      console.error('[MA 工具设置] 保存凭据失败:', error)
+    }
+  }, [justoneToken, newrankKey, setChatTools])
+
+  if (loading) {
+    return <div className="text-sm text-muted-foreground py-8 text-center">加载中...</div>
+  }
+
+  return (
+    <SettingsSection
+      title="MA 营销工具"
+      description="Flow 复楼 — 智能社交营销工具套件（Chat 模式 + Agent 模式）"
+    >
+      <SettingsCard divided>
+        {groups.map((group) => (
+          <div key={group.name} className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <BarChart3 className="size-3.5 text-muted-foreground" />
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                {group.name}
+              </span>
+            </div>
+            <div className="space-y-1">
+              {group.items.map((item) => {
+                const tool = tools.find((t) => t.meta.id === item.id)
+                const Icon = item.icon
+                const isActive = tool?.enabled ?? false
+                return (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between py-2.5 px-3 rounded-lg hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className={cn('shrink-0 p-1.5 rounded-md', isActive ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
+                        <Icon className="size-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={cn('text-sm font-medium', !isActive && 'text-muted-foreground')}>
+                            {item.name}
+                          </span>
+                          {tool?.available === false && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600">
+                              需配置
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">{item.desc}</p>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={isActive}
+                      onCheckedChange={(checked) => handleToggle(item.id, checked)}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+
+        {/* KOL 搜索凭据配置 */}
+        <div className="p-4 border-t border-border/50">
+          <div className="flex items-center gap-2 mb-3">
+            <Search className="size-3.5 text-muted-foreground" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              API 凭据（KOL 数据采集）
+            </span>
+          </div>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">JustOneAPI Token</label>
+              <Input
+                type="password"
+                placeholder="jo_..."
+                value={justoneToken}
+                onChange={(e) => setJustoneToken(e.target.value)}
+                onBlur={handleSaveCredentials}
+                className="h-8 text-sm"
+              />
+              <p className="text-[11px] text-muted-foreground">用于从小红书/抖音/微博/B站等平台采集 KOL 数据</p>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">新榜 API Key</label>
+              <Input
+                type="password"
+                placeholder="nr_..."
+                value={newrankKey}
+                onChange={(e) => setNewrankKey(e.target.value)}
+                onBlur={handleSaveCredentials}
+                className="h-8 text-sm"
+              />
+              <p className="text-[11px] text-muted-foreground">用于从新榜平台采集国内主流社交媒体 KOL 数据</p>
+            </div>
+          </div>
+        </div>
+      </SettingsCard>
+    </SettingsSection>
+  )
+}
+
 /** 自定义工具列表区域 */
 function CustomToolsSection(): React.ReactElement | null {
   const tools = useAtomValue(chatToolsAtom)
@@ -475,6 +727,12 @@ export function ToolSettings(): React.ReactElement {
 
       {/* Nano Banana 生图工具 */}
       <NanoBananaSettings />
+
+      {/* KOL 数据 MCP Server */}
+      <KOLDataMcpSettings />
+
+      {/* MA 营销工具套件 */}
+      <MAToolsSettings />
 
       {/* 自定义工具 */}
       <CustomToolsSection />

@@ -501,12 +501,12 @@ export type AgentEvent =
   // 模型确认（SDK 确认实际使用的模型）
   | { type: 'model_resolved'; model: string }
   // 权限模式变更（Plan → bypassPermissions 等）
-  | { type: 'permission_mode_changed'; mode: PromaPermissionMode }
+  | { type: 'permission_mode_changed'; mode: MAProPermissionMode }
 
-// ===== Proma 内部事件（SDK 不覆盖的场景） =====
+// ===== MAPro 内部事件（SDK 不覆盖的场景） =====
 
-/** Proma 内部事件类型 */
-export type PromaEvent =
+/** MAPro 内部事件类型 */
+export type MAProEvent =
   | { type: 'permission_request'; request: PermissionRequest }
   | { type: 'permission_resolved'; requestId: string; behavior: 'allow' | 'deny' }
   | { type: 'ask_user_request'; request: AskUserRequest }
@@ -516,20 +516,20 @@ export type PromaEvent =
   | { type: 'enter_plan_mode'; sessionId: string }
   | { type: 'retry'; status: 'starting' | 'attempt' | 'cleared' | 'failed'; attempt?: number; maxAttempts?: number; delaySeconds?: number; reason?: string; attemptData?: RetryAttempt; error?: TypedError }
   | { type: 'model_resolved'; model: string }
-  | { type: 'permission_mode_changed'; mode: PromaPermissionMode }
+  | { type: 'permission_mode_changed'; mode: MAProPermissionMode }
 
 
 /** IPC 传输的统一 payload（替代 AgentEvent） */
 export type AgentStreamPayload =
   | { kind: 'sdk_message'; message: SDKMessage }
-  | { kind: 'proma_event'; event: PromaEvent }
+  | { kind: 'proma_event'; event: MAProEvent }
 
 // ===== Agent 会话管理 =====
 
 /**
  * Agent 会话轻量索引项
  *
- * 存储在 ~/.proma/agent-sessions.json 中，
+ * 存储在 ~/.mapro/agent-sessions.json 中，
  * 类似 ConversationMeta，独立存储。
  */
 export interface AgentSessionMeta {
@@ -551,7 +551,7 @@ export interface AgentSessionMeta {
   attachedDirectories?: string[]
   /** 附加的外部文件路径列表（绝对路径，发送时以父目录作为 SDK additionalDirectories） */
   attachedFiles?: string[]
-  /** 分叉来源：源会话的 Proma 工作目录（SDK session 文件在此目录的项目空间中，首次 resume 后清除） */
+  /** 分叉来源：源会话的 MAPro 工作目录（SDK session 文件在此目录的项目空间中，首次 resume 后清除） */
   forkSourceDir?: string
   /** 分叉来源：源会话的 SDK session ID（用于 rewind 时读取源会话的 file-history-snapshot 和备份文件） */
   forkSourceSdkSessionId?: string
@@ -562,7 +562,7 @@ export interface AgentSessionMeta {
   /** 最后一次流式执行是否被用户主动中断 */
   stoppedByUser?: boolean
   /** 该会话当前的权限模式（持久化到磁盘，重启后恢复）。未设置时新会话默认 auto */
-  permissionMode?: PromaPermissionMode
+  permissionMode?: MAProPermissionMode
   /** 创建时间戳 */
   createdAt: number
   /** 更新时间戳 */
@@ -572,7 +572,7 @@ export interface AgentSessionMeta {
 /**
  * Agent 持久化消息
  *
- * 存储在 ~/.proma/agent-sessions/{id}.jsonl 中。
+ * 存储在 ~/.mapro/agent-sessions/{id}.jsonl 中。
  */
 export interface AgentMessage {
   /** 消息唯一标识 */
@@ -793,7 +793,7 @@ export interface AgentSendInput {
   /** 动态注入的 MCP 服务器（仅在本次会话中生效，如飞书群聊工具） */
   customMcpServers?: Record<string, Record<string, unknown>>
   /** 强制覆盖权限模式（飞书等无 UI 交互场景下强制 'bypassPermissions'） */
-  permissionModeOverride?: PromaPermissionMode
+  permissionModeOverride?: MAProPermissionMode
   /** 用户通过 /skill:xxx 引用的 Skill slug 列表 */
   mentionedSkills?: string[]
   /** 用户通过 #mcp:xxx 引用的 MCP 服务器名称列表 */
@@ -836,7 +836,7 @@ export interface MoveSessionToWorkspaceInput {
 
 /** Fork（分叉）会话输入 */
 export interface ForkSessionInput {
-  /** Proma 会话 ID */
+  /** MAPro 会话 ID */
   sessionId: string
   /** SDK 消息 uuid（截断点，inclusive）。省略时复制全部历史 */
   upToMessageUuid?: string
@@ -844,7 +844,7 @@ export interface ForkSessionInput {
 
 /** 快照回退输入（同一会话内回退到指定点） */
 export interface RewindSessionInput {
-  /** Proma 会话 ID */
+  /** MAPro 会话 ID */
   sessionId: string
   /** 回退到哪条 assistant message（inclusive，截断该消息之后的一切） */
   assistantMessageUuid: string
@@ -1112,22 +1112,22 @@ export interface ExitPlanModeResponse {
 
 // ===== 权限系统类型 =====
 
-/** 当前 Proma 支持的权限模式，值直接映射 SDK 原生 permissionMode */
-export const PROMA_PERMISSION_MODES = ['auto', 'bypassPermissions', 'plan'] as const
+/** 当前 MAPro 支持的权限模式，值直接映射 SDK 原生 permissionMode */
+export const MAPRO_PERMISSION_MODES = ['auto', 'bypassPermissions', 'plan'] as const
 
-export type PromaPermissionMode = typeof PROMA_PERMISSION_MODES[number]
+export type MAProPermissionMode = typeof MAPRO_PERMISSION_MODES[number]
 
-export const PROMA_DEFAULT_PERMISSION_MODE: PromaPermissionMode = 'bypassPermissions'
+export const MAPRO_DEFAULT_PERMISSION_MODE: MAProPermissionMode = 'bypassPermissions'
 
-export interface PromaPermissionModeConfig {
+export interface MAProPermissionModeConfig {
   /** 对应 Claude Agent SDK 的 permissionMode */
-  sdkMode: PromaPermissionMode
+  sdkMode: MAProPermissionMode
   label: string
   description: string
 }
 
-/** Proma 权限模式的单一配置来源 */
-export const PROMA_PERMISSION_MODE_CONFIG = {
+/** MAPro 权限模式的单一配置来源 */
+export const MAPRO_PERMISSION_MODE_CONFIG = {
   auto: {
     sdkMode: 'auto',
     label: '自动审批',
@@ -1143,19 +1143,19 @@ export const PROMA_PERMISSION_MODE_CONFIG = {
     label: '计划模式',
     description: '仅规划不执行，查看工具使用计划',
   },
-} as const satisfies Record<PromaPermissionMode, PromaPermissionModeConfig>
+} as const satisfies Record<MAProPermissionMode, MAProPermissionModeConfig>
 
 /** 权限模式定义顺序（用于循环切换） */
-export const PROMA_PERMISSION_MODE_ORDER: readonly PromaPermissionMode[] = PROMA_PERMISSION_MODES
+export const MAPRO_PERMISSION_MODE_ORDER: readonly MAProPermissionMode[] = MAPRO_PERMISSION_MODES
 
-export function isPromaPermissionMode(mode: string): mode is PromaPermissionMode {
-  return (PROMA_PERMISSION_MODES as readonly string[]).includes(mode)
+export function isMAProPermissionMode(mode: string): mode is MAProPermissionMode {
+  return (MAPRO_PERMISSION_MODES as readonly string[]).includes(mode)
 }
 
 /** 规范化权限模式：不匹配当前三种模式时统一回到默认自动审批 */
-export function migratePermissionMode(mode: string): PromaPermissionMode {
-  if (isPromaPermissionMode(mode)) return mode
-  return PROMA_DEFAULT_PERMISSION_MODE
+export function migratePermissionMode(mode: string): MAProPermissionMode {
+  if (isMAProPermissionMode(mode)) return mode
+  return MAPRO_DEFAULT_PERMISSION_MODE
 }
 
 /** 危险等级 */
@@ -1171,7 +1171,7 @@ export interface PermissionRequest {
   toolName: string
   /** 工具输入参数 */
   toolInput: Record<string, unknown>
-  /** 操作描述（人类可读，Proma 生成） */
+  /** 操作描述（人类可读，MAPro 生成） */
   description: string
   /** 具体命令（Bash 工具时有值��� */
   command?: string

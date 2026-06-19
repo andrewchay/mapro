@@ -271,7 +271,7 @@ function createShikiDecorationsPlugin(themeRef: ThemeRef): Plugin<ShikiDecoratio
 }
 
 function isExternalUrl(src: string): boolean {
-  return /^(?:https?:|data:|blob:|file:|proma-file:)/i.test(src)
+  return /^(?:https?:|data:|blob:|file:|mapro-file:)/i.test(src)
 }
 
 function sanitizeHtml(html: string): string {
@@ -316,7 +316,7 @@ async function resolveFirstMediaCandidate(paths: string[], fileAccessRef: FileAc
 }
 
 function resolveMediaSrc(src: string, fileAccessRef: FileAccessRefOrNull, apply: (src: string) => void): () => void {
-  // 外链 / data-URL / blob / 已授权 proma-file 协议：直接 apply，不走 IPC
+  // 外链 / data-URL / blob / 已授权 mapro-file 协议：直接 apply，不走 IPC
   if (!src || isExternalUrl(src)) {
     apply(src)
     return () => {}

@@ -12,7 +12,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type {
-  PromaPermissionMode,
+  MAProPermissionMode,
   PermissionRequest,
   DangerLevel,
   AskUserRequest,

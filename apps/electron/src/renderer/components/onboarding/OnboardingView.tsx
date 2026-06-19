@@ -10,7 +10,7 @@
 
 import { useMemo, useState } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { GraduationCap, ChevronRight, ChevronLeft, HardDriveDownload, Users } from 'lucide-react'
+import { GraduationCap, ChevronRight, ChevronLeft, HardDriveDownload, Users, Target, Sparkles, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -61,10 +61,28 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
       {step === 'welcome' && (
         <>
           <div className="mb-12 text-center">
-            <h1 className="text-4xl font-bold mb-4">欢迎使用 Proma</h1>
+            <h1 className="text-4xl font-bold mb-4">欢迎使用 MAPro</h1>
             <p className="text-lg text-muted-foreground">
-              下一代桌面 AI 软件，让通用 Agent 触手可及
+              智能社交营销 AI 代理 —— 让每一分投放都有复利
             </p>
+            <div className="mt-6 flex items-center justify-center gap-6 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <Target size={16} className="text-primary" />
+                <span>策略生成</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Users size={16} className="text-primary" />
+                <span>达人匹配</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Sparkles size={16} className="text-primary" />
+                <span>创意指导</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Zap size={16} className="text-primary" />
+                <span>投放优化</span>
+              </div>
+            </div>
           </div>
 
           <div className="w-full max-w-2xl">
@@ -77,15 +95,15 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
                   <GraduationCap size={20} className="text-primary" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-sm font-semibold text-foreground">查看使用教程</h3>
+                  <h3 className="text-sm font-semibold text-foreground">查看营销工作流教程</h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    了解 Proma 的全部功能和使用技巧
+                    了解从策略制定到达人匹配、内容创作、投放优化的完整营销 Agent 工作流
                   </p>
                 </div>
               </button>
 
               <p className="text-sm text-muted-foreground pt-2">
-                自己或身边的人已经在用 Proma？直接导入现有配置
+                团队已有 MAPro 配置？直接导入即可开始协作
               </p>
 
               <div className="grid grid-cols-2 gap-3">
@@ -99,10 +117,10 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
                   <div className="flex-1">
                     <h3 className="text-sm font-semibold text-foreground">从其他设备迁移</h3>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      导入自己其他设备上的配置
+                      导入自己其他设备上的营销项目配置
                       <br/>
                       <br/>
-                      需要先在原设备上导出 .proma-backup 文件，再双击导入即可
+                      需要先在原设备上导出 .mapro-backup 文件，再双击导入即可
                     </p>
                   </div>
                 </button>
@@ -114,12 +132,12 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
                     <Users size={20} className="text-primary" />
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-sm font-semibold text-foreground">导入其他用户的配置</h3>
+                    <h3 className="text-sm font-semibold text-foreground">导入团队配置</h3>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      从同事或团队成员处导入环境
+                      从同事或团队成员处导入营销工作区
                       <br/>
                       <br/>
-                      需要先导出 .proma-share 文件，再双击导入即可
+                      需要先导出 .mapro-share 文件，再双击导入即可
                     </p>
                   </div>
                 </button>
@@ -139,7 +157,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
               )}
             </Button>
             <p className="text-xs text-muted-foreground/60">
-              这些内容之后也能在设置中找到，不用担心错过
+              这些配置之后也能在设置中找到，随时可以继续完善
             </p>
           </div>
         </>
@@ -148,9 +166,9 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
       {step === 'environment' && isWindows && (
         <div className="w-full max-w-2xl">
           <div className="mb-6 text-center">
-            <h2 className="text-2xl font-semibold mb-2">先检查一下环境</h2>
+            <h2 className="text-2xl font-semibold mb-2">环境检查</h2>
             <p className="text-sm text-muted-foreground">
-              Proma 在 Windows 上需要 Git Bash 或 WSL 才能执行命令
+              MAPro 在 Windows 上需要 Git Bash 或 WSL 来执行部分营销工具脚本
             </p>
           </div>
 
@@ -185,7 +203,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
           <SheetHeader className="px-6 pt-6 pb-4 border-b">
             <SheetTitle className="flex items-center gap-2">
               <GraduationCap size={18} className="text-primary" />
-              Proma 使用教程
+              MAPro 使用教程
             </SheetTitle>
           </SheetHeader>
           <ScrollArea className="h-[calc(100vh-80px)]">

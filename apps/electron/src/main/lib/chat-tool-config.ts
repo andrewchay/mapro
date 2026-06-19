@@ -1,7 +1,7 @@
 /**
  * Chat 工具配置服务
  *
- * 管理 ~/.proma/chat-tools.json 的读写。
+ * 管理 ~/.mapro/chat-tools.json 的读写。
  * 存储工具开关状态和非记忆工具的凭据。
  * 记忆凭据保留在 memory.json（Chat + Agent 共用）。
  */
@@ -15,8 +15,20 @@ const DEFAULT_CONFIG: ChatToolsFileConfig = {
   toolStates: {
     memory: { enabled: true },
     'agent-mode-recommend': { enabled: true },
-    'web-search': { enabled: false },
+    'web-search': { enabled: true },
     'nano-banana': { enabled: false },
+    'ma-kol-data-mcp': { enabled: true },
+    'ma-strategy-iq': { enabled: true },
+    'ma-match-ai': { enabled: true },
+    'ma-connect-bot': { enabled: true },
+    'ma-creative-pilot': { enabled: true },
+    'ma-kol-search': { enabled: true },
+    'ma-campaign-optimizer': { enabled: true },
+    'ma-script-studio': { enabled: true },
+    'ma-content-audit': { enabled: true },
+    'ma-campaign-tester': { enabled: true },
+    'ma-kol-crm': { enabled: true },
+    'ma-kol-portal': { enabled: true },
   },
   toolCredentials: {},
   customTools: [],

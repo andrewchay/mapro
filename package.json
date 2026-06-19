@@ -1,7 +1,7 @@
 {
   "name": "ma-proma",
   "version": "0.1.0",
-  "description": "MA-Proma - forked from Proma, the next gen ai software with general agents",
+  "description": "MAPro - forked from Proma, the marketing AI agent platform for social media campaigns",
   "type": "module",
   "private": true,
   "workspaces": [

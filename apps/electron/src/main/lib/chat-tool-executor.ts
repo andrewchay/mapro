@@ -16,6 +16,32 @@ import { isAgentRecommendToolCall, executeAgentRecommendTool } from './chat-tool
 import { isNanoBananaToolCall, executeNanoBananaTool } from './chat-tools/nano-banana-tool'
 import type { NanoBananaContext } from './chat-tools/nano-banana-tool'
 import { getChatToolsConfig } from './chat-tool-config'
+import {
+  isStrategyIQToolCall,
+  executeStrategyIQTool,
+  isMatchAIToolCall,
+  executeMatchAITool,
+  isConnectBotToolCall,
+  executeConnectBotTool,
+  isCreativePilotToolCall,
+  executeCreativePilotTool,
+  isKOLSearchToolCall,
+  executeKOLSearchTool,
+  isCampaignOptimizerToolCall,
+  executeCampaignOptimizerTool,
+  isScriptStudioToolCall,
+  executeScriptStudioTool,
+  isKOLCRMToolCall,
+  executeKOLCRMTool,
+  isKOLPortalToolCall,
+  executeKOLPortalTool,
+  isContentAuditToolCall,
+  executeContentAuditTool,
+  isCampaignTesterToolCall,
+  executeCampaignTesterTool,
+  isCampaignAgentToolCall,
+  executeCampaignAgentTool,
+} from './ma-tools'
 
 /** 工具执行上下文 */
 export interface ToolExecutionContext {
@@ -63,6 +89,30 @@ export async function executeToolCalls(
         previousAssistantAttachments: context.previousAssistantAttachments,
       }
       result = await executeNanoBananaTool(tc, nanoBananaContext)
+    } else if (isStrategyIQToolCall(tc.name)) {
+      result = await executeStrategyIQTool(tc)
+    } else if (isMatchAIToolCall(tc.name)) {
+      result = await executeMatchAITool(tc)
+    } else if (isConnectBotToolCall(tc.name)) {
+      result = await executeConnectBotTool(tc)
+    } else if (isCreativePilotToolCall(tc.name)) {
+      result = await executeCreativePilotTool(tc)
+    } else if (isKOLSearchToolCall(tc.name)) {
+      result = await executeKOLSearchTool(tc)
+    } else if (isCampaignOptimizerToolCall(tc.name)) {
+      result = await executeCampaignOptimizerTool(tc)
+    } else if (isScriptStudioToolCall(tc.name)) {
+      result = await executeScriptStudioTool(tc)
+    } else if (isKOLCRMToolCall(tc.name)) {
+      result = await executeKOLCRMTool(tc)
+    } else if (isKOLPortalToolCall(tc.name)) {
+      result = await executeKOLPortalTool(tc)
+    } else if (isContentAuditToolCall(tc.name)) {
+      result = await executeContentAuditTool(tc)
+    } else if (isCampaignTesterToolCall(tc.name)) {
+      result = await executeCampaignTesterTool(tc)
+    } else if (isCampaignAgentToolCall(tc.name)) {
+      result = await executeCampaignAgentTool(tc)
     } else if (isCustomHttpToolCall(tc.name)) {
       const config = getChatToolsConfig()
       const meta = config.customTools.find((t) => t.id === tc.name)

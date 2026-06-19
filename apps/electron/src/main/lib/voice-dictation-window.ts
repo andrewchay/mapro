@@ -28,7 +28,7 @@ const POSITION_SAVE_DEBOUNCE_MS = 240
 const VOICE_DICTATION_PARTITION = 'voice-dictation'
 
 interface VoiceDictationToggleOptions {
-  targetIsProma?: boolean
+  targetIsMAPro?: boolean
 }
 
 export function createVoiceDictationWindow(): void {
@@ -108,13 +108,13 @@ export function toggleVoiceDictationWindow(options: VoiceDictationToggleOptions 
   }
 
   if (!win) {
-    captureTargetForNextSession(options.targetIsProma)
+    captureTargetForNextSession(options.targetIsMAPro)
     createVoiceDictationWindow()
     requestPositionAndShow()
     return
   }
 
-  captureTargetForNextSession(options.targetIsProma)
+  captureTargetForNextSession(options.targetIsMAPro)
   requestPositionAndShow()
 }
 
@@ -195,8 +195,8 @@ function flushPendingShowIfReady(): void {
   positionAndShow()
 }
 
-function captureTargetForNextSession(targetIsProma?: boolean): void {
-  captureVoiceDictationTarget(targetIsProma)
+function captureTargetForNextSession(targetIsMAPro?: boolean): void {
+  captureVoiceDictationTarget(targetIsMAPro)
   voiceDictationTargetCaptured = true
 }
 
@@ -209,7 +209,7 @@ function positionAndShow(): void {
 
   setVoiceDictationBoundsWithoutSaving(getInitialVoiceDictationBounds())
 
-  // 语音浮窗只是系统级提示层，不应抢焦点或改变 Proma 主窗口前后台状态。
+  // 语音浮窗只是系统级提示层，不应抢焦点或改变 MAPro 主窗口前后台状态。
   voiceDictationWindow.showInactive()
   voiceDictationWindow.webContents.send(VOICE_DICTATION_IPC_CHANNELS.SHOWN)
 }
@@ -230,14 +230,14 @@ export function resizeVoiceDictationWindow(height: number): void {
 
 export function hideVoiceDictationWindow(): void {
   flushPendingVoiceDictationPositionSave()
-  suppressPromaActivationBriefly()
+  suppressMAProActivationBriefly()
   if (voiceDictationWindow && !voiceDictationWindow.isDestroyed() && voiceDictationWindow.isVisible()) {
     voiceDictationWindow.hide()
   }
   voiceDictationTargetCaptured = false
 }
 
-function suppressPromaActivationBriefly(): void {
+function suppressMAProActivationBriefly(): void {
   if (process.platform !== 'darwin') return
   suppressMainWindowActivateUntil = Date.now() + ACTIVATE_SUPPRESSION_MS
 }

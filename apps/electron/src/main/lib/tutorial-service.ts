@@ -67,11 +67,11 @@ export function createWelcomeConversation(): ConversationMeta | null {
 
   try {
     // 1. 创建对话
-    const meta = createConversation('了解 Proma')
+    const meta = createConversation('了解 MAPro')
 
     // 2. 保存教程文件为附件
     const attachmentId = randomUUID()
-    const attachmentFilename = 'Proma 使用教程.md'
+    const attachmentFilename = 'MAPro 使用教程.md'
     const localPath = `${meta.id}/${attachmentId}.md`
     const dir = getConversationAttachmentsDir(meta.id)
     const fullPath = join(dir, `${attachmentId}.md`)
@@ -93,29 +93,29 @@ export function createWelcomeConversation(): ConversationMeta | null {
     const userMessage: ChatMessage = {
       id: randomUUID(),
       role: 'user',
-      content: '你好，我是 Proma 的新用户，希望快速上手。这是完整的使用教程，作为你的参考。',
+      content: '你好，我是 MAPro 的新用户，希望快速上手。这是完整的使用教程，作为你的参考。',
       createdAt: now,
       attachments: [attachment],
     }
     appendMessage(meta.id, userMessage)
 
-    // 4. 追加 assistant 欢迎消息（引导式对话：先了解用户，再生成个性化最佳实践）
+    // 4. 追加 assistant 欢迎消息（引导式对话：先了解用户，再生成个性化营销工作流）
     const assistantMessage: ChatMessage = {
       id: randomUUID(),
       role: 'assistant',
-      content: `你好，欢迎来到 Proma！Proma 是一个通用的 Agent，其实它可以完成任何事，说实话这也挺难的，因为你要构建完整的工作环境才能做到，这会涉及到一些新的概念或者思考方式，不过别担心，我们做了很多设计可以帮助你靠谱稳定的越用越好用。
+      content: `你好，欢迎来到 MAPro！MAPro 是专为社交营销团队打造的 AI Agent 平台，覆盖从策略制定、达人匹配、内容创作到投放优化的完整营销工作流。
 
 在介绍功能之前，想先认识一下你：
 
 1. 怎么称呼你？
-2. 你的职业或主要角色是什么？（比如独立开发者、产品经理、数据分析师、运营、学生……）
-3. 你最近在做什么工作或项目？有哪些场景或痛点想交给 AI 帮忙？
+2. 你在营销团队中的角色是什么？（比如品牌经理、媒介采购、内容运营、商务拓展、达人……）
+3. 你目前负责的品牌或项目是什么？有哪些营销场景或痛点想交给 AI 帮忙？（比如达人筛选困难、内容审核耗时、投放效果不稳定、缺乏数据复盘……）
 
-了解你的背景之后，我会为你单独整理一份专属的 Proma 使用最佳实践——告诉你哪些功能最值得用、推荐的 Skills / MCP 配置，以及贴合你场景的工作流模板。
+了解你的背景之后，我会为你单独整理一份专属的 MAPro 营销工作流指南——告诉你哪些功能最值得用、推荐的 Skills / MCP 配置，以及贴合你场景的营销 Agent 工作流模板。
 
 直接在下面回复就好，可以一次说完，也可以分几条慢慢聊。`,
       createdAt: now + 1,
-      model: 'Proma',
+      model: 'MAPro',
     }
     appendMessage(meta.id, assistantMessage)
 

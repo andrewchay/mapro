@@ -17,8 +17,8 @@ if (!app.isPackaged) {
 // second-instance 事件，由主实例负责显示窗口。
 if (!app.requestSingleInstanceLock()) {
   console.warn(
-    '[启动] 已有 Proma 进程持有单实例锁，本次启动将退出。\n' +
-      '  如果窗口未出现，可能旧进程已卡死。请运行 `killall Proma` 后重试。',
+    '[启动] 已有 MAPro 进程持有单实例锁，本次启动将退出。\n' +
+      '  如果窗口未出现，可能旧进程已卡死。请运行 `killall MAPro` 后重试。',
   )
   app.quit()
 } else {
@@ -28,9 +28,9 @@ if (!app.requestSingleInstanceLock()) {
 
 function registerProtocolsAndHandlers(): void {
   // 注册自定义协议方案为"特权"（必须在 app ready 之前）
-  // 用于内联预览本地文件（renderer 用 iframe 加载 proma-file:// 资源）
+  // 用于内联预览本地文件（renderer 用 iframe 加载 mapro-file:// 资源）
   protocol.registerSchemesAsPrivileged([
-    { scheme: 'proma-file', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
+    { scheme: 'mapro-file', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
   ])
 
   // Windows: 禁用 LCD 次像素抗锯齿（ClearType），改用灰度 AA。
@@ -48,7 +48,7 @@ function registerProtocolsAndHandlers(): void {
   // Windows 文件关联：当用户双击文件时，新实例的参数会通过 second-instance 传给已有实例
   app.on('second-instance', (_event, argv) => {
     showAndFocusMainWindow()
-    const fileArg = argv.find((arg) => arg.endsWith('.proma-backup') || arg.endsWith('.proma-share'))
+    const fileArg = argv.find((arg) => arg.endsWith('.mapro-backup') || arg.endsWith('.mapro-share') || arg.endsWith('.proma-backup') || arg.endsWith('.proma-share'))
     if (fileArg) {
       handleMigrationFileOpen(fileArg)
     }
@@ -58,7 +58,7 @@ function registerProtocolsAndHandlers(): void {
 
 
 import { getSettings, updateSettings } from './lib/settings-service'
-import { handlePromaFileRequest } from './lib/local-file-protocol'
+import { handleMAProFileRequest } from './lib/local-file-protocol'
 
 // 处理 EPIPE 错误：当 stdout/stderr 管道被关闭时（如 electronmon 重启），忽略写入错误
 // 这在开发环境热重载时经常发生，不影响应用功能
@@ -113,7 +113,7 @@ const MIGRATION_IPC_OPEN = 'migration:open-import-file'
 
 /** 检查文件路径是否为迁移文件，如果是则通知渲染进程打开导入流程 */
 function handleMigrationFileOpen(filePath: string): void {
-  if (filePath.endsWith('.proma-backup') || filePath.endsWith('.proma-share')) {
+  if (filePath.endsWith('.mapro-backup') || filePath.endsWith('.mapro-share') || filePath.endsWith('.proma-backup') || filePath.endsWith('.proma-share')) {
     sendToMainWindow(MIGRATION_IPC_OPEN, { filePath })
   }
 }
@@ -294,7 +294,7 @@ function createWindow(): void {
   installWindowsZoomInFallback(mainWindow)
 
   // Load the renderer
-  const isDev = !app.isPackaged
+  const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production'
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
@@ -389,15 +389,15 @@ app.whenReady().then(bootstrap).catch(handleBootstrapFailure)
  * 单点失败不应阻止窗口和托盘的创建（用户至少要能看到界面）。
  */
 async function bootstrap(): Promise<void> {
-  // 注册自定义协议 proma-file:// 用于内联预览本地文件。
+  // 注册自定义协议 mapro-file:// 用于内联预览本地文件。
   // 协议只接受主进程签发的 opaque token，不解析 renderer 提供的绝对路径。
-  protocol.handle('proma-file', handlePromaFileRequest)
+  protocol.handle('mapro-file', handleMAProFileRequest)
 
   // 初始化运行时环境（Shell 环境 + Bun + Git 检测）
   // 必须在其他初始化之前执行，确保环境变量正确加载
   await safeAwait('initializeRuntime', () => initializeRuntime())
 
-  // 同步默认 Skills 模板到 ~/.proma/default-skills/
+  // 同步默认 Skills 模板到 ~/.mapro/default-skills/
   safeRun('seedDefaultSkills', seedDefaultSkills)
 
   // 升级所有工作区中版本过旧的默认 Skills
@@ -449,10 +449,10 @@ async function bootstrap(): Promise<void> {
   // 启动 Chat 工具配置文件监听（Agent 创建工具后自动通知渲染进程）
   safeRun('startChatToolsWatcher', startChatToolsWatcher)
 
-  // 生产环境下初始化自动更新
-  if (app.isPackaged && mainWindow) {
-    safeRun('initAutoUpdater', () => initAutoUpdater(mainWindow!))
-  }
+  // 已禁用自动更新（用户手动控制版本）
+  // if (app.isPackaged && mainWindow) {
+  //   safeRun('initAutoUpdater', () => initAutoUpdater(mainWindow!))
+  // }
 
   // 预创建快速任务窗口（隐藏状态，首次唤起秒开）
   safeRun('createQuickTaskWindow', createQuickTaskWindow)
@@ -469,7 +469,7 @@ async function bootstrap(): Promise<void> {
   )
   safeRun('registerGlobalShortcut:voice-dictation', () =>
     registerGlobalShortcut('voice-dictation', () => {
-      toggleVoiceDictationWindow({ targetIsProma: mainWindow?.isFocused() === true })
+      toggleVoiceDictationWindow({ targetIsMAPro: mainWindow?.isFocused() === true })
     }),
   )
 
@@ -520,13 +520,13 @@ function handleBootstrapFailure(err: unknown): void {
   try {
     const message = err instanceof Error ? (err.stack ?? err.message) : String(err)
     dialog.showErrorBox(
-      'Proma 启动遇到错误',
+      'MAPro 启动遇到错误',
       `部分功能可能不可用：\n\n${message}\n\n` +
         `日志位置：${app.getPath('logs')}\n\n` +
         `常见原因与排查：\n` +
-        `1. 旧版 Proma 进程未退出（终端运行 killall Proma 后重试）\n` +
-        `2. ~/.proma/ 配置损坏（重命名 ~/.proma 后重启）\n` +
-        `3. 系统 Keychain 无法解密保存的凭证（删除 ~/.proma/feishu.json 等后重新登录）\n\n` +
+        `1. 旧版 MAPro 进程未退出（终端运行 killall MAPro 后重试）\n` +
+        `2. ~/.mapro/ 配置损坏（重命名 ~/.mapro 后重启）\n` +
+        `3. 系统 Keychain 无法解密保存的凭证（删除 ~/.mapro/feishu.json 等后重新登录）\n\n` +
         `如需协助请到 GitHub Issues 反馈。`,
     )
   } catch {

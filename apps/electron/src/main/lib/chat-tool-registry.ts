@@ -31,6 +31,49 @@ import {
   NANO_BANANA_TOOL_DEFINITIONS,
   isNanoBananaAvailable,
 } from './chat-tools/nano-banana-tool'
+import {
+  STRATEGY_IQ_TOOL_META,
+  STRATEGY_IQ_TOOL_DEFINITIONS,
+  isStrategyIQAvailable,
+  MATCH_AI_TOOL_META,
+  MATCH_AI_TOOL_DEFINITIONS,
+  isMatchAIAvailable,
+  CONNECT_BOT_TOOL_META,
+  CONNECT_BOT_TOOL_DEFINITIONS,
+  isConnectBotAvailable,
+  CREATIVE_PILOT_TOOL_META,
+  CREATIVE_PILOT_TOOL_DEFINITIONS,
+  isCreativePilotAvailable,
+  KOL_SEARCH_TOOL_META,
+  KOL_SEARCH_TOOL_DEFINITIONS,
+  isKOLSearchAvailable,
+  CAMPAIGN_OPTIMIZER_TOOL_META,
+  CAMPAIGN_OPTIMIZER_TOOL_DEFINITIONS,
+  isCampaignOptimizerAvailable,
+  SCRIPT_STUDIO_TOOL_META,
+  SCRIPT_STUDIO_TOOL_DEFINITIONS,
+  isScriptStudioAvailable,
+  KOL_CRM_TOOL_META,
+  KOL_CRM_TOOL_DEFINITIONS,
+  isKOLCRMAvailable,
+  CONTENT_AUDIT_TOOL_META,
+  CONTENT_AUDIT_TOOL_DEFINITIONS,
+  isContentAuditAvailable,
+  KOL_PORTAL_TOOL_META,
+  KOL_PORTAL_TOOL_DEFINITIONS,
+  isKOLPortalAvailable,
+  CAMPAIGN_TESTER_TOOL_META,
+  CAMPAIGN_TESTER_TOOL_DEFINITIONS,
+  isCampaignTesterAvailable,
+  CAMPAIGN_AGENT_TOOL_META,
+  CAMPAIGN_AGENT_TOOL_DEFINITIONS,
+  isCampaignAgentAvailable,
+} from './ma-tools'
+import {
+  KOL_DATA_MCP_TOOL_META,
+  KOL_DATA_MCP_TOOL_DEFINITIONS,
+  isKOLDataMcpAvailable,
+} from './ma-tools/kol-data-mcp-tool'
 
 // ===== 内置工具注册 =====
 
@@ -62,6 +105,71 @@ const BUILTIN_TOOLS: BuiltinToolEntry[] = [
     meta: NANO_BANANA_TOOL_META,
     getDefinitions: () => NANO_BANANA_TOOL_DEFINITIONS,
     checkAvailable: isNanoBananaAvailable,
+  },
+  {
+    meta: STRATEGY_IQ_TOOL_META,
+    getDefinitions: () => STRATEGY_IQ_TOOL_DEFINITIONS,
+    checkAvailable: isStrategyIQAvailable,
+  },
+  {
+    meta: MATCH_AI_TOOL_META,
+    getDefinitions: () => MATCH_AI_TOOL_DEFINITIONS,
+    checkAvailable: isMatchAIAvailable,
+  },
+  {
+    meta: CONNECT_BOT_TOOL_META,
+    getDefinitions: () => CONNECT_BOT_TOOL_DEFINITIONS,
+    checkAvailable: isConnectBotAvailable,
+  },
+  {
+    meta: CREATIVE_PILOT_TOOL_META,
+    getDefinitions: () => CREATIVE_PILOT_TOOL_DEFINITIONS,
+    checkAvailable: isCreativePilotAvailable,
+  },
+  {
+    meta: KOL_SEARCH_TOOL_META,
+    getDefinitions: () => KOL_SEARCH_TOOL_DEFINITIONS,
+    checkAvailable: isKOLSearchAvailable,
+  },
+  {
+    meta: KOL_DATA_MCP_TOOL_META,
+    getDefinitions: () => KOL_DATA_MCP_TOOL_DEFINITIONS,
+    checkAvailable: isKOLDataMcpAvailable,
+  },
+  {
+    meta: CAMPAIGN_OPTIMIZER_TOOL_META,
+    getDefinitions: () => CAMPAIGN_OPTIMIZER_TOOL_DEFINITIONS,
+    checkAvailable: isCampaignOptimizerAvailable,
+  },
+  {
+    meta: SCRIPT_STUDIO_TOOL_META,
+    getDefinitions: () => SCRIPT_STUDIO_TOOL_DEFINITIONS,
+    checkAvailable: isScriptStudioAvailable,
+  },
+  {
+    meta: KOL_CRM_TOOL_META,
+    getDefinitions: () => KOL_CRM_TOOL_DEFINITIONS,
+    checkAvailable: isKOLCRMAvailable,
+  },
+  {
+    meta: KOL_PORTAL_TOOL_META,
+    getDefinitions: () => KOL_PORTAL_TOOL_DEFINITIONS,
+    checkAvailable: isKOLPortalAvailable,
+  },
+  {
+    meta: CONTENT_AUDIT_TOOL_META,
+    getDefinitions: () => CONTENT_AUDIT_TOOL_DEFINITIONS,
+    checkAvailable: isContentAuditAvailable,
+  },
+  {
+    meta: CAMPAIGN_TESTER_TOOL_META,
+    getDefinitions: () => CAMPAIGN_TESTER_TOOL_DEFINITIONS,
+    checkAvailable: isCampaignTesterAvailable,
+  },
+  {
+    meta: CAMPAIGN_AGENT_TOOL_META,
+    getDefinitions: () => CAMPAIGN_AGENT_TOOL_DEFINITIONS,
+    checkAvailable: isCampaignAgentAvailable,
   },
 ]
 

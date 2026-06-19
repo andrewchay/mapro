@@ -490,7 +490,7 @@ function FeishuInitializer(): null {
       })
       // 桌面通知
       if (Notification.permission === 'granted') {
-        new Notification('Proma → 飞书', {
+        new Notification('MAPro → 飞书', {
           body: `${payload.sessionTitle} 的回复已发送到飞书`,
         })
       }

@@ -16,17 +16,17 @@ export function createApplicationMenu(): Menu {
     ...(isMac
       ? [
           {
-            label: 'Proma',
+            label: "MAPro",
             submenu: [
-              { role: 'about' as const, label: '关于 Proma' },
+              { role: 'about' as const, label: '关于 MAPro' },
               { type: 'separator' as const },
               { role: 'services' as const, label: '服务' },
               { type: 'separator' as const },
-              { role: 'hide' as const, label: '隐藏 Proma' },
+              { role: 'hide' as const, label: '隐藏 MAPro' },
               { role: 'hideOthers' as const, label: '隐藏其他' },
               { role: 'unhide' as const, label: '显示全部' },
               { type: 'separator' as const },
-              { role: 'quit' as const, label: '退出 Proma' },
+              { role: 'quit' as const, label: '退出 MAPro' },
             ],
           },
         ]
@@ -75,10 +75,6 @@ export function createApplicationMenu(): Menu {
     {
       label: '视图',
       submenu: [
-        { role: 'reload' as const, label: '重新加载' },
-        { role: 'forceReload' as const, label: '强制重新加载' },
-        { role: 'toggleDevTools' as const, label: '切换开发者工具' },
-        { type: 'separator' as const },
         { role: 'resetZoom' as const, label: '重置缩放' },
         { role: 'zoomIn' as const, label: '放大' },
         { role: 'zoomOut' as const, label: '缩小' },

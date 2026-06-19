@@ -54,7 +54,7 @@ async function fetchFromGitHub<T>(endpoint: string): Promise<T> {
   const response = await fetch(url, {
     headers: {
       'Accept': 'application/vnd.github+json',
-      'User-Agent': 'Proma-Desktop-App',
+      'User-Agent': 'MAPro-Desktop-App',
     },
   })
 

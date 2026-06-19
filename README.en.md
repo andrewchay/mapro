@@ -1,14 +1,14 @@
-# Proma
+# MAPro
 
-Proma is a local-first AI desktop app that brings multi-model Chat, general-purpose Agent workflows, workspaces, Skills, MCP, remote bots, and memory into one open-source client.
+MAPro is a local-first AI desktop app that brings multi-model Chat, general-purpose Agent workflows, workspaces, Skills, MCP, remote bots, and memory into one open-source client.
 
-It is not just another chat box. Proma is meant to become a long-lived Agent workbench for your personal workflows: use Chat for simple answers, use Agent when the task needs to act on files, tools, projects, and longer context.
+It is not just another chat box. MAPro is meant to become a long-lived Agent workbench for your personal workflows: use Chat for simple answers, use Agent when the task needs to act on files, tools, projects, and longer context.
 
-![Proma Poster](https://img.erlich.fun/personal-blog/uPic/pb.png)
+![MAPro Poster](https://img.erlich.fun/personal-blog/uPic/pb.png)
 
 [中文 README](./README.md) | [Beginner Tutorial](./tutorial/tutorial.md) | [Open-Source Release](https://github.com/ErlichLiu/Proma/releases) | [Commercial Version](https://proma.cool/download)
 
-## What Proma Can Do
+## What MAPro Can Do
 
 - **Chat mode**: multi-model conversations, attachments, image input, Markdown / Mermaid / KaTeX / code highlighting, parallel conversations, system prompts, and context controls.
 - **Agent mode**: general-purpose Agent powered by `@anthropic-ai/claude-agent-sdk`, with workspace isolation, permission modes, file operations, streaming output, plan confirmation, and ask-user interactions.
@@ -16,7 +16,7 @@ It is not just another chat box. Proma is meant to become a long-lived Agent wor
 - **Skills & MCP**: each workspace can manage its own Skills, MCP servers, and workspace files.
 - **Remote bots**: Lark / Feishu bot bridging is supported, with DingTalk and WeChat bridge entry points also present in the app.
 - **Memory and tools**: Chat and Agent can share memory, with web search, built-in Chat tools, and Agent recommendation helpers.
-- **Local-first data**: conversations, workspaces, attachments, settings, and Skills are stored under `~/.proma/` as JSON / JSONL files, without a local database.
+- **Local-first data**: conversations, workspaces, attachments, settings, and Skills are stored under `~/.mapro/` as JSON / JSONL files, without a local database.
 - **Desktop experience**: auto-update, proxy settings, file preview, global shortcuts, quick task window, voice input, and light / dark / system themes.
 
 ## Getting Started
@@ -25,11 +25,11 @@ It is not just another chat box. Proma is meant to become a long-lived Agent wor
 
 Download the open-source version from [GitHub Releases](https://github.com/ErlichLiu/Proma/releases). The current release notes are for `v0.9.12`, with builds for macOS Apple Silicon, macOS Intel, and Windows.
 
-If you want fewer API setup steps, you can also use the [Proma commercial version](https://proma.cool/download). The commercial and open-source versions run in parallel; the commercial version mainly adds built-in model channels and subscription options.
+If you want fewer API setup steps, you can also use the [MAPro commercial version](https://proma.cool/download). The commercial and open-source versions run in parallel; the commercial version mainly adds built-in model channels and subscription options.
 
 ### First Setup
 
-1. Open Proma and finish the environment check. Agent mode depends on local tooling, especially Git, Node.js / Bun, and a usable shell.
+1. Open MAPro and finish the environment check. Agent mode depends on local tooling, especially Git, Node.js / Bun, and a usable shell.
 2. Go to **Settings > Channels**, add at least one AI provider channel, and fill in Base URL, API Key, and model list.
 3. Chat mode can use OpenAI, Anthropic, Google, or OpenAI-compatible channels.
 4. Agent mode requires an Anthropic or Anthropic-compatible channel, such as Anthropic, DeepSeek, Kimi API, or Kimi Coding Plan.
@@ -60,34 +60,34 @@ In short: **use Chat when you need an answer; use Agent when you need work to be
 
 Use Chat for lightweight but practical analysis: compare audience needs, generate a table, and shape first-screen README copy quickly.
 
-![Proma Chat analysis](./docs/assets/screenshots/proma-chat-demo.png)
+![MAPro Chat analysis](./docs/assets/screenshots/proma-chat-demo.png)
 
 ### Agent Workbench
 
 Agent works inside a workspace, reads project files, progresses through tasks, outputs structured findings, and keeps reusable files visible in the right-side workspace panel.
 
-![Proma Agent workbench](./docs/assets/screenshots/proma-agent-demo.png)
+![MAPro Agent workbench](./docs/assets/screenshots/proma-agent-demo.png)
 
 ### Skills
 
 Each workspace can keep its own reusable Skills. The `feedback-synthesis` Skill shown here turns scattered feedback, interviews, and issues into themes, evidence, and priority suggestions.
 
-![Proma workspace Skills](./docs/assets/screenshots/proma-skills-demo.png)
+![MAPro workspace Skills](./docs/assets/screenshots/proma-skills-demo.png)
 
 ### Skills & MCP
 
 The same workspace can manage stdio and HTTP MCP servers, enabling or disabling external context per project.
 
-![Proma MCP settings](./docs/assets/screenshots/proma-mcp-demo.png)
+![MAPro MCP settings](./docs/assets/screenshots/proma-mcp-demo.png)
 
 ### Streaming Voice Input
 
-Proma supports Doubao-powered streaming voice input, both inside Proma and across the desktop:
+MAPro supports Doubao-powered streaming voice input, both inside MAPro and across the desktop:
 
-- Inside Proma: press Ctrl + Backtick to start recognition, then press it again to finish and insert the transcript into the active Proma input box.
-- Outside Proma: press Ctrl + Backtick to start recognition, then press it again to finish and insert the transcript at the current cursor position. If there is no active cursor, Proma writes the transcript to the clipboard.
+- Inside MAPro: press Ctrl + Backtick to start recognition, then press it again to finish and insert the transcript into the active MAPro input box.
+- Outside MAPro: press Ctrl + Backtick to start recognition, then press it again to finish and insert the transcript at the current cursor position. If there is no active cursor, MAPro writes the transcript to the clipboard.
 
-![Proma voice input](./docs/assets/screenshots/proma-typeless-input.png)
+![MAPro voice input](./docs/assets/screenshots/proma-typeless-input.png)
 
 ## Supported Providers
 
@@ -109,10 +109,10 @@ Agent mode is powered by Claude Agent SDK, so it currently requires an Anthropic
 
 ## Local Data
 
-Proma stores data in local files so it is easy to back up, migrate, and inspect.
+MAPro stores data in local files so it is easy to back up, migrate, and inspect.
 
 ```text
-~/.proma/
+~/.mapro/
 ├── channels.json
 ├── conversations.json
 ├── conversations/
@@ -131,11 +131,11 @@ Proma stores data in local files so it is easy to back up, migrate, and inspect.
 └── sdk-config/
 ```
 
-API keys are encrypted through Electron `safeStorage` before being written to `channels.json`. Proma does not use a local database; core data is represented as JSON configuration and append-only JSONL logs.
+API keys are encrypted through Electron `safeStorage` before being written to `channels.json`. MAPro does not use a local database; core data is represented as JSON configuration and append-only JSONL logs.
 
 ## Development
 
-Proma is a Bun workspace monorepo.
+MAPro is a Bun workspace monorepo.
 
 ```text
 proma-v2/
@@ -209,7 +209,7 @@ bun run dist:fast
 
 ## Architecture
 
-Proma's core communication path is:
+MAPro's core communication path is:
 
 ```text
 shared types and IPC constants
@@ -233,7 +233,7 @@ Renderer state is managed with Jotai. Key atoms live in `apps/electron/src/rende
 
 ## Packaging Notes
 
-`@anthropic-ai/claude-agent-sdk` uses platform native binaries since `0.2.113+`. Proma marks the SDK as external in esbuild and includes the SDK main package plus platform subpackages in `electron-builder.yml`.
+`@anthropic-ai/claude-agent-sdk` uses platform native binaries since `0.2.113+`. MAPro marks the SDK as external in esbuild and includes the SDK main package plus platform subpackages in `electron-builder.yml`.
 
 When changing packaging configuration, make sure:
 
@@ -258,9 +258,9 @@ Before opening a PR, please check:
 - Bump the patch version of affected packages when behavior changes.
 - Add focused tests where possible, especially for shared logic, IPC contracts, and persistence formats.
 
-Proma currently has a PR bounty program. You can leave your email in the PR description for follow-up.
+MAPro currently has a PR bounty program. You can leave your email in the PR description for follow-up.
 
-![Proma PR Bounty](https://img.erlich.fun/personal-blog/uPic/PR%20%E8%B5%A0%E9%87%91%201.png)
+![MAPro PR Bounty](https://img.erlich.fun/personal-blog/uPic/PR%20%E8%B5%A0%E9%87%91%201.png)
 
 ## Star History
 

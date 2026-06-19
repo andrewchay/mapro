@@ -1,8 +1,9 @@
 /**
  * Windows 环境检测面板
  *
- * 展示 Shell 环境（Git Bash / WSL）和 Node.js 的检测结果，
+ * 展示 Shell 环境（Git Bash / WSL）的检测结果，
  * 用于 Onboarding Step 2 和设置里的 EnvironmentCheckDialog 复用。
+ * 营销场景已移除 Node.js 检测（后端已简化）。
  */
 
 import * as React from 'react'
@@ -14,7 +15,6 @@ import {
   installerManifestAtom,
   runtimeStatusAtom,
   isShellEnvironmentOkAtom,
-  isNodeJsOkAtom,
 } from '@/atoms/environment'
 import { useAtomValue } from 'jotai'
 
@@ -29,7 +29,6 @@ export function EnvironmentCheckPanel({
   const [runtime, setRuntime] = useAtom(runtimeStatusAtom)
   const setManifest = useSetAtom(installerManifestAtom)
   const shellOk = useAtomValue(isShellEnvironmentOkAtom)
-  const nodeOk = useAtomValue(isNodeJsOkAtom)
   const [isChecking, setIsChecking] = React.useState(false)
 
   const refresh = React.useCallback(async () => {
@@ -85,30 +84,13 @@ export function EnvironmentCheckPanel({
     shellStatusText = '未检测到 Git Bash 或 WSL'
   }
 
-  // ----- Node.js 卡片 -----
-  const nodeInfo = runtime?.node
-  let nodeStatus: 'checking' | 'success' | 'warning' = 'warning'
-  let nodeStatusText = ''
-  let nodeVersion: string | undefined = undefined
-  if (!runtime) {
-    nodeStatus = 'checking'
-    nodeStatusText = '正在检测...'
-  } else if (nodeInfo?.available) {
-    nodeStatus = 'success'
-    nodeVersion = nodeInfo.version ?? undefined
-    nodeStatusText = nodeVersion ? `v${nodeVersion} 已安装` : '已安装'
-  } else {
-    nodeStatus = 'warning'
-    nodeStatusText = '未安装（可选）'
-  }
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold">Windows 环境检测</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Proma 在 Windows 上需要 Git Bash 或 WSL 才能运行 Agent
+            MAPro 在 Windows 上需要 Git Bash 或 WSL 才能执行营销工具脚本
           </p>
         </div>
         <Button
@@ -139,30 +121,12 @@ export function EnvironmentCheckPanel({
               : { type: 'none' }
           }
         />
-        <EnvironmentCheckCard
-          name="Node.js"
-          status={nodeStatus}
-          version={nodeVersion}
-          requirement="推荐 · 仅在使用 MCP 服务器（npx xxx）时需要"
-          statusText={nodeStatusText}
-          action={
-            nodeStatus === 'warning'
-              ? { type: 'download', installerId: 'nodejs' }
-              : { type: 'none' }
-          }
-        />
       </div>
 
       {!shellOk && runtime && (
         <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-[12px] text-destructive">
-          Shell 环境未就绪：现在发送 Agent 消息会失败。请先安装 Git for Windows
+          Shell 环境未就绪：部分营销工具脚本可能无法执行。请先安装 Git for Windows
           （会附带 Git Bash），安装完成后点「重新检测」。
-        </div>
-      )}
-
-      {shellOk && !nodeOk && runtime && (
-        <div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 px-3 py-2 text-[12px] text-yellow-700 dark:text-yellow-400">
-          未检测到 Node.js。如果不使用基于 npx 的 MCP 服务器，可以忽略此项。
         </div>
       )}
     </div>

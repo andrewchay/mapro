@@ -7,8 +7,8 @@
 
 import type { InstallerManifest, InstallerSource } from '@ma-proma/shared'
 
-const PROMA_API_BASE = 'https://api.proma.cool'
-const MANIFEST_URL = `${PROMA_API_BASE}/api/v1/installers/manifest`
+const MAPRO_API_BASE = 'https://api.proma.cool'
+const MANIFEST_URL = `${MAPRO_API_BASE}/api/v1/installers/manifest`
 const CACHE_TTL_MS = 5 * 60 * 1000
 
 interface ManifestCache {
@@ -87,7 +87,7 @@ export async function fetchInstallerManifest(force = false): Promise<InstallerMa
     const response = await fetch(MANIFEST_URL, {
       headers: {
         'Accept': 'application/json',
-        'User-Agent': 'Proma-Desktop-App',
+        'User-Agent': 'MAPro-Desktop-App',
       },
     })
 

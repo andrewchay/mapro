@@ -50,3 +50,6 @@ export * from './dingtalk'
 
 // 微信集成相关类型
 export * from './wechat'
+
+// Campaign 项目管理相关类型
+export * from './campaign'

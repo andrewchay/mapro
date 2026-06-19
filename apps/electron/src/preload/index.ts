@@ -6,11 +6,10 @@
  */
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS } from '@ma-proma/shared'
+import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, CAMPAIGN_IPC_CHANNELS, KOL_DATA_IPC_CHANNELS, CONTENT_AUDIT_IPC_CHANNELS } from '@ma-proma/shared'
 import { USER_PROFILE_IPC_CHANNELS, SETTINGS_IPC_CHANNELS, SCRATCH_PAD_IPC_CHANNELS, APP_ICON_IPC_CHANNELS, DOCK_BADGE_IPC_CHANNELS, STORAGE_IPC_CHANNELS } from '../types'
 import type {
   RuntimeStatus,
-  GitRepoStatus,
   Channel,
   ChannelCreateInput,
   ChannelUpdateInput,
@@ -65,7 +64,7 @@ import type {
   GitHubReleaseListOptions,
   PermissionRequest,
   PermissionResponse,
-  PromaPermissionMode,
+  MAProPermissionMode,
   AskUserRequest,
   AskUserResponse,
   ExitPlanModeResponse,
@@ -103,6 +102,8 @@ import type {
   WeChatBridgeState,
   AgentQueueMessageInput,
   PendingRequestsSnapshot,
+  Campaign,
+  CreateCampaignInput,
 } from '@ma-proma/shared'
 import type {
   UserProfile,
@@ -143,13 +144,6 @@ export interface ElectronAPI {
    * 用户安装完 Git / Node 后触发，强制刷新缓存
    */
   reinitRuntime: () => Promise<RuntimeStatus>
-
-  /**
-   * 获取指定目录的 Git 仓库状态
-   * @param dirPath - 目录路径
-   * @returns Git 仓库状态
-   */
-  getGitRepoStatus: (dirPath: string) => Promise<GitRepoStatus | null>
 
   /** 获取未暂存的变更文件列表 */
   getUnstagedChanges: (dirPath: string, sessionPath?: string, workspaceFilesPath?: string, extraPaths?: string[], sessionId?: string) => Promise<import('@ma-proma/shared').UnstagedChangesResult>
@@ -562,7 +556,7 @@ export interface ElectronAPI {
   respondPermission: (response: PermissionResponse) => Promise<void>
 
   /** 热切换指定会话的权限模式（运行中生效，仅影响该 session） */
-  updateSessionPermissionMode: (sessionId: string, mode: PromaPermissionMode) => Promise<void>
+  updateSessionPermissionMode: (sessionId: string, mode: MAProPermissionMode) => Promise<void>
 
   /** 获取全局记忆配置 */
   getMemoryConfig: () => Promise<MemoryConfig>
@@ -944,6 +938,55 @@ export interface ElectronAPI {
   /** 请求麦克风权限（仅 macOS 有效） */
   requestMicrophonePermission: () => Promise<MicPermissionResult>
 
+  // ===== Campaign 项目管理 =====
+
+  /** 获取 Campaign 列表 */
+  listCampaigns: () => Promise<Campaign[]>
+  /** 获取单个 Campaign */
+  getCampaignById: (id: string) => Promise<Campaign | null>
+  /** 创建 Campaign */
+  createCampaign: (input: CreateCampaignInput) => Promise<Campaign>
+
+  // ===== KOL 候选池 =====
+
+  /** 获取 Campaign 候选池 KOL */
+  getPoolKOLs: (campaignId: string) => Promise<import('@ma-proma/shared').CampaignKOLPoolItem[]>
+  /** 导入 KOL 到候选池 */
+  importKOLsToPool: (input: import('@ma-proma/shared').ImportKOLsToPoolInput) => Promise<{ imported: number }>
+  /** 获取 KOL 数据库中可用 KOL（用于导入弹窗） */
+  listAvailableKOLs: (filters?: { platform?: string; category?: string; keywords?: string[]; limit?: number }) => Promise<import('@ma-proma/shared').KOLSearchResult>
+
+  // ===== Brief =====
+
+  /** 获取 KOL Brief */
+  getCampaignBrief: (campaignId: string, kolId: string) => Promise<import('@ma-proma/shared').CampaignBrief | null>
+  /** 保存 KOL Brief */
+  saveCampaignBrief: (input: import('@ma-proma/shared').SaveCampaignBriefInput) => Promise<import('@ma-proma/shared').CampaignBrief>
+  /** 推进 Campaign 到下一阶段 */
+  advanceCampaignPhase: (id: string) => Promise<import('@ma-proma/shared').Campaign | null>
+
+  // ===== KOL 数据管理 =====
+
+  /** 获取所有 KOL */
+  listAllKOLs: () => Promise<import('@ma-proma/shared').KOLListItem[]>
+  /** 更新 KOL */
+  updateKOL: (input: import('@ma-proma/shared').UpdateKOLInput) => Promise<boolean>
+  /** 删除 KOL */
+  deleteKOL: (id: string) => Promise<boolean>
+  /** 重新计算所有 KOL 评分 */
+  recalculateKOLScores: () => Promise<{ updated: number }>
+
+  // ===== 内容审核流水线 =====
+
+  /** 获取 Campaign 的审核记录 */
+  listContentAudits: (campaignId: string) => Promise<import('@ma-proma/shared').ContentAudit[]>
+  /** 获取单个审核记录 */
+  getContentAudit: (auditId: string) => Promise<import('@ma-proma/shared').ContentAudit | null>
+  /** 创建并执行内容审核 */
+  createContentAudit: (input: import('@ma-proma/shared').CreateContentAuditInput) => Promise<import('@ma-proma/shared').ContentAudit | null>
+  /** 更新审核状态 */
+  updateContentAuditStatus: (auditId: string, status: 'pending' | 'reviewing' | 'passed' | 'failed') => Promise<boolean>
+
   // ===== 菜单栏 =====
 
   /** 订阅菜单栏打开 Agent 会话事件 */
@@ -965,7 +1008,7 @@ export interface ElectronAPI {
   migrationParseImportFile: (filePath: string) => Promise<unknown>
   /** 确认导入 */
   migrationConfirmImport: (options: unknown) => Promise<{ success: boolean }>
-  /** 打开文件选择对话框（选择 .proma-backup 或 .proma-share） */
+  /** 打开文件选择对话框（选择 .mapro-backup/.mapro-share 或旧版 .proma-backup/.proma-share） */
   migrationOpenFileDialog: () => Promise<string | null>
   /** 打开文件保存对话框（选择导出路径） */
   migrationSaveFileDialog: (mode: string) => Promise<string | null>
@@ -1001,10 +1044,6 @@ const electronAPI: ElectronAPI = {
 
   reinitRuntime: () => {
     return ipcRenderer.invoke(IPC_CHANNELS.REINIT_RUNTIME)
-  },
-
-  getGitRepoStatus: (dirPath: string) => {
-    return ipcRenderer.invoke(IPC_CHANNELS.GET_GIT_REPO_STATUS, dirPath)
   },
 
   getUnstagedChanges: (dirPath: string, sessionPath?: string, workspaceFilesPath?: string, extraPaths?: string[], sessionId?: string) => {
@@ -1575,7 +1614,7 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.PERMISSION_RESPOND, response)
   },
 
-  updateSessionPermissionMode: (sessionId: string, mode: PromaPermissionMode) => {
+  updateSessionPermissionMode: (sessionId: string, mode: MAProPermissionMode) => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.UPDATE_SESSION_PERMISSION_MODE, sessionId, mode)
   },
 
@@ -2060,6 +2099,80 @@ const electronAPI: ElectronAPI = {
     const listener = (): void => callback()
     ipcRenderer.on('menu:close-tab', listener)
     return () => { ipcRenderer.removeListener('menu:close-tab', listener) }
+  },
+
+  // ===== Campaign 项目管理 =====
+
+  listCampaigns: () => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.LIST)
+  },
+
+  createCampaign: (input: CreateCampaignInput) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.CREATE, input)
+  },
+
+  getCampaignById: (id: string) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.GET, id)
+  },
+
+  getPoolKOLs: (campaignId: string) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.GET_POOL_KOLS, campaignId)
+  },
+
+  importKOLsToPool: (input: import('@ma-proma/shared').ImportKOLsToPoolInput) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.IMPORT_KOLS, input)
+  },
+
+  listAvailableKOLs: (filters?: { platform?: string; category?: string; keywords?: string[] }) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.LIST_AVAILABLE_KOLS, filters)
+  },
+
+  getCampaignBrief: (campaignId: string, kolId: string) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.GET_BRIEF, campaignId, kolId)
+  },
+
+  saveCampaignBrief: (input: import('@ma-proma/shared').SaveCampaignBriefInput) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.SAVE_BRIEF, input)
+  },
+
+  advanceCampaignPhase: (id: string) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.ADVANCE_PHASE, id)
+  },
+
+  // ===== KOL 数据管理 =====
+
+  listAllKOLs: () => {
+    return ipcRenderer.invoke(KOL_DATA_IPC_CHANNELS.LIST_ALL)
+  },
+
+  updateKOL: (input: import('@ma-proma/shared').UpdateKOLInput) => {
+    return ipcRenderer.invoke(KOL_DATA_IPC_CHANNELS.UPDATE, input)
+  },
+
+  deleteKOL: (id: string) => {
+    return ipcRenderer.invoke(KOL_DATA_IPC_CHANNELS.DELETE, id)
+  },
+
+  recalculateKOLScores: () => {
+    return ipcRenderer.invoke(KOL_DATA_IPC_CHANNELS.RECALCULATE_SCORES)
+  },
+
+  // ===== 内容审核流水线 =====
+
+  listContentAudits: (campaignId: string) => {
+    return ipcRenderer.invoke(CONTENT_AUDIT_IPC_CHANNELS.LIST, campaignId)
+  },
+
+  getContentAudit: (auditId: string) => {
+    return ipcRenderer.invoke(CONTENT_AUDIT_IPC_CHANNELS.GET, auditId)
+  },
+
+  createContentAudit: (input: import('@ma-proma/shared').CreateContentAuditInput) => {
+    return ipcRenderer.invoke(CONTENT_AUDIT_IPC_CHANNELS.CREATE, input)
+  },
+
+  updateContentAuditStatus: (auditId: string, status: 'pending' | 'reviewing' | 'passed' | 'failed') => {
+    return ipcRenderer.invoke(CONTENT_AUDIT_IPC_CHANNELS.UPDATE_STATUS, auditId, status)
   },
 
   // ===== 快速任务窗口 =====

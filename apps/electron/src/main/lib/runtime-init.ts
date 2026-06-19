@@ -1,19 +1,15 @@
 /**
  * 运行时初始化协调器
  *
- * 负责协调所有运行时初始化逻辑，包括：
+ * 负责协调运行时初始化逻辑，包括：
  * 1. Shell 环境加载（macOS）
- * 2. Node.js 运行时检测
- * 3. Bun 运行时检测
- * 4. Git 运行时检测
- * 5. Shell 环境检测（Windows - Git Bash / WSL）
+ * 2. Shell 环境检测（Windows - Git Bash / WSL）
+ *
+ * 已简化：移除 Node.js / Bun / Git 检测（营销场景不需要）
  */
 
 import type { RuntimeStatus, RuntimeInitOptions, ShellEnvironmentStatus } from '@ma-proma/shared'
 import { loadShellEnv } from './shell-env'
-import { detectNodeRuntime } from './node-detector'
-import { detectBunRuntime } from './bun-finder'
-import { detectGitRuntime, getGitRepoStatus } from './git-detector'
 import { detectGitBash } from './git-bash-detector'
 import { detectWsl } from './wsl-detector'
 
@@ -28,10 +24,7 @@ let isInitialized = false
  *
  * 按顺序执行：
  * 1. loadShellEnv() - 加载 Shell 环境（仅 macOS 打包环境）
- * 2. detectNodeRuntime() - 检测 Node.js 运行时
- * 3. detectBunRuntime() - 检测 Bun 运行时
- * 4. detectGitRuntime() - 检测 Git 运行时
- * 5. detectShellEnvironment() - 检测 Shell 环境（仅 Windows）
+ * 2. detectShellEnvironment() - 检测 Shell 环境（仅 Windows）
  *
  * @param options - 初始化选项
  * @returns 运行时状态
@@ -53,38 +46,7 @@ export async function initializeRuntime(options: RuntimeInitOptions = {}): Promi
     }
   }
 
-  // 2. 检测 Node.js 运行时
-  const nodeStatus = options.skipNodeDetection
-    ? {
-        available: false,
-        path: null,
-        version: null,
-        error: '已跳过 Node.js 检测',
-      }
-    : await detectNodeRuntime()
-
-  // 3. 检测 Bun 运行时
-  const bunStatus = options.skipBunDetection
-    ? {
-        available: false,
-        path: null,
-        version: null,
-        source: null,
-        error: '已跳过 Bun 检测',
-      }
-    : await detectBunRuntime()
-
-  // 4. 检测 Git 运行时
-  const gitStatus = options.skipGitDetection
-    ? {
-        available: false,
-        version: null,
-        path: null,
-        error: '已跳过 Git 检测',
-      }
-    : await detectGitRuntime()
-
-  // 5. 检测 Shell 环境（仅 Windows 平台）
+  // 2. 检测 Shell 环境（仅 Windows 平台）
   let shellEnvironmentStatus: ShellEnvironmentStatus | undefined
 
   if (process.platform === 'win32' && !options.skipShellDetection) {
@@ -118,11 +80,11 @@ export async function initializeRuntime(options: RuntimeInitOptions = {}): Promi
     }
   }
 
-  // 构建运行时状态
+  // 构建运行时状态（简化版：移除 Node/Bun/Git 检测）
   const runtimeStatus: RuntimeStatus = {
-    node: nodeStatus,
-    bun: bunStatus,
-    git: gitStatus,
+    node: { available: false, path: null, version: null, error: '营销 Agent 不需要 Node.js 检测' },
+    bun: { available: false, path: null, version: null, source: null, error: '营销 Agent 不需要 Bun 检测' },
+    git: { available: false, version: null, path: null, error: '营销 Agent 不需要 Git 检测' },
     shell: shellEnvironmentStatus,
     envLoaded,
     initializedAt: Date.now(),
@@ -135,9 +97,9 @@ export async function initializeRuntime(options: RuntimeInitOptions = {}): Promi
   const duration = Date.now() - startTime
   console.log(`[运行时初始化] 初始化完成 (耗时 ${duration}ms)`)
   console.log('[运行时初始化] 状态:', {
-    node: nodeStatus.available ? `✅ ${nodeStatus.version}` : `❌ ${nodeStatus.error}`,
-    bun: bunStatus.available ? `✅ ${bunStatus.version} (${bunStatus.source})` : `❌ ${bunStatus.error}`,
-    git: gitStatus.available ? `✅ ${gitStatus.version}` : `❌ ${gitStatus.error}`,
+    node: '⏭️ 跳过（营销场景不需要）',
+    bun: '⏭️ 跳过（营销场景不需要）',
+    git: '⏭️ 跳过（营销场景不需要）',
     shell: shellEnvironmentStatus
       ? `${shellEnvironmentStatus.recommended ? '✅' : '⚠️'} ${shellEnvironmentStatus.recommended || '无可用环境'}`
       : '⏭️ 跳过（非 Windows）',
@@ -178,7 +140,4 @@ export async function reinitializeRuntime(options: RuntimeInitOptions = {}): Pro
 }
 
 // 重新导出子模块的函数，方便外部使用
-export { getGitRepoStatus } from './git-detector'
-export { detectNodeRuntime } from './node-detector'
-export { detectBunRuntime } from './bun-finder'
 export { loadShellEnv } from './shell-env'

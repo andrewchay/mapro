@@ -30,6 +30,7 @@ import { getFetchFn } from './proxy-fetch'
 import { getEffectiveProxyUrl } from './proxy-settings-service'
 import { getEnabledTools } from './chat-tool-registry'
 import { executeToolCalls } from './chat-tool-executor'
+import { getCampaignById, getPoolKOLs } from './campaign-manager'
 
 /** 活跃的 AbortController 映射（conversationId → controller） */
 const activeControllers = new Map<string, AbortController>()
@@ -196,7 +197,7 @@ export async function sendMessage(
   const {
     conversationId, userMessage, channelId,
     modelId, systemMessage, contextLength, contextDividers, attachments,
-    thinkingEnabled, enabledToolIds,
+    thinkingEnabled, enabledToolIds, campaignId,
   } = input
 
   // 1. 查找渠道
@@ -257,12 +258,47 @@ export async function sendMessage(
     // 8. 从工具注册表获取启用的工具
     const { tools, systemPromptAppend } = getEnabledTools(enabledToolIds)
 
+    // 注入 Campaign 上下文（如果是对话编辑 Campaign 数据）
+    let campaignContextPrompt = ''
+    if (campaignId) {
+      const campaign = getCampaignById(campaignId)
+      if (campaign) {
+        const kols = getPoolKOLs(campaignId)
+        campaignContextPrompt = `
+<ma_campaign_context>
+你正在管理一个 Campaign 项目，以下是当前项目数据：
+
+- 项目名称：${campaign.name}
+- 品牌：${campaign.brand}
+- 品类：${campaign.category}
+- 预算：${campaign.budget} 万元
+- 周期：${campaign.startDate} 至 ${campaign.endDate}
+- 当前阶段：${campaign.currentPhase}（1=策略, 2=内容, 3=复盘）
+- 状态：${campaign.status}
+
+候选池 KOL（${kols.length} 个）：
+${kols.map(k => `  - ${k.name}（${k.platform}）状态:${k.status} 评分:${k.overallScore ?? '-'}`).join('\n')}
+
+你可以通过对话直接修改项目数据、调整 KOL 状态、编辑 Brief、触发审核等。
+</ma_campaign_context>
+`
+      }
+    }
+
     // 注入工具系统提示词
-    const effectiveSystemMessage = systemPromptAppend && systemMessage
-      ? systemMessage + systemPromptAppend
-      : systemPromptAppend
-        ? systemPromptAppend
-        : systemMessage
+    const effectiveSystemMessage = campaignContextPrompt
+      ? (systemPromptAppend && systemMessage
+        ? systemMessage + systemPromptAppend + campaignContextPrompt
+        : systemPromptAppend
+          ? systemPromptAppend + campaignContextPrompt
+          : systemMessage
+            ? systemMessage + campaignContextPrompt
+            : campaignContextPrompt)
+      : (systemPromptAppend && systemMessage
+        ? systemMessage + systemPromptAppend
+        : systemPromptAppend
+          ? systemPromptAppend
+          : systemMessage)
 
     const proxyUrl = await getEffectiveProxyUrl()
     const fetchFn = getFetchFn(proxyUrl)

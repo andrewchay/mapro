@@ -135,7 +135,7 @@ export interface Conversation {
 /**
  * 对话轻量索引项
  *
- * 存储在 ~/.proma/conversations.json 中，
+ * 存储在 ~/.mapro/conversations.json 中，
  * 不包含消息列表，用于快速加载对话列表。
  */
 export interface ConversationMeta {
@@ -213,6 +213,8 @@ export interface ChatSendInput {
   thinkingEnabled?: boolean
   /** 本次请求启用的工具 ID 列表（由前端工具选择器决定） */
   enabledToolIds?: string[]
+  /** Campaign 上下文 ID（如果是对话编辑 Campaign 数据） */
+  campaignId?: string
 }
 
 // ===== 标题生成 =====

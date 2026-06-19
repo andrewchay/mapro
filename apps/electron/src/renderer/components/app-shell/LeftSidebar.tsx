@@ -11,10 +11,10 @@
 import * as React from 'react'
 import { useAtom, useSetAtom, useAtomValue } from 'jotai'
 import { toast } from 'sonner'
-import { Pin, PinOff, Settings, Plus, Trash2, Pencil, ChevronDown, ChevronRight, Plug, Zap, PanelLeftClose, PanelLeftOpen, ArrowRightLeft, Search, Archive, ArchiveRestore, ArrowLeft, Hammer, Bot, MessageSquare, MoreHorizontal } from 'lucide-react'
+import { Pin, PinOff, Settings, Plus, Trash2, Pencil, ChevronDown, ChevronRight, Plug, Zap, PanelLeftClose, PanelLeftOpen, ArrowRightLeft, Search, Archive, ArchiveRestore, ArrowLeft, Hammer, Bot, MessageSquare, MoreHorizontal, Target, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
-import { ModeSwitcher } from './ModeSwitcher'
+// import { ModeSwitcher } from './ModeSwitcher'
 import { SearchDialog } from './SearchDialog'
 import { UserAvatar } from '@/components/chat/UserAvatar'
 import { activeViewAtom } from '@/atoms/active-view'
@@ -442,6 +442,13 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
     [agentSessions, currentWorkspaceId]
   )
 
+  // 当切换到 chat 模式时，自动切换到对话视图
+  React.useEffect(() => {
+    if (mode === 'chat') {
+      setActiveView('conversations')
+    }
+  }, [mode, setActiveView])
+
   // 初始加载对话列表 + 用户档案 + Agent 会话
   React.useEffect(() => {
     window.electronAPI
@@ -694,8 +701,8 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
 
   /** 选择 Agent 会话（打开或聚焦标签页） */
   const handleSelectAgentSession = (id: string, title: string): void => {
-    openSession('agent', id, title)
     setActiveView('conversations')
+    openSession('agent', id, title)
     setActiveItem('all-chats')
     // 清除该会话的"已完成未查看"标记
     setUnviewedCompleted((prev: Set<string>) => {
@@ -1202,7 +1209,7 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
       {/* 模式切换器 + 折叠按钮 */}
       <div className="titlebar-drag-region flex items-start gap-1.5 px-3">
         <div className="flex-1 min-w-0">
-          <ModeSwitcher />
+          {/* <ModeSwitcher /> */}
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -1217,37 +1224,57 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
         </Tooltip>
       </div>
 
-      {/* Agent 模式：工作区选择器 */}
-      {mode === 'agent' && (
+      {/* 全局：Campaign 项目 + KOL 数据（第一级入口） */}
+      {viewMode === 'active' && (
+        <div className="px-3 pt-3 space-y-1">
+          <SidebarItem
+            icon={<Target size={16} />}
+            label="Campaign 项目"
+            active={activeView === 'campaigns'}
+            onClick={() => setActiveView('campaigns')}
+          />
+          <SidebarItem
+            icon={<Users size={16} />}
+            label="KOL 数据"
+            active={activeView === 'kol_data'}
+            onClick={() => setActiveView('kol_data')}
+          />
+        </div>
+      )}
+
+      {/* Campaign 项目下的工作区（仅当在 Campaign 项目中时显示） */}
+      {activeView === 'campaigns' && viewMode === 'active' && (
         <div className="px-3 pt-2">
           <WorkspaceSelector />
         </div>
       )}
 
-      {/* 新对话/新会话按钮 + 搜索按钮 */}
-      <div className="px-3 pt-2 flex items-center gap-1.5">
-        <button
-          onClick={mode === 'agent' ? handleNewAgentSession : handleNewConversation}
-          className="flex-1 flex items-center gap-2 px-3 py-2 rounded-[10px] text-[13px] font-medium text-foreground/70 bg-primary/5 hover:bg-primary/10 transition-colors duration-100 titlebar-no-drag border border-dashed border-[hsl(var(--dashed-border))] hover:border-[hsl(var(--dashed-border-hover))]"
-        >
-          <Plus size={14} />
-          <span>{mode === 'agent' ? '新会话' : '新对话'}</span>
-        </button>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setSearchDialogOpen(true)}
-              className="flex-shrink-0 size-[36px] flex items-center justify-center rounded-[10px] text-foreground/40 bg-primary/5 hover:bg-primary/10 hover:text-foreground/60 transition-colors duration-100 titlebar-no-drag border border-dashed border-[hsl(var(--dashed-border))] hover:border-[hsl(var(--dashed-border-hover))]"
-            >
-              <Search size={14} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">搜索 (⌘F)</TooltipContent>
-        </Tooltip>
-      </div>
+      {/* 新对话/新会话按钮（仅当在对话视图时显示） */}
+      {activeView === 'conversations' && viewMode === 'active' && (
+        <div className="px-3 pt-2 flex items-center gap-1.5">
+          <button
+            onClick={mode === 'agent' ? handleNewAgentSession : handleNewConversation}
+            className="flex-1 flex items-center gap-2 px-3 py-2 rounded-[10px] text-[13px] font-medium text-foreground/70 bg-primary/5 hover:bg-primary/10 transition-colors duration-100 titlebar-no-drag border border-dashed border-[hsl(var(--dashed-border))] hover:border-[hsl(var(--dashed-border-hover))]"
+          >
+            <Plus size={14} />
+            <span>{mode === 'agent' ? '新会话' : '新对话'}</span>
+          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setSearchDialogOpen(true)}
+                className="flex-shrink-0 size-[36px] flex items-center justify-center rounded-[10px] text-foreground/40 bg-primary/5 hover:bg-primary/10 hover:text-foreground/60 transition-colors duration-100 titlebar-no-drag border border-dashed border-[hsl(var(--dashed-border))] hover:border-[hsl(var(--dashed-border-hover))]"
+              >
+                <Search size={14} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">搜索 (⌘F)</TooltipContent>
+          </Tooltip>
+        </div>
+      )}
 
-      {/* Chat 模式：导航菜单（置顶区域） */}
-      {mode === 'chat' && (
+      {/* Chat 模式导航菜单（仅在对话视图时显示） */}
+      {activeView === 'conversations' && mode === 'chat' && (
         <div className="flex flex-col gap-1 pt-3 px-3">
           <SidebarItem
             icon={<Pin size={16} />}
@@ -1264,8 +1291,8 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
         </div>
       )}
 
-      {/* Chat 模式：置顶对话区域 */}
-      {mode === 'chat' && pinnedExpanded && pinnedConversations.length > 0 && (
+      {/* Chat 模式：置顶对话区域（仅在对话视图时显示） */}
+      {activeView === 'conversations' && mode === 'chat' && pinnedExpanded && pinnedConversations.length > 0 && (
         <div className="px-3 pt-1 pb-1">
           <div className="flex flex-col gap-0.5 pl-1 border-l-2 border-primary/20 ml-2">
             {pinnedConversations.map((conv) => (
@@ -1289,8 +1316,8 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
         </div>
       )}
 
-      {/* Agent 模式 active 视图：可拖拽双区（上 置顶+Working + 下 最近会话） */}
-      {mode === 'agent' && viewMode === 'active' ? (
+      {/* Agent 模式会话列表（仅在对话视图时显示） */}
+      {activeView === 'conversations' && mode === 'agent' && viewMode === 'active' ? (
         <div ref={agentSplitContainerRef} className="flex-1 flex flex-col min-h-0">
           {(pinnedAgentSessions.length > 0 || hasWorkingSessions) && (
             <>
@@ -1474,7 +1501,7 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
             ))}
           </div>
         </div>
-      ) : (
+      ) : (mode === 'chat' || viewMode === 'archived') ? (
         <>
           {/* 归档视图标题栏 */}
           {viewMode === 'archived' && (
@@ -1549,44 +1576,46 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
             )}
           </div>
         </>
+      ) : null}
+
+      {/* 已归档入口 / 返回活跃对话（仅在对话视图时显示） */}
+      {activeView === 'conversations' && (
+        <div className="px-3 pb-1">
+          {viewMode === 'active' ? (
+            <>
+              {mode === 'chat' && archivedConversationCount > 0 && (
+                <button
+                  onClick={() => setViewMode('archived')}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-[12px] text-foreground/40 hover:bg-foreground/[0.04] hover:text-foreground/60 transition-colors titlebar-no-drag"
+                >
+                  <Archive size={13} className="text-foreground/30" />
+                  <span>已归档 ({archivedConversationCount})</span>
+                </button>
+              )}
+              {mode === 'agent' && archivedAgentSessionCount > 0 && (
+                <button
+                  onClick={() => setViewMode('archived')}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-[12px] text-foreground/40 hover:bg-foreground/[0.04] hover:text-foreground/60 transition-colors titlebar-no-drag"
+                >
+                  <Archive size={13} className="text-foreground/30" />
+                  <span>已归档 ({archivedAgentSessionCount})</span>
+                </button>
+              )}
+            </>
+          ) : (
+            <button
+              onClick={() => setViewMode('active')}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-[12px] text-foreground/60 bg-foreground/[0.04] hover:bg-foreground/[0.07] hover:text-foreground/80 transition-colors titlebar-no-drag"
+            >
+              <ArrowLeft size={13} className="text-foreground/50" />
+              <span>返回活跃{mode === 'agent' ? '会话' : '对话'}</span>
+            </button>
+          )}
+        </div>
       )}
 
-      {/* 已归档入口 / 返回活跃对话 */}
-      <div className="px-3 pb-1">
-        {viewMode === 'active' ? (
-          <>
-            {mode === 'chat' && archivedConversationCount > 0 && (
-              <button
-                onClick={() => setViewMode('archived')}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-[12px] text-foreground/40 hover:bg-foreground/[0.04] hover:text-foreground/60 transition-colors titlebar-no-drag"
-              >
-                <Archive size={13} className="text-foreground/30" />
-                <span>已归档 ({archivedConversationCount})</span>
-              </button>
-            )}
-            {mode === 'agent' && archivedAgentSessionCount > 0 && (
-              <button
-                onClick={() => setViewMode('archived')}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-[12px] text-foreground/40 hover:bg-foreground/[0.04] hover:text-foreground/60 transition-colors titlebar-no-drag"
-              >
-                <Archive size={13} className="text-foreground/30" />
-                <span>已归档 ({archivedAgentSessionCount})</span>
-              </button>
-            )}
-          </>
-        ) : (
-          <button
-            onClick={() => setViewMode('active')}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-[12px] text-foreground/60 bg-foreground/[0.04] hover:bg-foreground/[0.07] hover:text-foreground/80 transition-colors titlebar-no-drag"
-          >
-            <ArrowLeft size={13} className="text-foreground/50" />
-            <span>返回活跃{mode === 'agent' ? '会话' : '对话'}</span>
-          </button>
-        )}
-      </div>
-
-      {/* Agent 模式：工作区能力指示器 */}
-      {mode === 'agent' && capabilities && (
+      {/* Agent 能力指示器（仅在 Agent 对话视图时显示） */}
+      {activeView === 'conversations' && mode === 'agent' && capabilities && (
         <div className="px-3 pb-1">
           <Tooltip>
             <TooltipTrigger asChild>

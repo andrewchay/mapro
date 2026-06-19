@@ -95,7 +95,7 @@ import { AgentSessionProvider } from '@/contexts/session-context'
 import { draftSessionIdsAtom } from '@/atoms/draft-session-atoms'
 import { sendWithCmdEnterAtom } from '@/atoms/shortcut-atoms'
 import type { AgentSendInput, AgentPendingFile, FileDialogLargeFile, ModelOption, SDKMessage } from '@ma-proma/shared'
-import { MAX_ATTACHMENT_SIZE } from '@ma-proma/shared'
+import { MAX_ATTACHMENT_SIZE, isAgentCompatibleProvider } from '@ma-proma/shared'
 import { fileToBase64, formatFileNames, getFileParentPath } from '@/lib/file-utils'
 
 /** 稳定的空 SDKMessage 数组引用，避免 ?? [] 每次创建新引用 */
@@ -459,14 +459,16 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
   const globalChannels = useAtomValue(channelsAtom)
 
   // 检查 Agent 渠道列表中是否存在可用的模型（渠道 enabled + 模型 enabled）
+  // 当 agentChannelIds 为空时，自动包含所有已启用的 Anthropic 兼容渠道
   const hasAvailableModel = React.useMemo(() => {
-    // Proma 官方渠道（商业版）：只要 enabled 且有可用模型，直接视为可用
-    const promaOfficial = globalChannels.find((c) => c.id === 'proma-official')
-    if (promaOfficial?.enabled && promaOfficial.models.some((m) => m.enabled)) return true
-    // 其他渠道：需在 agentChannelIds 白名单中
-    if (!agentChannelIds || agentChannelIds.length === 0) return false
+    const effectiveAgentChannelIds = agentChannelIds && agentChannelIds.length > 0
+      ? agentChannelIds
+      : globalChannels
+          .filter((c) => c.enabled && isAgentCompatibleProvider(c.provider))
+          .map((c) => c.id)
+    if (effectiveAgentChannelIds.length === 0) return false
     return globalChannels.some(
-      (c) => c.enabled && agentChannelIds.includes(c.id) && c.models.some((m) => m.enabled),
+      (c) => c.enabled && effectiveAgentChannelIds.includes(c.id) && c.models.some((m) => m.enabled),
     )
   }, [globalChannels, agentChannelIds])
   React.useEffect(() => {

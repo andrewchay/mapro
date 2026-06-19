@@ -1,10 +1,10 @@
 /**
- * TutorialBanner - 教程推荐横幅
+ * TutorialBanner - 营销工作流引导横幅
  *
- * 固定在右下角的浮动卡片，引导用户查看教程。
+ * 固定在右下角的浮动卡片，引导用户了解营销 Agent 工作流。
  * - 不区分新老用户，使用 tutorialBannerDismissed 字段控制
  * - 用户点击「立即学习」或「稍后再学」后永不再显示
- * - 明确告知教程的下次访问位置：设置 > 教程
+ * - 明确告知教程的下次访问位置：设置 > MAPro 教程
  */
 
 import * as React from 'react'
@@ -76,8 +76,8 @@ export function TutorialBanner(): React.ReactElement | null {
             <GraduationCap size={20} className="text-primary" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-foreground">Proma 使用教程</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">了解 Proma 的全部功能和使用技巧</p>
+            <h3 className="text-sm font-semibold text-foreground">掌握营销 Agent 工作流</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">从策略制定到达人匹配、内容审核、投放优化的完整指南</p>
           </div>
         </div>
 
@@ -102,7 +102,7 @@ export function TutorialBanner(): React.ReactElement | null {
 
         {/* 提示文字 */}
         <p className="text-[11px] text-muted-foreground/60 mt-3 text-center">
-          你可以随时在 设置 &gt; 教程 中查看完整教程
+          你可以随时在 设置 &gt; MAPro 教程 中查看完整教程
         </p>
       </div>
     </div>

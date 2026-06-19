@@ -15,15 +15,11 @@ import {
   Info,
   Plug,
   Globe,
-  BookOpen,
   Wrench,
   Bot,
   GraduationCap,
   X,
-  Keyboard,
   Mic,
-  HardDriveDownload,
-  HardDrive,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { settingsTabAtom, channelFormDirtyAtom, settingsCloseRequestedAtom } from "@/atoms/settings-tab";
@@ -67,7 +63,6 @@ interface TabItem {
 const BASE_TABS: TabItem[] = [
   { id: "general", label: "通用设置", icon: <Settings size={16} /> },
   { id: "channels", label: "模型配置", icon: <Radio size={16} /> },
-  { id: "prompts", label: "提示词管理", icon: <BookOpen size={16} /> },
   { id: "proxy", label: "代理设置", icon: <Globe size={16} /> },
 ];
 
@@ -79,7 +74,7 @@ const AGENT_TAB: TabItem = {
 };
 const TOOLS_TAB: TabItem = {
   id: "tools",
-  label: "Chat 工具",
+  label: "营销工具",
   icon: <Wrench size={16} />,
 };
 const BOTS_TAB: TabItem = {
@@ -89,13 +84,8 @@ const BOTS_TAB: TabItem = {
 };
 const TUTORIAL_TAB: TabItem = {
   id: "tutorial",
-  label: "Proma 教程",
+  label: "MAPro 教程",
   icon: <GraduationCap size={16} />,
-};
-const SHORTCUTS_TAB: TabItem = {
-  id: "shortcuts",
-  label: "快捷键管理",
-  icon: <Keyboard size={16} />,
 };
 const VOICE_INPUT_TAB: TabItem = {
   id: "voice-input",
@@ -105,10 +95,8 @@ const VOICE_INPUT_TAB: TabItem = {
 
 /** 尾部 Tabs */
 const TAIL_TABS: TabItem[] = [
-  { id: "migration", label: "数据迁移", icon: <HardDriveDownload size={16} /> },
-  { id: "storage", label: "磁盘管理", icon: <HardDrive size={16} /> },
   { id: "appearance", label: "外观设置", icon: <Palette size={16} /> },
-  { id: "about", label: "关于/更新", icon: <Info size={16} /> },
+  { id: "about", label: "关于", icon: <Info size={16} /> },
 ];
 
 /** 根据标签页 id 渲染对应内容 */
@@ -217,7 +205,6 @@ export function SettingsPanel({
         VOICE_INPUT_TAB,
         BOTS_TAB,
         TUTORIAL_TAB,
-        SHORTCUTS_TAB,
         ...TAIL_TABS,
       ];
     }
@@ -227,7 +214,6 @@ export function SettingsPanel({
       VOICE_INPUT_TAB,
       BOTS_TAB,
       TUTORIAL_TAB,
-      SHORTCUTS_TAB,
       ...TAIL_TABS,
     ];
   }, [appMode]);

@@ -544,13 +544,13 @@ export function resolveAndReadFile(filePath: string, basePaths?: string[]): { re
   }
 }
 
-/** 仅解析文件路径（不读取内容），供图片等用 proma-file:// 协议加载的场景使用 */
+/** 仅解析文件路径（不读取内容），供图片等用 mapro-file:// 协议加载的场景使用 */
 export function resolveFilePath(filePath: string, basePaths?: string[]): string | null {
   const safePath = resolveTargetPath(filePath, basePaths)
   return existsSync(safePath) ? safePath : null
 }
 
-/** 为内联 PDF 预览生成临时 HTML 文件（使用 proma-file:// 加载 PDF，无体积膨胀） */
+/** 为内联 PDF 预览生成临时 HTML 文件（使用 mapro-file:// 加载 PDF，无体积膨胀） */
 export async function preparePdfPreview(filePath: string, basePaths?: string[]): Promise<{ resolvedPath: string; tmpHtmlUrl: string } | null> {
   const safePath = resolveTargetPath(filePath, basePaths)
   if (!existsSync(safePath)) return null
@@ -563,13 +563,13 @@ export async function preparePdfPreview(filePath: string, basePaths?: string[]):
   let standardFontDataUrl: string
   let registerFilePath: (path: string) => string
   try {
-    const { registerPromaDirectoryPath, registerPromaFilePath } = await import('./local-file-protocol')
-    registerFilePath = registerPromaFilePath
-    fileUrl = registerPromaFilePath(safePath)
-    pdfScriptUrl = registerPromaFilePath(require.resolve(`${PDFJS_PACKAGE}/build/pdf.min.mjs`))
-    pdfWorkerUrl = registerPromaFilePath(require.resolve(`${PDFJS_PACKAGE}/build/pdf.worker.min.mjs`))
+    const { registerMAProDirectoryPath, registerMAProFilePath } = await import('./local-file-protocol')
+    registerFilePath = registerMAProFilePath
+    fileUrl = registerMAProFilePath(safePath)
+    pdfScriptUrl = registerMAProFilePath(require.resolve(`${PDFJS_PACKAGE}/build/pdf.min.mjs`))
+    pdfWorkerUrl = registerMAProFilePath(require.resolve(`${PDFJS_PACKAGE}/build/pdf.worker.min.mjs`))
     const pdfPackageDir = dirname(require.resolve(`${PDFJS_PACKAGE}/package.json`))
-    standardFontDataUrl = `${registerPromaDirectoryPath(join(pdfPackageDir, 'standard_fonts'))}/`
+    standardFontDataUrl = `${registerMAProDirectoryPath(join(pdfPackageDir, 'standard_fonts'))}/`
   } catch (err) {
     console.error('[file-preview] preparePdfPreview asset resolution failed:', err)
     return null

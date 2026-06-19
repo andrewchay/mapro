@@ -416,14 +416,10 @@ export function useGlobalAgentListeners(): void {
       ])
 
       let previewOnly = true
-      if (dirPath) {
-        try {
-          const status = await window.electronAPI.getGitRepoStatus(dirPath)
-          previewOnly = status?.isRepo !== true
-        } catch {
-          previewOnly = true
-        }
-      }
+      // 营销场景简化：不检测 Git 仓库状态，直接启用预览模式
+      // 原逻辑：通过 getGitRepoStatus 判断是否为 Git 仓库来决定是否启用 diff 对比
+      // 由于营销 Agent 不需要 Git 版本控制，简化为始终预览模式
+      previewOnly = true
 
       return {
         filePath: targetPath,
@@ -774,7 +770,7 @@ export function useGlobalAgentListeners(): void {
               return next
             })
             // 同步更新权限模式选择器（per-session）
-            store.set(agentPermissionModeMapAtom, (prev: Map<string, import('@ma-proma/shared').PromaPermissionMode>) => {
+            store.set(agentPermissionModeMapAtom, (prev: Map<string, import('@ma-proma/shared').MAProPermissionMode>) => {
               const next = new Map(prev)
               next.set(sessionId, 'plan')
               return next
@@ -782,7 +778,7 @@ export function useGlobalAgentListeners(): void {
           } else if (event.type === 'permission_mode_changed') {
             // 权限模式变更（如 Plan 模式退出后切换到自动审批或完全自动）
             console.log(`[GlobalAgentListeners] 权限模式变更: ${event.mode}`)
-            store.set(agentPermissionModeMapAtom, (prev: Map<string, import('@ma-proma/shared').PromaPermissionMode>) => {
+            store.set(agentPermissionModeMapAtom, (prev: Map<string, import('@ma-proma/shared').MAProPermissionMode>) => {
               const next = new Map(prev)
               next.set(sessionId, event.mode)
               return next

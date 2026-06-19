@@ -2,8 +2,8 @@
  * Agent 工作区管理器
  *
  * 负责 Agent 工作区的 CRUD 操作。
- * - 工作区索引：~/.proma/agent-workspaces.json（轻量元数据）
- * - 工作区目录：~/.proma/agent-workspaces/{slug}/（Agent 的 cwd）
+ * - 工作区索引：~/.mapro/agent-workspaces.json（轻量元数据）
+ * - 工作区目录：~/.mapro/agent-workspaces/{slug}/（Agent 的 cwd）
  */
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, cpSync, rmSync, mkdirSync, statSync, renameSync, openSync, readSync, closeSync } from 'node:fs'
@@ -148,7 +148,15 @@ export function getAgentWorkspace(id: string): AgentWorkspace | undefined {
   return index.workspaces.find((w) => w.id === id)
 }
 
-/** 将 ~/.proma/default-skills/ 的内容逐个复制到工作区 skills/ 目录 */
+/** 营销场景不需要的通用 Skills（不复制到工作区） */
+const EXCLUDED_DEFAULT_SKILLS = new Set([
+  'find-skills',
+  'executing-plans',
+  'writing-plans',
+  'guizang-ppt-skill',
+])
+
+/** 将 ~/.mapro/default-skills/ 的内容逐个复制到工作区 skills/ 目录 */
 function copyDefaultSkills(workspaceSlug: string): void {
   const defaultDir = getDefaultSkillsDir()
   const targetDir = getWorkspaceSkillsDir(workspaceSlug)
@@ -162,6 +170,11 @@ function copyDefaultSkills(workspaceSlug: string): void {
 
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
+      // 跳过营销场景不需要的通用 Skills
+      if (EXCLUDED_DEFAULT_SKILLS.has(entry.name)) {
+        console.log(`[Agent 工作区] 跳过通用 Skill: ${entry.name}`)
+        continue
+      }
       const source = join(defaultDir, entry.name)
       const target = join(targetDir, entry.name)
       cpSync(source, target, { recursive: true })
@@ -250,7 +263,7 @@ export function deleteAgentWorkspace(id: string): void {
   console.log(`[Agent 工作区] 已删除工作区索引: ${removed.name} (slug: ${removed.slug}，目录已保留)`)
 }
 
-/** 确保默认工作区存在，首次启动时自动创建（slug: default） */
+/** 确保默认营销工作区存在，首次启动时自动创建（slug: default） */
 export function ensureDefaultWorkspace(): AgentWorkspace {
   const index = readIndex()
   let defaultWs = index.workspaces.find((w) => w.slug === 'default')
@@ -259,23 +272,33 @@ export function ensureDefaultWorkspace(): AgentWorkspace {
     const now = Date.now()
     defaultWs = {
       id: randomUUID(),
-      name: '默认工作区',
+      name: '默认营销工作区',
       slug: 'default',
       createdAt: now,
       updatedAt: now,
     }
 
     getAgentWorkspacePath('default')
-    ensurePluginManifest('default', '默认工作区')
+    ensurePluginManifest('default', '默认营销工作区')
     copyDefaultSkills('default')
 
     index.workspaces.push(defaultWs)
     writeIndex(index)
 
-    console.log('[Agent 工作区] 已创建默认工作区')
+    console.log('[Agent 工作区] 已创建默认营销工作区')
   } else {
     // 迁移兼容：确保已有默认工作区包含 plugin manifest
     ensurePluginManifest(defaultWs.slug, defaultWs.name)
+    // 迁移：旧版名称为"默认工作区"的更新为"默认营销工作区"
+    if (defaultWs.name === '默认工作区') {
+      defaultWs = { ...defaultWs, name: '默认营销工作区', updatedAt: Date.now() }
+      const idx = index.workspaces.findIndex((w) => w.slug === 'default')
+      if (idx !== -1) {
+        index.workspaces[idx] = defaultWs
+        writeIndex(index)
+        console.log('[Agent 工作区] 已迁移默认工作区名称为"默认营销工作区"')
+      }
+    }
   }
 
   return defaultWs

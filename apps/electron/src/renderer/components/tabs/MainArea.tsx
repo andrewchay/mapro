@@ -13,15 +13,19 @@ import { Panel } from '@/components/app-shell/Panel'
 import { SettingsDialog } from '@/components/settings'
 import { WelcomeView } from '@/components/welcome/WelcomeView'
 import { previewPanelOpenMapAtom, previewSplitRatioAtom } from '@/atoms/preview-atoms'
+import { activeViewAtom } from '@/atoms/active-view'
 import { PreviewPanel } from '@/components/diff/PreviewPanel'
 import { TabBar } from './TabBar'
 import { TabContent } from './TabContent'
+import { CampaignList } from '@/components/agent/CampaignList'
+import { KOLDataManager } from '@/components/agent/KOLDataManager'
 
 export function MainArea(): React.ReactElement {
   const tabs = useAtomValue(tabsAtom)
   const activeTabId = useAtomValue(activeTabIdAtom)
   const setActiveTabId = useSetAtom(activeTabIdAtom)
   const activeTab = useAtomValue(activeTabAtom)
+  const activeView = useAtomValue(activeViewAtom)
 
   // Tab 内容渲染降级为非紧急：TabBar 立即高亮新 tab，主区域昂贵渲染（含 PreviewPanel 中
   // DiffTabContent → ProseMirror editor mount + Shiki tokenize）让出主线程，避免点击 tab
@@ -134,46 +138,52 @@ export function MainArea(): React.ReactElement {
         variant="grow"
         className="bg-content-area rounded-2xl shadow-xl"
       >
-        <div className="flex flex-1 min-h-0 relative overflow-hidden" data-split-container>
-          {/* 左侧：TabBar + TabContent（始终保持在同一 DOM 位置，避免 Tab 切换时 unmount）
-              注：宽度变化不用 transition——文字逐帧 reflow 会导致行末字符抖动，
-              视觉上像"内容从右向左推送"。让左侧瞬间变宽，由右侧 absolute 滑出动画
-              覆盖期内呈现"被剥离"的视觉效果。 */}
-          <div
-            className="flex flex-col min-w-0 h-full"
-            style={leftFlexStyle}
-          >
-            <TabBar />
-            {tabs.length === 0 ? (
-              <WelcomeView />
-            ) : deferredActiveTabId ? (
-              <div className="flex-1 min-h-0 titlebar-no-drag">
-                <TabContent tabId={deferredActiveTabId} />
-              </div>
-            ) : null}
-          </div>
-
-          {/* 右侧：预览面板。关闭动画期间脱离 flex 流，向右滑出 */}
-          {showPreview && (
+        {activeView === 'campaigns' ? (
+          <CampaignList />
+        ) : activeView === 'kol_data' ? (
+          <KOLDataManager />
+        ) : (
+          <div className="flex flex-1 min-h-0 relative overflow-hidden" data-split-container>
+            {/* 左侧：TabBar + TabContent（始终保持在同一 DOM 位置，避免 Tab 切换时 unmount）
+                注：宽度变化不用 transition——文字逐帧 reflow 会导致行末字符抖动，
+                视觉上像"内容从右向左推送"。让左侧瞬间变宽，由右侧 absolute 滑出动画
+                覆盖期内呈现"被剥离"的视觉效果。 */}
             <div
-              className={closing ? 'animate-preview-slide-out' : 'flex flex-1 min-w-0'}
-              style={closingOverlayStyle}
-              onAnimationEnd={(e) => {
-                if (closing && e.target === e.currentTarget) setClosingState(false)
-              }}
+              className="flex flex-col min-w-0 h-full"
+              style={leftFlexStyle}
             >
-              {!closing && (
-                <div
-                  className="w-[8px] cursor-col-resize bg-border/40 hover:bg-primary/30 active:bg-primary/50 transition-colors flex-shrink-0 self-stretch"
-                  onMouseDown={handlePreviewDragStart}
-                />
-              )}
-              <div className="flex-1 min-w-0 h-full overflow-hidden">
-                <PreviewPanel sessionId={previewSessionId} />
-              </div>
+              <TabBar />
+              {tabs.length === 0 ? (
+                <WelcomeView />
+              ) : deferredActiveTabId ? (
+                <div className="flex-1 min-h-0 titlebar-no-drag">
+                  <TabContent tabId={deferredActiveTabId} />
+                </div>
+              ) : null}
             </div>
-          )}
-        </div>
+
+            {/* 右侧：预览面板。关闭动画期间脱离 flex 流，向右滑出 */}
+            {showPreview && (
+              <div
+                className={closing ? 'animate-preview-slide-out' : 'flex flex-1 min-w-0'}
+                style={closingOverlayStyle}
+                onAnimationEnd={(e) => {
+                  if (closing && e.target === e.currentTarget) setClosingState(false)
+                }}
+              >
+                {!closing && (
+                  <div
+                    className="w-[8px] cursor-col-resize bg-border/40 hover:bg-primary/30 active:bg-primary/50 transition-colors flex-shrink-0 self-stretch"
+                    onMouseDown={handlePreviewDragStart}
+                  />
+                )}
+                <div className="flex-1 min-w-0 h-full overflow-hidden">
+                  <PreviewPanel sessionId={previewSessionId} />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </Panel>
       <SettingsDialog />
     </>

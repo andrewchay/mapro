@@ -9,7 +9,7 @@ import { join, resolve, sep, dirname } from 'node:path'
 import { existsSync, realpathSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, isPromaPermissionMode } from '@ma-proma/shared'
+import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, CAMPAIGN_IPC_CHANNELS, KOL_DATA_IPC_CHANNELS, CONTENT_AUDIT_IPC_CHANNELS, isMAProPermissionMode } from '@ma-proma/shared'
 import { USER_PROFILE_IPC_CHANNELS, SETTINGS_IPC_CHANNELS, SCRATCH_PAD_IPC_CHANNELS, QUICK_TASK_IPC_CHANNELS, VOICE_DICTATION_IPC_CHANNELS, APP_ICON_IPC_CHANNELS, DOCK_BADGE_IPC_CHANNELS, STORAGE_IPC_CHANNELS } from '../types'
 import type {
   QuickTaskSubmitInput,
@@ -26,7 +26,6 @@ import type {
 } from '../types'
 import type {
   RuntimeStatus,
-  GitRepoStatus,
   Channel,
   ChannelCreateInput,
   ChannelUpdateInput,
@@ -69,7 +68,7 @@ import type {
   GitHubRelease,
   GitHubReleaseListOptions,
   PermissionResponse,
-  PromaPermissionMode,
+  MAProPermissionMode,
   AskUserResponse,
   ExitPlanModeResponse,
   SystemPromptConfig,
@@ -105,12 +104,33 @@ import type {
   RevertFileInput,
   FileAccessOptions,
   ResolvedFileUrl,
+  CreateCampaignInput,
 } from '@ma-proma/shared'
 import type { UserProfile, AppSettings } from '../types'
-import { getRuntimeStatus, getGitRepoStatus, reinitializeRuntime } from './lib/runtime-init'
+import { getRuntimeStatus, reinitializeRuntime } from './lib/runtime-init'
 import { getUnstagedChanges, getFileDiff, getUntrackedContent, revertFile, getDiffContents } from './lib/git-diff-service'
-import { registerPromaFilePath } from './lib/local-file-protocol'
+import { registerMAProFilePath } from './lib/local-file-protocol'
 import { registerUpdaterIpc } from './lib/updater/updater-ipc'
+import {
+  listCampaigns,
+  createCampaign,
+  getCampaignById,
+  getPoolKOLs,
+  importKOLsToPool,
+  listAvailableKOLs,
+  getBrief,
+  saveBrief,
+  generateBriefTemplate,
+  advanceCampaignPhase,
+  listAllKOLs,
+  updateKOL,
+  deleteKOL,
+  recalculateAllScores,
+  listContentAudits,
+  getContentAudit,
+  createContentAudit,
+  updateContentAuditStatus,
+} from './lib/campaign-manager'
 import {
   listChannels,
   createChannel,
@@ -385,19 +405,6 @@ export function registerIpcHandlers(): void {
     IPC_CHANNELS.REINIT_RUNTIME,
     async (): Promise<RuntimeStatus> => {
       return reinitializeRuntime()
-    }
-  )
-
-  // 获取指定目录的 Git 仓库状态
-  ipcMain.handle(
-    IPC_CHANNELS.GET_GIT_REPO_STATUS,
-    async (_, dirPath: string): Promise<GitRepoStatus | null> => {
-      if (!dirPath || typeof dirPath !== 'string') {
-        console.warn('[IPC] git:get-repo-status 收到无效的目录路径')
-        return null
-      }
-
-      return getGitRepoStatus(dirPath)
     }
   )
 
@@ -1675,8 +1682,8 @@ export function registerIpcHandlers(): void {
   // 热切换指定会话的权限模式（运行中生效，不广播）
   ipcMain.handle(
     AGENT_IPC_CHANNELS.UPDATE_SESSION_PERMISSION_MODE,
-    async (_, sessionId: string, mode: PromaPermissionMode): Promise<void> => {
-      if (!isPromaPermissionMode(mode)) {
+    async (_, sessionId: string, mode: MAProPermissionMode): Promise<void> => {
+      if (!isMAProPermissionMode(mode)) {
         throw new Error(`无效的权限模式: ${mode}`)
       }
       // 会话不存在时直接抛错（避免 updateAgentSessionMeta 的通用异常被降级为 warn）
@@ -2305,7 +2312,7 @@ export function registerIpcHandlers(): void {
         console.warn('[IPC] file:resolve-path 拒绝越界路径:', result)
         return null
       }
-      return result ? { url: registerPromaFilePath(result) } : null
+      return result ? { url: registerMAProFilePath(result) } : null
     }
   )
 
@@ -3376,7 +3383,7 @@ export function registerIpcHandlers(): void {
     async (event): Promise<void> => {
       const { toggleVoiceDictationWindow } = await import('./lib/voice-dictation-window')
       const sourceWindow = BrowserWindow.fromWebContents(event.sender)
-      toggleVoiceDictationWindow({ targetIsProma: !!sourceWindow })
+      toggleVoiceDictationWindow({ targetIsMAPro: !!sourceWindow })
     }
   )
 
@@ -3493,7 +3500,7 @@ export function registerIpcHandlers(): void {
     const result = await dialog.showOpenDialog({
       title: '选择迁移文件',
       filters: [
-        { name: 'Proma 迁移文件', extensions: ['proma-backup', 'proma-share'] },
+        { name: 'MAPro 迁移文件', extensions: ['mapro-backup', 'mapro-share', 'proma-backup', 'proma-share'] },
         { name: '所有文件', extensions: ['*'] },
       ],
       properties: ['openFile'],
@@ -3503,13 +3510,13 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('migration:saveFileDialog', async (_, mode: string) => {
     const { dialog } = await import('electron')
-    const ext = mode === 'personal' ? 'proma-backup' : 'proma-share'
-    const defaultName = `proma-migration-${new Date().toISOString().slice(0, 10)}.${ext}`
+    const ext = mode === 'personal' ? 'mapro-backup' : 'mapro-share'
+    const defaultName = `mapro-migration-${new Date().toISOString().slice(0, 10)}.${ext}`
     const result = await dialog.showSaveDialog({
       title: '保存迁移文件',
       defaultPath: defaultName,
       filters: [
-        { name: mode === 'personal' ? 'Proma 个人备份' : 'Proma 分享包', extensions: [ext] },
+        { name: mode === 'personal' ? 'MAPro 个人备份' : 'MAPro 分享包', extensions: [ext] },
       ],
     })
     return result.canceled ? null : result.filePath
@@ -3548,6 +3555,131 @@ export function registerIpcHandlers(): void {
     async (event) => {
       const win = BrowserWindow.fromWebContents(event.sender)
       return win && !win.isDestroyed() ? win.isMaximized() : false
+    }
+  )
+
+  // ===== Campaign 项目管理 =====
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.LIST,
+    async (): Promise<import('@ma-proma/shared').Campaign[]> => {
+      return listCampaigns()
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.CREATE,
+    async (_, input: CreateCampaignInput): Promise<import('@ma-proma/shared').Campaign> => {
+      return createCampaign(input)
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.GET,
+    async (_, id: string): Promise<import('@ma-proma/shared').Campaign | null> => {
+      return getCampaignById(id)
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.GET_POOL_KOLS,
+    async (_, campaignId: string): Promise<import('@ma-proma/shared').CampaignKOLPoolItem[]> => {
+      return getPoolKOLs(campaignId)
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.IMPORT_KOLS,
+    async (_, input: import('@ma-proma/shared').ImportKOLsToPoolInput): Promise<{ imported: number }> => {
+      return importKOLsToPool(input)
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.LIST_AVAILABLE_KOLS,
+    async (_, filters?: { platform?: string; category?: string; keywords?: string[] }): Promise<import('@ma-proma/shared').KOLSearchResult> => {
+      return listAvailableKOLs(filters)
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.GET_BRIEF,
+    async (_, campaignId: string, kolId: string): Promise<import('@ma-proma/shared').CampaignBrief | null> => {
+      return getBrief(campaignId, kolId)
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.SAVE_BRIEF,
+    async (_, input: import('@ma-proma/shared').SaveCampaignBriefInput): Promise<import('@ma-proma/shared').CampaignBrief> => {
+      return saveBrief(input)
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.ADVANCE_PHASE,
+    async (_, id: string): Promise<import('@ma-proma/shared').Campaign | null> => {
+      return advanceCampaignPhase(id)
+    }
+  )
+
+  // ===== KOL 数据管理 =====
+
+  ipcMain.handle(
+    KOL_DATA_IPC_CHANNELS.LIST_ALL,
+    async (): Promise<import('@ma-proma/shared').KOLListItem[]> => {
+      return listAllKOLs()
+    }
+  )
+
+  ipcMain.handle(
+    KOL_DATA_IPC_CHANNELS.UPDATE,
+    async (_, input: import('@ma-proma/shared').UpdateKOLInput): Promise<boolean> => {
+      return updateKOL(input)
+    }
+  )
+
+  ipcMain.handle(
+    KOL_DATA_IPC_CHANNELS.DELETE,
+    async (_, id: string): Promise<boolean> => {
+      return deleteKOL(id)
+    }
+  )
+
+  ipcMain.handle(
+    KOL_DATA_IPC_CHANNELS.RECALCULATE_SCORES,
+    async (): Promise<{ updated: number }> => {
+      return recalculateAllScores()
+    }
+  )
+
+  // ===== 内容审核流水线 =====
+
+  ipcMain.handle(
+    CONTENT_AUDIT_IPC_CHANNELS.LIST,
+    async (_, campaignId: string): Promise<import('@ma-proma/shared').ContentAudit[]> => {
+      return listContentAudits(campaignId)
+    }
+  )
+
+  ipcMain.handle(
+    CONTENT_AUDIT_IPC_CHANNELS.GET,
+    async (_, auditId: string): Promise<import('@ma-proma/shared').ContentAudit | null> => {
+      return getContentAudit(auditId)
+    }
+  )
+
+  ipcMain.handle(
+    CONTENT_AUDIT_IPC_CHANNELS.CREATE,
+    async (_, input: import('@ma-proma/shared').CreateContentAuditInput): Promise<import('@ma-proma/shared').ContentAudit | null> => {
+      return createContentAudit(input)
+    }
+  )
+
+  ipcMain.handle(
+    CONTENT_AUDIT_IPC_CHANNELS.UPDATE_STATUS,
+    async (_, auditId: string, status: 'pending' | 'reviewing' | 'passed' | 'failed'): Promise<boolean> => {
+      return updateContentAuditStatus(auditId, status)
     }
   )
 }
