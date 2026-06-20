@@ -239,9 +239,82 @@ export const CAMPAIGN_IPC_CHANNELS = {
   ADVANCE_PHASE: 'campaign:advancePhase',
   /** 确保 Campaign Workspace 工具文件存在（旧 Campaign 兼容） */
   ENSURE_WORKSPACE: 'campaign:ensureWorkspace',
+  /** 获取 Campaign 工作流 */
+  GET_WORKFLOW: 'campaign:getWorkflow',
+  /** 更新 Campaign 工作流步骤 */
+  UPDATE_WORKFLOW_STEP: 'campaign:updateWorkflowStep',
+  /** 重置 Campaign 工作流 */
+  RESET_WORKFLOW: 'campaign:resetWorkflow',
 } as const
 
-// ===== 内容审核 =====
+// ===== Campaign 工作流 =====
+
+/** 工作流步骤 ID */
+export type CampaignWorkflowStepId =
+  | 'brand_dna'
+  | 'ta_portrait'
+  | 'creative_concept'
+  | 'platform_matrix'
+  | 'kol_pyramid'
+  | 'search_kols'
+  | 'add_to_pool'
+  | 'generate_briefs'
+  | 'ab_test'
+
+/** 工作流步骤状态 */
+export type CampaignWorkflowStepStatus = 'pending' | 'in_progress' | 'completed' | 'skipped' | 'failed'
+
+/** 单个工作流步骤 */
+export interface CampaignWorkflowStep {
+  /** 步骤 ID */
+  id: CampaignWorkflowStepId
+  /** 显示标题 */
+  title: string
+  /** 描述 */
+  description: string
+  /** 状态 */
+  status: CampaignWorkflowStepStatus
+  /** 执行该步骤时向 Agent 发送的提示词 */
+  agentPrompt: string
+  /** 关联的 Chat Tool 名称 */
+  toolName: string
+  /** 完成时间（可选） */
+  completedAt?: number
+  /** 输出结果摘要（可选） */
+  outputSummary?: string
+  /** 用户备注（可选） */
+  notes?: string
+}
+
+/** Campaign 工作流定义 */
+export interface CampaignWorkflow {
+  /** Campaign ID */
+  campaignId: string
+  /** 当前活跃步骤索引（-1 表示未开始） */
+  currentStepIndex: number
+  /** 所有步骤 */
+  steps: CampaignWorkflowStep[]
+  /** 创建时间 */
+  createdAt: number
+  /** 更新时间 */
+  updatedAt: number
+}
+
+/** 更新工作流步骤输入 */
+export interface UpdateWorkflowStepInput {
+  campaignId: string
+  stepId: CampaignWorkflowStepId
+  status?: CampaignWorkflowStepStatus
+  outputSummary?: string
+  notes?: string
+}
+
+/** 推进工作流步骤输入 */
+export interface AdvanceWorkflowInput {
+  campaignId: string
+  stepId: CampaignWorkflowStepId
+  nextStepId: CampaignWorkflowStepId
+}
 
 export interface ContentAudit {
   auditId: string

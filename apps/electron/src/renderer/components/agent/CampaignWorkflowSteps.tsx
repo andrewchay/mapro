@@ -1,0 +1,370 @@
+/**
+ * CampaignWorkflowSteps - Campaign 工作流步骤列表组件
+ *
+ * 展示 9 步标准工作流进度，支持状态跟踪和 Agent 执行。
+ */
+import * as React from 'react'
+import {
+  Circle,
+  CheckCircle2,
+  Loader2,
+  SkipForward,
+  AlertTriangle,
+  Play,
+  RotateCcw,
+  ChevronDown,
+  ChevronUp,
+  Bot,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import type {
+  CampaignWorkflow,
+  CampaignWorkflowStep,
+  CampaignWorkflowStepId,
+  UpdateWorkflowStepInput,
+} from '@ma-proma/shared'
+
+interface CampaignWorkflowStepsProps {
+  campaignId: string
+  campaignName: string
+  campaignContext: Record<string, string>
+  onOpenInAgent: (prompt: string) => void
+}
+
+const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+  pending: { label: '待开始', color: 'text-muted-foreground', icon: <Circle size={14} /> },
+  in_progress: { label: '进行中', color: 'text-blue-500', icon: <Loader2 size={14} className="animate-spin" /> },
+  completed: { label: '已完成', color: 'text-emerald-500', icon: <CheckCircle2 size={14} /> },
+  skipped: { label: '已跳过', color: 'text-amber-500', icon: <SkipForward size={14} /> },
+  failed: { label: '失败', color: 'text-red-500', icon: <AlertTriangle size={14} /> },
+}
+
+export function CampaignWorkflowSteps({
+  campaignId,
+  campaignName,
+  campaignContext,
+  onOpenInAgent,
+}: CampaignWorkflowStepsProps): React.ReactElement {
+  const [workflow, setWorkflow] = React.useState<CampaignWorkflow | null>(null)
+  const [loading, setLoading] = React.useState(true)
+  const [expandedSteps, setExpandedSteps] = React.useState<Set<string>>(new Set())
+  const [executingStep, setExecutingStep] = React.useState<string | null>(null)
+  const [updatingStep, setUpdatingStep] = React.useState<string | null>(null)
+
+  // 加载工作流
+  React.useEffect(() => {
+    setLoading(true)
+    window.electronAPI
+      .getCampaignWorkflow(campaignId)
+      .then((wf) => {
+        setWorkflow(wf)
+        // 自动展开当前步骤
+        if (wf.currentStepIndex >= 0) {
+          const currentStepId = wf.steps[wf.currentStepIndex]?.id
+          if (currentStepId) {
+            setExpandedSteps(new Set([currentStepId]))
+          }
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [campaignId])
+
+  // 切换步骤展开
+  const toggleExpand = (stepId: string) => {
+    setExpandedSteps((prev) => {
+      const next = new Set(prev)
+      if (next.has(stepId)) {
+        next.delete(stepId)
+      } else {
+        next.add(stepId)
+      }
+      return next
+    })
+  }
+
+  // 更新步骤状态
+  const handleUpdateStep = async (stepId: CampaignWorkflowStepId, status: CampaignWorkflowStep['status']) => {
+    setUpdatingStep(stepId)
+    try {
+      const input: UpdateWorkflowStepInput = {
+        campaignId,
+        stepId,
+        status,
+      }
+      const updated = await window.electronAPI.updateCampaignWorkflowStep(input)
+      setWorkflow(updated)
+    } catch (err) {
+      console.error('[WorkflowSteps] 更新步骤失败:', err)
+    } finally {
+      setUpdatingStep(null)
+    }
+  }
+
+  // 执行步骤（发送到 Agent）
+  const handleExecuteStep = (step: CampaignWorkflowStep) => {
+    setExecutingStep(step.id)
+    // 先标记为进行中
+    handleUpdateStep(step.id, 'in_progress').catch(console.error)
+
+    // 替换提示词模板
+    let prompt = step.agentPrompt
+    for (const [key, value] of Object.entries(campaignContext)) {
+      prompt = prompt.replace(new RegExp(`\\{${key}\\}`, 'g'), value)
+    }
+
+    // 发送到 Agent
+    onOpenInAgent(prompt)
+
+    setTimeout(() => setExecutingStep(null), 500)
+  }
+
+  // 重置工作流
+  const handleReset = async () => {
+    if (!confirm('确定要重置工作流吗？所有步骤状态将清空。')) return
+    try {
+      const updated = await window.electronAPI.resetCampaignWorkflow(campaignId)
+      setWorkflow(updated)
+      setExpandedSteps(new Set())
+    } catch (err) {
+      console.error('[WorkflowSteps] 重置失败:', err)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8 text-muted-foreground">
+        <Loader2 size={16} className="animate-spin mr-2" />
+        <span className="text-xs">加载工作流...</span>
+      </div>
+    )
+  }
+
+  if (!workflow) {
+    return (
+      <div className="text-center py-6 text-muted-foreground text-xs">
+        工作流加载失败
+      </div>
+    )
+  }
+
+  const completedCount = workflow.steps.filter(
+    (s) => s.status === 'completed' || s.status === 'skipped'
+  ).length
+  const progress = Math.round((completedCount / workflow.steps.length) * 100)
+
+  return (
+    <div className="space-y-4">
+      {/* 进度条头部 */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            工作流进度
+          </h3>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+            {completedCount}/{workflow.steps.length}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">{progress}%</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[10px] text-muted-foreground hover:text-red-500"
+            onClick={handleReset}
+          >
+            <RotateCcw size={11} className="mr-1" />
+            重置
+          </Button>
+        </div>
+      </div>
+
+      {/* 进度条 */}
+      <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+        <div
+          className="h-full bg-primary rounded-full transition-all duration-500"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+
+      {/* 步骤列表 */}
+      <div className="space-y-2">
+        {workflow.steps.map((step, index) => {
+          const isCurrent = index === workflow.currentStepIndex
+          const isExpanded = expandedSteps.has(step.id)
+          const status = STATUS_CONFIG[step.status] ?? { label: '未知', color: 'text-gray-500', icon: <Circle size={14} /> }
+          const isExecuting = executingStep === step.id
+          const isUpdating = updatingStep === step.id
+
+          return (
+            <div
+              key={step.id}
+              className={cn(
+                'rounded-xl border transition-all',
+                isCurrent
+                  ? 'border-primary/30 bg-primary/5'
+                  : step.status === 'completed'
+                    ? 'border-border/60 bg-muted/20'
+                    : 'border-border bg-background'
+              )}
+            >
+              {/* 步骤头部 - 可点击展开 */}
+              <button
+                className="w-full flex items-center gap-3 p-3 text-left"
+                onClick={() => toggleExpand(step.id)}
+              >
+                {/* 序号/状态图标 */}
+                <div
+                  className={cn(
+                    'flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center',
+                    step.status === 'completed'
+                      ? 'bg-emerald-500/10'
+                      : step.status === 'in_progress'
+                        ? 'bg-blue-500/10'
+                        : 'bg-muted'
+                  )}
+                >
+                  <span className={cn('text-[11px] font-bold', status.color)}>
+                    {step.status === 'completed' ? (
+                      <CheckCircle2 size={14} />
+                    ) : step.status === 'in_progress' ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      index + 1
+                    )}
+                  </span>
+                </div>
+
+                {/* 标题和描述 */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={cn(
+                        'text-sm font-medium',
+                        step.status === 'completed'
+                          ? 'text-foreground/70'
+                          : 'text-foreground'
+                      )}
+                    >
+                      {step.title}
+                    </span>
+                    <span className={cn('text-[10px] px-1.5 py-0.5 rounded font-medium', status.color)}>
+                      {status.label}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                    {step.description}
+                  </p>
+                </div>
+
+                {/* 展开箭头 */}
+                <div className="flex-shrink-0 text-muted-foreground">
+                  {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </div>
+              </button>
+
+              {/* 展开内容 */}
+              {isExpanded && (
+                <div className="px-3 pb-3 pt-0 border-t border-border/50">
+                  {/* 工具信息 */}
+                  <div className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground">
+                    <Bot size={11} />
+                    <span>工具：{step.toolName}</span>
+                    {step.completedAt && (
+                      <span>
+                        · 完成于 {new Date(step.completedAt).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* 输出摘要 */}
+                  {step.outputSummary && (
+                    <div className="mt-2 p-2 rounded-md bg-muted/50 text-xs text-muted-foreground">
+                      {step.outputSummary}
+                    </div>
+                  )}
+
+                  {/* 用户备注 */}
+                  {step.notes && (
+                    <div className="mt-2 text-[10px] text-muted-foreground">
+                      备注：{step.notes}
+                    </div>
+                  )}
+
+                  {/* 操作按钮 */}
+                  <div className="mt-3 flex items-center gap-2">
+                    {step.status === 'pending' || step.status === 'failed' ? (
+                      <Button
+                        size="sm"
+                        variant="default"
+                        className="h-7 text-xs"
+                        onClick={() => handleExecuteStep(step)}
+                        disabled={isExecuting || isUpdating}
+                      >
+                        {isExecuting ? (
+                          <Loader2 size={12} className="mr-1 animate-spin" />
+                        ) : (
+                          <Play size={12} className="mr-1" />
+                        )}
+                        执行此步骤
+                      </Button>
+                    ) : step.status === 'in_progress' ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/5"
+                        onClick={() => handleUpdateStep(step.id, 'completed')}
+                        disabled={isUpdating}
+                      >
+                        <CheckCircle2 size={12} className="mr-1" />
+                        标记完成
+                      </Button>
+                    ) : step.status === 'completed' ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          onClick={() => handleExecuteStep(step)}
+                          disabled={isExecuting || isUpdating}
+                        >
+                          <RotateCcw size={12} className="mr-1" />
+                          重新执行
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs text-muted-foreground hover:text-amber-500"
+                          onClick={() => handleUpdateStep(step.id, 'pending')}
+                          disabled={isUpdating}
+                        >
+                          <SkipForward size={12} className="mr-1" />
+                          撤销
+                        </Button>
+                      </>
+                    ) : null}
+
+                    {/* 跳过按钮（仅 pending 状态） */}
+                    {step.status === 'pending' && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs text-muted-foreground hover:text-amber-500"
+                        onClick={() => handleUpdateStep(step.id, 'skipped')}
+                        disabled={isUpdating}
+                      >
+                        <SkipForward size={12} className="mr-1" />
+                        跳过
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}

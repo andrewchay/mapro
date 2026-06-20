@@ -134,6 +134,17 @@ import {
   ensureCampaignWorkspace,
 } from './lib/campaign-manager'
 import {
+  loadCampaignWorkflow,
+  updateWorkflowStep,
+  advanceWorkflow,
+  resetWorkflow,
+  getStepAgentPrompt,
+  getCurrentStep,
+  getCompletedSteps,
+  isWorkflowComplete,
+  getWorkflowProgress,
+} from './lib/campaign-workflow-service'
+import {
   listChannels,
   createChannel,
   updateChannel,
@@ -3637,6 +3648,29 @@ export function registerIpcHandlers(): void {
     CAMPAIGN_IPC_CHANNELS.ENSURE_WORKSPACE,
     async (_, campaign: import('@ma-proma/shared').Campaign): Promise<string> => {
       return ensureCampaignWorkspace(campaign)
+    }
+  )
+
+  // ===== Campaign 工作流 =====
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.GET_WORKFLOW,
+    async (_, campaignId: string): Promise<import('@ma-proma/shared').CampaignWorkflow> => {
+      return loadCampaignWorkflow(campaignId)
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.UPDATE_WORKFLOW_STEP,
+    async (_, input: import('@ma-proma/shared').UpdateWorkflowStepInput): Promise<import('@ma-proma/shared').CampaignWorkflow> => {
+      return updateWorkflowStep(input)
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.RESET_WORKFLOW,
+    async (_, campaignId: string): Promise<import('@ma-proma/shared').CampaignWorkflow> => {
+      return resetWorkflow(campaignId)
     }
   )
 

@@ -105,6 +105,8 @@ import type {
   Campaign,
   CreateCampaignInput,
   UpdateCampaignInput,
+  CampaignWorkflow,
+  UpdateWorkflowStepInput,
 } from '@ma-proma/shared'
 import type {
   UserProfile,
@@ -969,6 +971,15 @@ export interface ElectronAPI {
   advanceCampaignPhase: (id: string) => Promise<import('@ma-proma/shared').Campaign | null>
   /** 确保 Campaign Workspace 工具文件存在（旧 Campaign 兼容） */
   ensureCampaignWorkspace: (campaign: import('@ma-proma/shared').Campaign) => Promise<string>
+
+  // ===== Campaign 工作流 =====
+
+  /** 获取 Campaign 工作流 */
+  getCampaignWorkflow: (campaignId: string) => Promise<CampaignWorkflow>
+  /** 更新 Campaign 工作流步骤 */
+  updateCampaignWorkflowStep: (input: UpdateWorkflowStepInput) => Promise<CampaignWorkflow>
+  /** 重置 Campaign 工作流 */
+  resetCampaignWorkflow: (campaignId: string) => Promise<CampaignWorkflow>
 
   // ===== KOL 数据管理 =====
 
@@ -2150,6 +2161,20 @@ const electronAPI: ElectronAPI = {
 
   ensureCampaignWorkspace: (campaign: import('@ma-proma/shared').Campaign) => {
     return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.ENSURE_WORKSPACE, campaign)
+  },
+
+  // ===== Campaign 工作流 =====
+
+  getCampaignWorkflow: (campaignId: string) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.GET_WORKFLOW, campaignId)
+  },
+
+  updateCampaignWorkflowStep: (input: import('@ma-proma/shared').UpdateWorkflowStepInput) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.UPDATE_WORKFLOW_STEP, input)
+  },
+
+  resetCampaignWorkflow: (campaignId: string) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.RESET_WORKFLOW, campaignId)
   },
 
   // ===== KOL 数据管理 =====

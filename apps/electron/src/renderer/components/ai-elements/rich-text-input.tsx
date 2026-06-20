@@ -517,7 +517,7 @@ export function RichTextInput({
   // 同步外部 value 变化（清空时）
   useEffect(() => {
     if (editor) {
-      const controllerValue = value
+      const controllerValue = value ?? ''
       // 如果值是编辑器自己设置的，跳过同步
       if (controllerValue === lastEditorValueRef.current) {
         return

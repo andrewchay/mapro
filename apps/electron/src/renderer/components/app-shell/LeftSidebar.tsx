@@ -14,7 +14,7 @@ import { toast } from 'sonner'
 import { Pin, PinOff, Settings, Plus, Trash2, Pencil, ChevronDown, ChevronRight, Plug, Zap, PanelLeftClose, PanelLeftOpen, ArrowRightLeft, Search, Archive, ArchiveRestore, ArrowLeft, Hammer, Bot, MessageSquare, MoreHorizontal, Target, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
-// import { ModeSwitcher } from './ModeSwitcher'
+import { ModeSwitcher } from './ModeSwitcher'
 import { SearchDialog } from './SearchDialog'
 import { UserAvatar } from '@/components/chat/UserAvatar'
 import { activeViewAtom } from '@/atoms/active-view'
@@ -1209,7 +1209,7 @@ export function LeftSidebar({ width }: LeftSidebarProps): React.ReactElement {
       {/* 模式切换器 + 折叠按钮 */}
       <div className="titlebar-drag-region flex items-start gap-1.5 px-3">
         <div className="flex-1 min-w-0">
-          {/* <ModeSwitcher /> */}
+          <ModeSwitcher />
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
