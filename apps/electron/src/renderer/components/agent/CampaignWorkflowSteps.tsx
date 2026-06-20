@@ -15,7 +15,24 @@ import {
   ChevronDown,
   ChevronUp,
   Bot,
+  Pencil,
 } from 'lucide-react'
+
+const STEP_DIR_MAP: Record<string, string> = {
+  brand_dna: 'brand-dna',
+  ta_portrait: 'ta-portrait',
+  creative_concept: 'creative-concept',
+  platform_matrix: 'platform-matrix',
+  kol_pyramid: 'kol-pyramid',
+  search_kols: 'kol-search',
+  add_to_pool: 'kol-search',
+  generate_briefs: 'briefs',
+  ab_test: 'ab-test',
+}
+
+function getArtifactDir(stepId: string): string {
+  return STEP_DIR_MAP[stepId] ?? 'workspace-files'
+}
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import type {
@@ -117,6 +134,56 @@ export function CampaignWorkflowSteps({
     // 发送到 Agent
     onOpenInAgent(prompt)
 
+    setTimeout(() => setExecutingStep(null), 500)
+  }
+
+  // 调整步骤（带上已有产物上下文）
+  const handleAdjustStep = (step: CampaignWorkflowStep) => {
+    if (!workflow) return
+    setExecutingStep(step.id)
+
+    // 构建调整提示词：带上已有产物上下文
+    const artifactDir = getArtifactDir(step.id)
+    let prompt = `## 调整 Campaign 工作流步骤：${step.title}\n\n`
+    prompt += `这是第 ${workflow.steps.indexOf(step) + 1} 步（共 ${workflow.steps.length} 步）。\n\n`
+
+    // 注入已完成步骤的上下文（作为前置依赖）
+    const completedSteps = workflow.steps.filter(
+      (s) => s.status === 'completed' && s.id !== step.id
+    )
+    if (completedSteps.length > 0) {
+      prompt += `### 已完成的前置步骤\n\n`
+      for (const s of completedSteps) {
+        prompt += `- **${s.title}**: ${s.outputSummary ?? '已完成'}\n`
+      }
+      prompt += `\n`
+    }
+
+    // 注入该步骤已有产物
+    prompt += `### 当前步骤已有产物\n\n`
+    prompt += `步骤: ${step.title}\n`
+    prompt += `工具: ${step.toolName}\n`
+    prompt += `产物目录: \`${artifactDir}/\`\n`
+    if (step.outputSummary) {
+      prompt += `已有产出摘要: ${step.outputSummary}\n`
+    }
+    prompt += `\n`
+
+    // 注入 Campaign 上下文
+    prompt += `### Campaign 上下文\n\n`
+    for (const [key, value] of Object.entries(campaignContext)) {
+      prompt += `- ${key}: ${value}\n`
+    }
+    prompt += `\n`
+
+    // 调整指令
+    prompt += `### 调整指令\n\n`
+    prompt += `请基于上述已有产物和上下文，对"${step.title}"进行调整或完善。\n`
+    prompt += `如果需要修改文件，请保存到 \`${artifactDir}/\` 目录。\n`
+    prompt += `完成后请更新产物摘要。\n\n`
+    prompt += `请告诉我你想调整的具体内容：`
+
+    onOpenInAgent(prompt)
     setTimeout(() => setExecutingStep(null), 500)
   }
 
@@ -331,6 +398,16 @@ export function CampaignWorkflowSteps({
                         >
                           <RotateCcw size={12} className="mr-1" />
                           重新执行
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs border-blue-500/30 text-blue-600 hover:bg-blue-500/5"
+                          onClick={() => handleAdjustStep(step)}
+                          disabled={isExecuting || isUpdating}
+                        >
+                          <Pencil size={12} className="mr-1" />
+                          调整此步骤
                         </Button>
                         <Button
                           size="sm"

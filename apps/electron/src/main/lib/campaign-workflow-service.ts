@@ -2,12 +2,27 @@
  * Campaign 工作流状态服务
  *
  * 管理每个 Campaign 的 9 步标准工作流进度。
- * 存储位置：~/.mapro/agent-workspaces/campaign-{id}/campaign-workflow.json
+ * 存储位置：~/.mapro/agent-workspaces/campaign-{id}/
+ *
+ * 目录结构：
+ *   campaign-workflow.json    # 工作流状态
+ *   .context/
+ *     ├── todo.md              # 结构化 todo 列表
+ *     ├── campaign.md          # Campaign 上下文
+ *     └── history.md           # 执行历史
+ *   brand-dna/                 # 品牌 DNA 产物
+ *   ta-portrait/               # TA 画像产物
+ *   creative-concept/          # 创意概念产物
+ *   platform-matrix/           # 平台矩阵产物
+ *   kol-pyramid/             # KOL 金字塔产物
+ *   kol-search/              # 搜索结果
+ *   briefs/                  # KOL Briefs
+ *   ab-test/                 # A/B 测试方案
  *
  * 每步完成后 Agent 可以更新状态，用户也可手动标记。
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { getAgentWorkspacePath } from './config-paths'
 import type {
@@ -17,6 +32,34 @@ import type {
   UpdateWorkflowStepInput,
   AdvanceWorkflowInput,
 } from '@ma-proma/shared'
+
+// =====================================================================
+// 标准目录定义
+// =====================================================================
+
+const ARTIFACT_DIRS = [
+  'brand-dna',
+  'ta-portrait',
+  'creative-concept',
+  'platform-matrix',
+  'kol-pyramid',
+  'kol-search',
+  'briefs',
+  'ab-test',
+  '.context',
+]
+
+const STEP_DIR_MAP: Record<CampaignWorkflowStepId, string> = {
+  brand_dna: 'brand-dna',
+  ta_portrait: 'ta-portrait',
+  creative_concept: 'creative-concept',
+  platform_matrix: 'platform-matrix',
+  kol_pyramid: 'kol-pyramid',
+  search_kols: 'kol-search',
+  add_to_pool: 'kol-search',        // 搜索结果也放这里
+  generate_briefs: 'briefs',
+  ab_test: 'ab-test',
+}
 
 // =====================================================================
 // 默认 9 步工作流定义
@@ -89,6 +132,176 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
 ]
 
 // =====================================================================
+// 目录和文件管理
+// =====================================================================
+
+/** 确保所有标准 artifact 目录存在 */
+function ensureArtifactDirs(campaignId: string): void {
+  const slug = `campaign-${campaignId}`
+  const baseDir = getAgentWorkspacePath(slug)
+  for (const dir of ARTIFACT_DIRS) {
+    const dirPath = join(baseDir, dir)
+    if (!existsSync(dirPath)) {
+      mkdirSync(dirPath, { recursive: true })
+      console.log(`[CampaignWorkflow] 已创建目录: ${dirPath}`)
+    }
+  }
+}
+
+/** 生成 todo.md 内容 */
+function generateTodoMarkdown(workflow: CampaignWorkflow): string {
+  const lines: string[] = [
+    '# Campaign 工作流 Todo',
+    '',
+    `Campaign ID: ${workflow.campaignId}`,
+    `创建时间: ${new Date(workflow.createdAt).toLocaleString()}`,
+    `更新时间: ${new Date(workflow.updatedAt).toLocaleString()}`,
+    '',
+  ]
+
+  // 当前步骤
+  const currentStep = workflow.currentStepIndex >= 0 ? workflow.steps[workflow.currentStepIndex] : null
+  if (currentStep && currentStep.status === 'in_progress') {
+    lines.push('## 🔵 当前步骤', '')
+    lines.push(`- [ ] **步骤 ${workflow.currentStepIndex + 1}**: ${currentStep.title} (${currentStep.toolName})`)
+    lines.push(`  - 描述: ${currentStep.description}`)
+    lines.push(`  - 产物目录: \`${STEP_DIR_MAP[currentStep.id]}\``)
+    lines.push('')
+  }
+
+  // 已完成
+  const completed = workflow.steps.filter((s) => s.status === 'completed')
+  if (completed.length > 0) {
+    lines.push('## ✅ 已完成', '')
+    for (const step of completed) {
+      const idx = workflow.steps.indexOf(step) + 1
+      lines.push(`- [x] **步骤 ${idx}**: ${step.title}`)
+      if (step.outputSummary) {
+        lines.push(`  - 产出: ${step.outputSummary}`)
+      }
+      if (step.completedAt) {
+        lines.push(`  - 完成于: ${new Date(step.completedAt).toLocaleString()}`)
+      }
+      lines.push(`  - 产物目录: \`${STEP_DIR_MAP[step.id]}\``)
+    }
+    lines.push('')
+  }
+
+  // 待完成
+  const pending = workflow.steps.filter((s) => s.status !== 'completed' && s.status !== 'skipped')
+  if (pending.length > 0) {
+    lines.push('## ⏳ 待完成', '')
+    for (const step of pending) {
+      const idx = workflow.steps.indexOf(step) + 1
+      const icon = step.status === 'in_progress' ? '🔵' : '⭕'
+      lines.push(`${icon} **步骤 ${idx}**: ${step.title} (${step.toolName})`)
+      lines.push(`   描述: ${step.description}`)
+      lines.push(`   产物目录: \`${STEP_DIR_MAP[step.id]}\``)
+      lines.push('')
+    }
+  }
+
+  // 已跳过
+  const skipped = workflow.steps.filter((s) => s.status === 'skipped')
+  if (skipped.length > 0) {
+    lines.push('## ⏭️ 已跳过', '')
+    for (const step of skipped) {
+      const idx = workflow.steps.indexOf(step) + 1
+      lines.push(`- **步骤 ${idx}**: ${step.title}`)
+    }
+    lines.push('')
+  }
+
+  // 产物目录索引
+  lines.push('## 📁 产物目录索引', '')
+  for (const dir of ARTIFACT_DIRS) {
+    if (dir === '.context') continue
+    lines.push(`- \`${dir}/\` — ${getDirDescription(dir)}`)
+  }
+  lines.push('')
+
+  // 使用说明
+  lines.push('## 📝 使用说明', '')
+  lines.push('1. 点击"执行此步骤"按钮，Agent 会自动执行该步骤')
+  lines.push('2. 执行完成后，点击"标记完成"或让 Agent 自动回写状态')
+  lines.push('3. 如果需要调整已完成的步骤，点击"重新执行"或"调整此步骤"')
+  lines.push('4. 所有产物文件保存在对应的目录中')
+  lines.push('')
+
+  return lines.join('\n')
+}
+
+function getDirDescription(dir: string): string {
+  const desc: Record<string, string> = {
+    'brand-dna': '品牌 DNA 分析文档',
+    'ta-portrait': '目标受众画像报告',
+    'creative-concept': '核心创意概念（Big Idea）',
+    'platform-matrix': '平台内容分发矩阵',
+    'kol-pyramid': 'KOL 合作金字塔方案',
+    'kol-search': '候选达人搜索结果',
+    'briefs': 'KOL 个性化 Brief',
+    'ab-test': 'A/B 测试设计方案',
+  }
+  return desc[dir] ?? '产物目录'
+}
+
+/** 更新所有工作区文件 */
+function syncWorkspaceFiles(workflow: CampaignWorkflow): void {
+  const slug = `campaign-${workflow.campaignId}`
+  const baseDir = getAgentWorkspacePath(slug)
+  const contextDir = join(baseDir, '.context')
+
+  // 1. 确保目录存在
+  ensureArtifactDirs(workflow.campaignId)
+
+  // 2. 更新 todo.md
+  writeFileSync(join(contextDir, 'todo.md'), generateTodoMarkdown(workflow), 'utf-8')
+
+  // 3. 更新 campaign.md（如果还没创建）
+  const campaignMdPath = join(contextDir, 'campaign.md')
+  if (!existsSync(campaignMdPath)) {
+    writeFileSync(campaignMdPath, generateCampaignMdPlaceholder(workflow), 'utf-8')
+  }
+}
+
+function generateCampaignMdPlaceholder(workflow: CampaignWorkflow): string {
+  return `# Campaign 上下文
+
+Campaign ID: ${workflow.campaignId}
+
+## 基本信息
+
+- 品牌:
+- 平台:
+- 总预算:
+- 投放周期:
+- 目标城市:
+- 目标人群:
+
+## 工作流进度
+
+${workflow.steps.map((s, i) => `- ${s.status === 'completed' ? '[x]' : '[ ]'} 步骤 ${i + 1}: ${s.title}`).join('\n')}
+
+## 产物目录
+
+\`\`\`
+brand-dna/          — 品牌 DNA
+ta-portrait/        — TA 画像
+creative-concept/   — 创意概念
+platform-matrix/    — 平台矩阵
+kol-pyramid/      — KOL 金字塔
+kol-search/       — 达人搜索
+briefs/           — KOL Briefs
+ab-test/          — A/B 测试
+\`\`\`
+
+## 历史记录
+
+见 history.md
+`
+}
+
+// =====================================================================
 // 工作流文件路径
 // =====================================================================
 
@@ -129,8 +342,12 @@ export function loadCampaignWorkflow(campaignId: string): CampaignWorkflow {
       const workflow = JSON.parse(raw) as CampaignWorkflow
       // 如果步骤数量不匹配（版本升级），需要合并/更新
       if (workflow.steps.length !== DEFAULT_WORKFLOW_STEPS.length) {
-        return migrateWorkflow(workflow, campaignId)
+        const migrated = migrateWorkflow(workflow, campaignId)
+        syncWorkspaceFiles(migrated)
+        return migrated
       }
+      // 确保目录和 todo.md 存在（旧 Campaign 兼容）
+      syncWorkspaceFiles(workflow)
       return workflow
     } catch (err) {
       console.error(`[CampaignWorkflow] 读取失败，重新初始化: ${campaignId}`, err)
@@ -139,6 +356,7 @@ export function loadCampaignWorkflow(campaignId: string): CampaignWorkflow {
 
   const workflow = createDefaultWorkflow(campaignId)
   saveWorkflow(workflow)
+  syncWorkspaceFiles(workflow)
   return workflow
 }
 
@@ -146,6 +364,8 @@ export function saveWorkflow(workflow: CampaignWorkflow): void {
   const path = getWorkflowPath(workflow.campaignId)
   workflow.updatedAt = Date.now()
   writeFileSync(path, JSON.stringify(workflow, null, 2), 'utf-8')
+  // 同步更新 todo.md 等文件
+  syncWorkspaceFiles(workflow)
 }
 
 /** 工作流版本迁移：新增步骤时保留已有状态 */

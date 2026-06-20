@@ -30,6 +30,10 @@ import { ClaudeAgentAdapter, scanAndKillOrphanedClaudeSubprocesses } from './ada
 import { AgentEventBus } from './agent-event-bus'
 import { AgentOrchestrator } from './agent-orchestrator'
 import { getAgentSessionWorkspacePath, getWorkspaceFilesDir } from './config-paths'
+import { getAgentSessionMeta } from './agent-session-manager'
+import { getAgentWorkspace } from './agent-workspace-manager'
+import { loadCampaignWorkflow, updateWorkflowStep } from './campaign-workflow-service'
+import type { CampaignWorkflowStepId } from '@ma-proma/shared'
 
 // ===== 实例创建 =====
 
@@ -86,6 +90,34 @@ export async function runAgent(
         }
       },
       onComplete: (messages, opts) => {
+        // === Campaign 工作流自动更新 ===
+        // 如果该会话属于 Campaign，自动标记当前 in_progress 步骤为 completed
+        if (!opts?.stoppedByUser && opts?.resultSubtype !== 'error') {
+          try {
+            const session = getAgentSessionMeta(input.sessionId)
+            if (session?.workspaceId) {
+              const workspace = getAgentWorkspace(session.workspaceId)
+              if (workspace?.slug?.startsWith('campaign-')) {
+                const campaignId = workspace.slug.replace('campaign-', '')
+                const workflow = loadCampaignWorkflow(campaignId)
+                const currentStep = workflow.currentStepIndex >= 0
+                  ? workflow.steps[workflow.currentStepIndex]
+                  : null
+                if (currentStep && currentStep.status === 'in_progress') {
+                  updateWorkflowStep({
+                    campaignId,
+                    stepId: currentStep.id,
+                    status: 'completed',
+                  })
+                  console.log(`[CampaignWorkflow] 自动完成步骤: ${currentStep.title} (session=${input.sessionId})`)
+                }
+              }
+            }
+          } catch (workflowErr) {
+            console.error('[CampaignWorkflow] 自动更新步骤失败:', workflowErr)
+          }
+        }
+
         if (!webContents.isDestroyed()) {
           webContents.send(AGENT_IPC_CHANNELS.STREAM_COMPLETE, {
             sessionId: input.sessionId,
