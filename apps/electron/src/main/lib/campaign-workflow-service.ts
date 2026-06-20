@@ -71,63 +71,188 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
     title: '提取品牌 DNA',
     description: '分析品牌核心价值、视觉基因、语言调性，输出品牌 DNA 文档',
     toolName: 'ma-brand-dna',
-    agentPrompt: '请使用 ma-brand-dna 工具分析当前 Campaign 的品牌 DNA。基于品牌名称、目标人群和投放平台，提取品牌核心价值主张、视觉基因、语言调性。将结果保存到工作区目录。',
+    agentPrompt: `## 步骤 1: 提取品牌 DNA
+
+目标：分析当前 Campaign 的品牌 DNA，提取品牌核心价值主张、视觉基因、语言调性。
+
+执行要求：
+1. 使用 ma-brand-dna 工具分析品牌
+2. 产出必须保存到以下目录：\`brand-dna/\`
+3. 文件命名建议：\`brand-dna.md\`、\`visual-dna.md\`、\`tone-voice.md\`
+4. 完成标准：
+   - brand-dna.md 包含品牌核心价值、使命、愿景、定位
+   - visual-dna.md 包含视觉风格、色彩、字体偏好
+   - tone-voice.md 包含语言调性、用词风格、禁忌词
+
+完成后，请返回 "已完成：品牌 DNA 提取"并附上产物摘要。`,
   },
   {
     id: 'ta_portrait',
     title: '构建 TA 画像',
     description: '基于品牌 DNA 和目标城市，构建精准的受众画像（人口统计、兴趣、痛点）',
     toolName: 'ma-ta-portrait',
-    agentPrompt: '请使用 ma-ta-portrait 工具构建当前 Campaign 的目标受众（TA）画像。基于品牌 DNA、目标城市（{targetCity}）、投放平台（{platform}），输出详细的受众画像报告。',
+    agentPrompt: `## 步骤 2: 构建 TA 画像
+
+目标：基于品牌 DNA 和目标城市（{targetCity}）、投放平台（{platform}），构建精准受众画像。
+
+执行要求：
+1. 使用 ma-ta-portrait 工具构建 TA 画像
+2. 产出必须保存到：\`ta-portrait/\`
+3. 文件命名建议：\`ta-portrait.md\`、\`personas.md\`
+4. 完成标准：
+   - ta-portrait.md 包含人口统计、兴趣标签、消费行为、内容偏好
+   - personas.md 包含 2-3 个典型用户 persona（含痛点、使用场景）
+
+前置产物：\`brand-dna/\` 目录中的品牌 DNA 文件
+完成后，请返回 "已完成：TA 画像构建"并附上产物摘要。`,
   },
   {
     id: 'creative_concept',
     title: '生成 Big Idea',
     description: '基于品牌 DNA 和 TA 画像，生成 Campaign 核心创意概念（Big Idea）',
     toolName: 'ma-creative-concept',
-    agentPrompt: '请使用 ma-creative-concept 工具生成当前 Campaign 的核心创意概念（Big Idea）。基于品牌 DNA 和 TA 画像，输出 3 个创意方向，并推荐最优方案。',
+    agentPrompt: `## 步骤 3: 生成 Big Idea
+
+目标：基于品牌 DNA 和 TA 画像，生成 3 个创意方向并推荐最优方案。
+
+执行要求：
+1. 使用 ma-creative-concept 工具生成创意概念
+2. 产出必须保存到：\`creative-concept/\`
+3. 文件命名建议：\`big-idea.md\`、\`creative-directions.md\`
+4. 完成标准：
+   - big-idea.md 包含核心创意概念、传播主张、创意钩子
+   - creative-directions.md 包含 3 个方向（每个方向含视觉示意、文案框架、媒介建议）
+   - 明确推荐最优方案及理由
+
+前置产物：\`brand-dna/\`、\`ta-portrait/\` 目录中的文件
+完成后，请返回 "已完成：Big Idea 生成"并附上产物摘要。`,
   },
   {
     id: 'platform_matrix',
     title: '设计平台矩阵',
     description: '根据创意概念和 TA 画像，设计多平台内容分发矩阵和角色分工',
     toolName: 'ma-platform-role-mapper',
-    agentPrompt: '请使用 ma-platform-role-mapper 工具设计当前 Campaign 的平台内容矩阵。基于 Big Idea 和 TA 画像，为每个平台分配内容角色、KPI 和预算比例。',
+    agentPrompt: `## 步骤 4: 设计平台矩阵
+
+目标：基于 Big Idea 和 TA 画像，为每个平台分配内容角色、KPI 和预算比例。
+
+执行要求：
+1. 使用 ma-platform-role-mapper 工具设计平台矩阵
+2. 产出必须保存到：\`platform-matrix/\`
+3. 文件命名建议：\`platform-matrix.md\`、\`content-calendar.md\`
+4. 完成标准：
+   - platform-matrix.md 包含各平台角色、内容类型、发布频率、KPI、预算分配
+   - content-calendar.md 包含首月内容排期（日期、平台、内容类型、负责人）
+
+前置产物：\`creative-concept/\` 目录中的 Big Idea 文件
+完成后，请返回 "已完成：平台矩阵设计"并附上产物摘要。`,
   },
   {
     id: 'kol_pyramid',
     title: '设计 KOL 金字塔',
     description: '根据预算和平台矩阵，设计 KOL 合作金字塔（头部/腰部/尾部比例）',
     toolName: 'ma-kol-pyramid',
-    agentPrompt: '请使用 ma-kol-pyramid 工具设计当前 Campaign 的 KOL 合作金字塔。基于总预算 {budget} 元、平台矩阵和目标人群，设计头部/腰部/尾部 KOL 的比例、数量及预算分配。',
+    agentPrompt: `## 步骤 5: 设计 KOL 金字塔
+
+目标：基于总预算 {budget} 元、平台矩阵和目标人群，设计头部/腰部/尾部 KOL 金字塔。
+
+执行要求：
+1. 使用 ma-kol-pyramid 工具设计 KOL 金字塔
+2. 产出必须保存到：\`kol-pyramid/\`
+3. 文件命名建议：\`kol-pyramid.md\`、\`kol-tier-spec.md\`
+4. 完成标准：
+   - kol-pyramid.md 包含各层级比例、数量、预算分配、筛选标准
+   - kol-tier-spec.md 包含各层级 KOL 的具体要求（粉丝量、互动率、内容风格）
+   - 总预算分配不超过 {budget} 元
+
+前置产物：\`platform-matrix/\` 目录中的平台矩阵文件
+完成后，请返回 "已完成：KOL 金字塔设计"并附上产物摘要。`,
   },
   {
     id: 'search_kols',
     title: '筛选候选达人',
     description: '基于 KOL 金字塔参数，从数据库中搜索并筛选符合要求的候选达人',
     toolName: 'kol-data/search_kols',
-    agentPrompt: '请使用 kol-data/search_kols 工具筛选当前 Campaign 的候选 KOL。基于 KOL 金字塔设计的参数（平台、类目、粉丝量级、预算范围），搜索并筛选出候选达人列表。',
+    agentPrompt: `## 步骤 6: 筛选候选达人
+
+目标：基于 KOL 金字塔参数（平台、类目、粉丝量级、预算范围），搜索并筛选候选达人。
+
+执行要求：
+1. 使用 kol-data/search_kols 工具筛选候选 KOL
+2. 筛选结果必须保存到：\`kol-search/\`
+3. 文件命名建议：\`kol-search-results.md\`、\`kol-shortlist.md\`
+4. 完成标准：
+   - kol-search-results.md 包含搜索条件、筛选逻辑、符合条件的 KOL 列表
+   - kol-shortlist.md 包含精选推荐（10-20 位，含推荐理由、匹配度分析）
+   - 每位 KOL 信息包含：ID、名称、平台、粉丝量、互动率、类目、报价、城市
+
+前置产物：\`kol-pyramid/\` 目录中的 KOL 金字塔文件
+完成后，请返回 "已完成：候选达人筛选"并附上产物摘要。`,
   },
   {
     id: 'add_to_pool',
     title: '加入候选池',
-    description: '将筛选出的达人加入 Campaign 候选池，并设置初始状态',
+    description: '将筛选出的达人从数据库导入 Campaign 候选池，并设置初始状态',
     toolName: 'ma-campaign-agent',
-    agentPrompt: '请使用 ma-campaign-agent 的 kol_status 功能，将上一步筛选出的候选 KOL 加入当前 Campaign 的候选池。设置初始状态为 candidate，并记录筛选依据。',
+    agentPrompt: `## 步骤 7: 将达人加入候选池
+
+目标：将上一步筛选出的候选 KOL 从数据库导入当前 Campaign 候选池。
+
+执行要求：
+1. 使用 ma-campaign-agent 的 ma_campaign_kol_add 功能（不是 kol_status！）
+2. 提供 kol_ids 参数（逗号分隔的 KOL ID 列表，从 kol-search-results.md 中提取）
+3. 导入完成后，调用 ma_campaign_kol_list 确认导入结果
+4. 记录保存到：\`kol-search/\`
+5. 文件命名建议：\`pool-import-log.md\`
+6. 完成标准：
+   - pool-import-log.md 包含导入时间、导入的 KOL ID 列表、成功/失败数、导入后候选池总数
+   - 所有目标 KOL 都已出现在候选池中（status = candidate）
+   - 已存在的 KOL 会被跳过（不会重复导入）
+
+前置产物：\`kol-search/\` 目录中的搜索结果文件
+完成后，请返回 "已完成：达人导入候选池"并附上导入摘要。`,
   },
   {
     id: 'generate_briefs',
     title: '生成达人 Brief',
     description: '为每个已确认的达人生成个性化的合作 Brief（内容方向、交付物、时间线）',
     toolName: 'ma-creative-pilot',
-    agentPrompt: '请使用 ma-creative-pilot 工具为当前 Campaign 候选池中的每位达人生成个性化 Brief。基于品牌 DNA、创意概念和达人特点，输出内容方向、交付物清单和时间线。',
+    agentPrompt: `## 步骤 8: 生成达人 Brief
+
+目标：为当前 Campaign 候选池中的每位已确认达人（status = confirmed）生成个性化 Brief。
+
+执行要求：
+1. 使用 ma-creative-pilot 工具生成 Brief
+2. 产出必须保存到：\`briefs/\`
+3. 文件命名建议：\`briefs-index.md\`、\`brief-{kol-id}.md\`（每位达人单独一个文件）
+4. 完成标准：
+   - briefs-index.md 包含所有已确认 KOL 列表、Brief 状态、交付时间线
+   - 每个 brief-{kol-id}.md 包含：内容方向、关键信息点、交付物清单、时间节点、审核要求、预算
+   - 每位达人的 Brief 都体现其个人风格和受众特点
+
+前置产物：\`brand-dna/\`、\`creative-concept/\`、\`kol-search/\` 目录中的文件
+完成后，请返回 "已完成：达人 Brief 生成"并附上产物摘要。`,
   },
   {
     id: 'ab_test',
     title: '设计 A/B 测试',
     description: '为 Campaign 设计 A/B 测试方案（变量、分组、指标、样本量）',
     toolName: 'ma-campaign-tester',
-    agentPrompt: '请使用 ma-campaign-tester 工具为当前 Campaign 设计 A/B 测试方案。基于创意概念和平台矩阵，定义测试变量、受众分组、成功指标和样本量计算。',
+    agentPrompt: `## 步骤 9: 设计 A/B 测试
+
+目标：为 Campaign 设计 A/B 测试方案，定义测试变量、受众分组、成功指标和样本量计算。
+
+执行要求：
+1. 使用 ma-campaign-tester 工具设计 A/B 测试
+2. 产出必须保存到：\`ab-test/\`
+3. 文件命名建议：\`ab-test-plan.md\`、\`test-metrics.md\`
+4. 完成标准：
+   - ab-test-plan.md 包含测试目标、变量定义、分组方案、测试周期、执行计划
+   - test-metrics.md 包含关键指标（CTR、转化率、互动率）、样本量计算、统计显著性阈值
+   - 测试方案与创意概念和平台矩阵一致
+
+前置产物：\`creative-concept/\`、\`platform-matrix/\` 目录中的文件
+完成后，请返回 "已完成：A/B 测试设计"并附上产物摘要。`,
   },
 ]
 
@@ -505,4 +630,117 @@ export function getWorkflowProgress(campaignId: string): number {
     (s) => s.status === 'completed' || s.status === 'skipped',
   ).length
   return Math.round((completed / workflow.steps.length) * 100)
+}
+
+// =====================================================================
+// 产物校验与历史记录
+// =====================================================================
+
+import { readdirSync } from 'node:fs'
+
+/** 验证步骤产物目录是否有文件 */
+export function validateStepArtifacts(
+  campaignId: string,
+  stepId: CampaignWorkflowStepId,
+): { valid: boolean; files: string[]; missing: string[] } {
+  const slug = `campaign-${campaignId}`
+  const dirName = STEP_DIR_MAP[stepId]
+  const dirPath = join(getAgentWorkspacePath(slug), dirName)
+
+  if (!existsSync(dirPath)) {
+    return { valid: false, files: [], missing: [dirName] }
+  }
+
+  const files = readdirSync(dirPath).filter((f) => !f.startsWith('.'))
+  const hasFiles = files.length > 0
+
+  return {
+    valid: hasFiles,
+    files,
+    missing: hasFiles ? [] : [`${dirName}/ 目录为空`],
+  }
+}
+
+/** 从 Agent 消息中提取摘要（最后一条 assistant 消息的前 200 字符） */
+export function extractOutputSummary(messages: any[] | undefined): string {
+  if (!messages || messages.length === 0) return '执行完成，未获取输出摘要'
+
+  // 找最后一条 assistant 消息
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    const text = msg?.message?.content?.[0]?.text
+      || msg?.content?.[0]?.text
+      || msg?.message?.content
+      || ''
+    if (text && typeof text === 'string' && text.trim()) {
+      return text.trim().slice(0, 200)
+    }
+  }
+
+  return '执行完成'
+}
+
+/** 追加执行历史到 history.md */
+export function appendHistory(
+  campaignId: string,
+  stepId: CampaignWorkflowStepId,
+  stepTitle: string,
+  status: 'completed' | 'failed' | 'adjusted',
+  outputSummary: string,
+): void {
+  const slug = `campaign-${campaignId}`
+  const baseDir = getAgentWorkspacePath(slug)
+  const contextDir = join(baseDir, '.context')
+  const historyPath = join(contextDir, 'history.md')
+
+  const timestamp = new Date().toLocaleString()
+  const entry = `## ${timestamp} — ${stepTitle}\n\n- 状态: ${status === 'completed' ? '✅ 完成' : status === 'failed' ? '❌ 失败' : '🔄 调整'}\n- 步骤: ${stepId}\n- 摘要: ${outputSummary}\n\n---\n\n`
+
+  try {
+    if (existsSync(historyPath)) {
+      const existing = readFileSync(historyPath, 'utf-8')
+      writeFileSync(historyPath, existing + entry, 'utf-8')
+    } else {
+      writeFileSync(
+        historyPath,
+        `# Campaign 执行历史\n\n记录所有工作流步骤的执行历史。\n\n${entry}`,
+        'utf-8',
+      )
+    }
+    console.log(`[CampaignWorkflow] 已追加历史记录: ${stepId}`)
+  } catch (err) {
+    console.error('[CampaignWorkflow] 写入 history.md 失败:', err)
+  }
+}
+
+/** 带产物校验的完成步骤 */
+export function completeStepWithValidation(
+  campaignId: string,
+  stepId: CampaignWorkflowStepId,
+  messages: any[],
+): { success: boolean; workflow: CampaignWorkflow; reason?: string } {
+  const validation = validateStepArtifacts(campaignId, stepId)
+  const outputSummary = extractOutputSummary(messages)
+
+  if (!validation.valid) {
+    // 产物校验失败，标记为 failed
+    const workflow = updateWorkflowStep({
+      campaignId,
+      stepId,
+      status: 'failed',
+      outputSummary: `产物校验失败: ${validation.missing.join(', ')}`,
+    })
+    appendHistory(campaignId, stepId, workflow.steps.find(s => s.id === stepId)?.title ?? stepId, 'failed', outputSummary)
+    return { success: false, workflow, reason: validation.missing.join(', ') }
+  }
+
+  // 产物校验通过，标记完成
+  const workflow = updateWorkflowStep({
+    campaignId,
+    stepId,
+    status: 'completed',
+    outputSummary,
+  })
+  appendHistory(campaignId, stepId, workflow.steps.find(s => s.id === stepId)?.title ?? stepId, 'completed', outputSummary)
+  return { success: true, workflow }
 }

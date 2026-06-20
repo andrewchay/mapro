@@ -32,7 +32,7 @@ import { AgentOrchestrator } from './agent-orchestrator'
 import { getAgentSessionWorkspacePath, getWorkspaceFilesDir } from './config-paths'
 import { getAgentSessionMeta } from './agent-session-manager'
 import { getAgentWorkspace } from './agent-workspace-manager'
-import { loadCampaignWorkflow, updateWorkflowStep } from './campaign-workflow-service'
+import { loadCampaignWorkflow, updateWorkflowStep, completeStepWithValidation } from './campaign-workflow-service'
 import type { CampaignWorkflowStepId } from '@ma-proma/shared'
 
 // ===== 实例创建 =====
@@ -104,12 +104,17 @@ export async function runAgent(
                   ? workflow.steps[workflow.currentStepIndex]
                   : null
                 if (currentStep && currentStep.status === 'in_progress') {
-                  updateWorkflowStep({
+                  // 使用带产物校验的完成逻辑
+                  const result = completeStepWithValidation(
                     campaignId,
-                    stepId: currentStep.id,
-                    status: 'completed',
-                  })
-                  console.log(`[CampaignWorkflow] 自动完成步骤: ${currentStep.title} (session=${input.sessionId})`)
+                    currentStep.id,
+                    messages ?? [],
+                  )
+                  if (result.success) {
+                    console.log(`[CampaignWorkflow] 自动完成步骤: ${currentStep.title} (session=${input.sessionId})`)
+                  } else {
+                    console.log(`[CampaignWorkflow] 步骤产物校验失败: ${currentStep.title} — ${result.reason}`)
+                  }
                 }
               }
             }

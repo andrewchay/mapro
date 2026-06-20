@@ -6,6 +6,7 @@
  * - 修改 Campaign 基本信息
  * - 获取/修改 KOL Brief
  * - 获取/修改 KOL 候选池状态
+ * - 导入 KOL 到候选池
  * - 触发内容审核
  *
  * 绑定到 Campaign 详情页的聊天面板中使用。
@@ -19,6 +20,7 @@ import {
   getBrief,
   saveBrief,
   createContentAudit,
+  importKOLsToPool,
 } from '../campaign-manager'
 
 // =====================================================================
@@ -28,9 +30,9 @@ import {
 export const CAMPAIGN_AGENT_TOOL_META: ChatToolMeta = {
   id: 'ma-campaign-agent',
   name: 'MA Campaign 管理',
-  description: '通过对话读取和修改 Campaign 数据：获取详情、修改信息、管理KOL Brief、触发审核等。专为 Campaign 内嵌聊天面板设计。',
+  description: '通过对话读取和修改 Campaign 数据：获取详情、修改信息、管理KOL Brief、导入KOL、触发审核等。专为 Campaign 内嵌聊天面板设计。',
   params: [
-    { name: 'action', type: 'string', description: '操作类型：get_campaign/update_campaign/get_brief/update_brief/get_kols/update_kol_status/audit_content', required: true },
+    { name: 'action', type: 'string', description: '操作类型：get_campaign/update_campaign/get_brief/update_brief/get_kols/add_kols/update_kol_status/audit_content', required: true },
     { name: 'campaign_id', type: 'string', description: 'Campaign ID', required: true },
     { name: 'data', type: 'string', description: 'JSON 格式的操作数据', required: false },
   ],
@@ -47,9 +49,11 @@ export const CAMPAIGN_AGENT_TOOL_META: ChatToolMeta = {
 - **ma_campaign_brief_get** — 获取 KOL 的 Brief
 - **ma_campaign_brief_update** — 修改 KOL 的 Brief
 - **ma_campaign_kol_list** — 获取 KOL 候选池列表
-- **ma_campaign_kol_status** — 修改 KOL 在候选池中的状态
+- **ma_campaign_kol_add** — 将 KOL 从数据库导入到 Campaign 候选池（插入新记录）
+- **ma_campaign_kol_status** — 修改已有 KOL 在候选池中的状态
 - **ma_campaign_audit** — 触发内容审核
 
+当用户要求导入 KOL 到候选池时，使用 ma_campaign_kol_add 工具批量导入（提供 kol_id 数组）。
 当用户要求修改 Campaign 数据时，先读取当前数据，然后执行修改，最后确认修改结果。
 </ma_campaign_agent_instructions>`,
 }
@@ -122,6 +126,18 @@ export const CAMPAIGN_AGENT_TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    name: 'ma_campaign_kol_add',
+    description: 'Import KOLs from the database into the campaign pool. KOLs that already exist in the pool will be skipped. Returns how many were actually imported.',
+    parameters: {
+      type: 'object',
+      properties: {
+        campaign_id: { type: 'string', description: 'Campaign ID' },
+        kol_ids: { type: 'string', description: 'Comma-separated list of KOL IDs to import (e.g. "kol1,kol2,kol3")' },
+      },
+      required: ['campaign_id', 'kol_ids'],
+    },
+  },
+  {
     name: 'ma_campaign_kol_status',
     description: 'Update KOL status in the campaign pool.',
     parameters: {
@@ -170,6 +186,7 @@ const TOOL_NAMES = [
   'ma_campaign_brief_get',
   'ma_campaign_brief_update',
   'ma_campaign_kol_list',
+  'ma_campaign_kol_add',
   'ma_campaign_kol_status',
   'ma_campaign_audit',
 ]
@@ -271,6 +288,19 @@ export async function executeCampaignAgentTool(tc: ToolCall): Promise<ToolResult
         return {
           toolCallId: tc.id,
           content: JSON.stringify(kols, null, 2),
+        }
+      }
+
+      case 'ma_campaign_kol_add': {
+        const kolIdsRaw = String(args.kol_ids ?? '')
+        const kolIds = kolIdsRaw.split(',').map(s => s.trim()).filter(Boolean)
+        if (kolIds.length === 0) {
+          return { toolCallId: tc.id, content: 'kol_ids must be a non-empty comma-separated list', isError: true }
+        }
+        const result = importKOLsToPool({ campaignId, kolIds })
+        return {
+          toolCallId: tc.id,
+          content: JSON.stringify({ imported: result.imported, totalRequested: kolIds.length }, null, 2),
         }
       }
 
