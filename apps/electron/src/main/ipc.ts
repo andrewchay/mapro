@@ -115,6 +115,7 @@ import {
   listCampaigns,
   createCampaign,
   getCampaignById,
+  updateCampaign,
   getPoolKOLs,
   importKOLsToPool,
   listAvailableKOLs,
@@ -130,6 +131,7 @@ import {
   getContentAudit,
   createContentAudit,
   updateContentAuditStatus,
+  ensureCampaignWorkspace,
 } from './lib/campaign-manager'
 import {
   listChannels,
@@ -1415,8 +1417,8 @@ export function registerIpcHandlers(): void {
   // 创建 Agent 工作区
   ipcMain.handle(
     AGENT_IPC_CHANNELS.CREATE_WORKSPACE,
-    async (_, name: string): Promise<AgentWorkspace> => {
-      return createAgentWorkspace(name)
+    async (_, name: string, slug?: string): Promise<AgentWorkspace> => {
+      return createAgentWorkspace(name, slug)
     }
   )
 
@@ -3582,6 +3584,13 @@ export function registerIpcHandlers(): void {
   )
 
   ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.UPDATE,
+    async (_, id: string, input: import('@ma-proma/shared').UpdateCampaignInput): Promise<import('@ma-proma/shared').Campaign | null> => {
+      return updateCampaign(id, input)
+    }
+  )
+
+  ipcMain.handle(
     CAMPAIGN_IPC_CHANNELS.GET_POOL_KOLS,
     async (_, campaignId: string): Promise<import('@ma-proma/shared').CampaignKOLPoolItem[]> => {
       return getPoolKOLs(campaignId)
@@ -3620,6 +3629,14 @@ export function registerIpcHandlers(): void {
     CAMPAIGN_IPC_CHANNELS.ADVANCE_PHASE,
     async (_, id: string): Promise<import('@ma-proma/shared').Campaign | null> => {
       return advanceCampaignPhase(id)
+    }
+  )
+
+  // 确保 Campaign Workspace 工具文件存在（旧 Campaign 兼容）
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.ENSURE_WORKSPACE,
+    async (_, campaign: import('@ma-proma/shared').Campaign): Promise<string> => {
+      return ensureCampaignWorkspace(campaign)
     }
   )
 

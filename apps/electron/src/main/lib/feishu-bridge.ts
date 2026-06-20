@@ -45,6 +45,7 @@ import {
 } from './bridge-attachment-utils'
 import { getSettings } from './settings-service'
 import { presenceService } from './feishu-presence'
+import { loadClaudeAgentSdk } from './claude-sdk-loader'
 import {
   buildAgentReplyCard,
   buildNotificationCard,
@@ -1732,7 +1733,7 @@ class FeishuBridge {
     chatId: string,
   ): Promise<Record<string, unknown> | null> {
     try {
-      const sdk = await import('@anthropic-ai/claude-agent-sdk')
+      const sdk = await loadClaudeAgentSdk()
       const { z } = await import('zod')
 
       const server = sdk.createSdkMcpServer({

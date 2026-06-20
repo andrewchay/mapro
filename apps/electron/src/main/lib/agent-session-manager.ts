@@ -21,6 +21,7 @@ import {
   getSdkConfigDir,
 } from './config-paths'
 import { getAgentWorkspace } from './agent-workspace-manager'
+import { loadClaudeAgentSdk } from './claude-sdk-loader'
 
 // 在模块加载时一次性设置 SDK 配置目录，避免在 forkSession 等异步调用中临时修改/恢复
 // process.env 导致的并发安全问题（异步操作的 await 间隙其他代码可能读到错误值）
@@ -703,7 +704,7 @@ export async function forkAgentSession(input: ForkSessionInput): Promise<AgentSe
 
   // 3. 调用 SDK 原生 forkSession
   // process.env.CLAUDE_CONFIG_DIR 已在模块加载时设置，SDK 会自动读取
-  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  const sdk = await loadClaudeAgentSdk()
   let forkResult: Awaited<ReturnType<typeof sdk.forkSession>>
   try {
     forkResult = await sdk.forkSession(forkSourceSdkSessionId, {

@@ -27,6 +27,7 @@ const DEFAULT_CONFIG: ChatToolsFileConfig = {
     'ma-script-studio': { enabled: true },
     'ma-content-audit': { enabled: true },
     'ma-campaign-tester': { enabled: true },
+    'ma-campaign-agent': { enabled: true },
     'ma-kol-crm': { enabled: true },
     'ma-kol-portal': { enabled: true },
   },

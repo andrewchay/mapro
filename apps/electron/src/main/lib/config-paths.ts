@@ -46,6 +46,14 @@ export function getConfigDirName(): string {
  * 如果目录不存在则自动创建。
  */
 export function getConfigDir(): string {
+  if (process.env._MAPRO_TEST_CONFIG_DIR) {
+    const testConfigDir = process.env._MAPRO_TEST_CONFIG_DIR
+    if (!existsSync(testConfigDir)) {
+      mkdirSync(testConfigDir, { recursive: true })
+    }
+    return testConfigDir
+  }
+
   const configDir = join(homedir(), getConfigDirName())
 
   if (!existsSync(configDir)) {

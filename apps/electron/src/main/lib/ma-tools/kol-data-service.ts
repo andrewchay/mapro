@@ -148,6 +148,13 @@ export interface KOLCollectorReport {
   message?: string
 }
 
+type KOLScoreFields = Pick<KOLRecord, 'fanScore' | 'engagementScore' | 'contentScore' | 'overallScore'>
+type KOLUpsertInput = Omit<KOLRecord, 'createdAt' | 'updatedAt' | keyof KOLScoreFields> &
+  Partial<KOLScoreFields> & {
+    createdAt?: number
+    updatedAt?: number
+  }
+
 // =====================================================================
 // 数据库初始化
 // =====================================================================
@@ -334,7 +341,7 @@ export function closeKolDatabase(): void {
 /**
  * 插入或更新 KOL 记录
  */
-export function upsertKOL(kol: Omit<KOLRecord, 'createdAt' | 'updatedAt'> & { createdAt?: number; updatedAt?: number }): void {
+export function upsertKOL(kol: KOLUpsertInput): void {
   const db = getDb()
   const now = Date.now()
 
@@ -374,9 +381,9 @@ export function upsertKOL(kol: Omit<KOLRecord, 'createdAt' | 'updatedAt'> & { cr
       kol.avatar,
       kol.source,
       kol.rawData,
-      scores.fanScore,
-      scores.engagementScore,
+      scores.baseScore,
       scores.contentScore,
+      scores.commercialScore,
       scores.overallScore,
       kol.createdAt ?? now,
       kol.updatedAt ?? now,
@@ -531,18 +538,20 @@ function rowToKOL(row: Record<string, unknown>): KOLRecord {
 // =====================================================================
 
 const SAMPLE_KOLS: Omit<KOLRecord, 'createdAt' | 'updatedAt'>[] = [
-  { id: 'mock_小红书_美妆达人小美', name: '@美妆达人小美', platform: '小红书', followers: '50万', engagement: '8.5%', category: '美妆', price: '3万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
-  { id: 'mock_小红书_护肤分享师', name: '@护肤分享师', platform: '小红书', followers: '30万', engagement: '9.2%', category: '美妆', price: '2万', city: '杭州', avatar: '', source: 'mock', rawData: '{}' },
-  { id: 'mock_小红书_生活方式博主', name: '@生活方式博主', platform: '小红书', followers: '80万', engagement: '6.8%', category: '生活方式', price: '5万', city: '北京', avatar: '', source: 'mock', rawData: '{}' },
-  { id: 'mock_小红书_母婴博主乐乐', name: '@母婴博主乐乐', platform: '小红书', followers: '40万', engagement: '10.1%', category: '母婴', price: '2.5万', city: '广州', avatar: '', source: 'mock', rawData: '{}' },
-  { id: 'mock_小红书_数码测评君', name: '@数码测评君', platform: '小红书', followers: '60万', engagement: '7.5%', category: '3C', price: '4万', city: '深圳', avatar: '', source: 'mock', rawData: '{}' },
-  { id: 'mock_抖音_时尚小姐姐', name: '@时尚小姐姐', platform: '抖音', followers: '200万', engagement: '5.2%', category: '时尚', price: '15万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
-  { id: 'mock_抖音_搞笑日常', name: '@搞笑日常', platform: '抖音', followers: '500万', engagement: '4.8%', category: '娱乐', price: '30万', city: '成都', avatar: '', source: 'mock', rawData: '{}' },
-  { id: 'mock_抖音_美食探店', name: '@美食探店', platform: '抖音', followers: '150万', engagement: '6.5%', category: '美食', price: '10万', city: '重庆', avatar: '', source: 'mock', rawData: '{}' },
-  { id: 'mock_抖音_科技大人', name: '@科技大人', platform: '抖音', followers: '300万', engagement: '5.8%', category: '3C', price: '20万', city: '北京', avatar: '', source: 'mock', rawData: '{}' },
-  { id: 'mock_微博_时尚icon', name: '@时尚icon', platform: '微博', followers: '800万', engagement: '3.5%', category: '时尚', price: '50万', city: '北京', avatar: '', source: 'mock', rawData: '{}' },
-  { id: 'mock_微博_美妆教主', name: '@美妆教主', platform: '微博', followers: '600万', engagement: '4.2%', category: '美妆', price: '40万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
-  { id: 'mock_B站_测评实验室', name: '@测评实验室', platform: 'B站', followers: '150万', engagement: '12.5%', category: '3C', price: '12万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
+  ...[
+    { id: 'mock_小红书_美妆达人小美', name: '@美妆达人小美', platform: '小红书', followers: '50万', engagement: '8.5%', category: '美妆', price: '3万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
+    { id: 'mock_小红书_护肤分享师', name: '@护肤分享师', platform: '小红书', followers: '30万', engagement: '9.2%', category: '美妆', price: '2万', city: '杭州', avatar: '', source: 'mock', rawData: '{}' },
+    { id: 'mock_小红书_生活方式博主', name: '@生活方式博主', platform: '小红书', followers: '80万', engagement: '6.8%', category: '生活方式', price: '5万', city: '北京', avatar: '', source: 'mock', rawData: '{}' },
+    { id: 'mock_小红书_母婴博主乐乐', name: '@母婴博主乐乐', platform: '小红书', followers: '40万', engagement: '10.1%', category: '母婴', price: '2.5万', city: '广州', avatar: '', source: 'mock', rawData: '{}' },
+    { id: 'mock_小红书_数码测评君', name: '@数码测评君', platform: '小红书', followers: '60万', engagement: '7.5%', category: '3C', price: '4万', city: '深圳', avatar: '', source: 'mock', rawData: '{}' },
+    { id: 'mock_抖音_时尚小姐姐', name: '@时尚小姐姐', platform: '抖音', followers: '200万', engagement: '5.2%', category: '时尚', price: '15万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
+    { id: 'mock_抖音_搞笑日常', name: '@搞笑日常', platform: '抖音', followers: '500万', engagement: '4.8%', category: '娱乐', price: '30万', city: '成都', avatar: '', source: 'mock', rawData: '{}' },
+    { id: 'mock_抖音_美食探店', name: '@美食探店', platform: '抖音', followers: '150万', engagement: '6.5%', category: '美食', price: '10万', city: '重庆', avatar: '', source: 'mock', rawData: '{}' },
+    { id: 'mock_抖音_科技大人', name: '@科技大人', platform: '抖音', followers: '300万', engagement: '5.8%', category: '3C', price: '20万', city: '北京', avatar: '', source: 'mock', rawData: '{}' },
+    { id: 'mock_微博_时尚icon', name: '@时尚icon', platform: '微博', followers: '800万', engagement: '3.5%', category: '时尚', price: '50万', city: '北京', avatar: '', source: 'mock', rawData: '{}' },
+    { id: 'mock_微博_美妆教主', name: '@美妆教主', platform: '微博', followers: '600万', engagement: '4.2%', category: '美妆', price: '40万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
+    { id: 'mock_B站_测评实验室', name: '@测评实验室', platform: 'B站', followers: '150万', engagement: '12.5%', category: '3C', price: '12万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
+  ].map((kol) => ({ ...kol, fanScore: 0, engagementScore: 0, contentScore: 0, overallScore: 0 })),
 ]
 
 /**
@@ -648,6 +657,10 @@ function normalizeJustOneItem(item: unknown, platform: string): KOLRecord {
     avatar: String(raw.headImg ?? raw.avatar ?? raw.avatarUrl ?? ''),
     source: 'justone',
     rawData: JSON.stringify(raw),
+    fanScore: 0,
+    engagementScore: 0,
+    contentScore: 0,
+    overallScore: 0,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   }
@@ -706,6 +719,10 @@ export async function searchNewrank(
         avatar: String(raw.headImg ?? raw.avatar ?? ''),
         source: 'newrank',
         rawData: JSON.stringify(raw),
+        fanScore: 0,
+        engagementScore: 0,
+        contentScore: 0,
+        overallScore: 0,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       }

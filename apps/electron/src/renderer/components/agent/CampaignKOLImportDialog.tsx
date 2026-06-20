@@ -49,6 +49,7 @@ export function CampaignKOLImportDialog({
   open,
   onOpenChange,
   onImported,
+  onNavigateToKolData,
 }: CampaignKOLImportDialogProps): React.ReactElement {
   const [availableKOLs, setAvailableKOLs] = React.useState<KOLSearchResult>({ kols: [], total: 0 })
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set())

@@ -20,6 +20,36 @@ export type CampaignStatus =
   | 'review'
   | 'completed'
 
+/** Campaign 阶段计划 */
+export interface CampaignPhasePlan {
+  /** 阶段序号 */
+  phase: number
+  /** 阶段名称 */
+  name: string
+  /** 阶段月份范围 */
+  months: string
+  /** 阶段目标 */
+  goal: string
+  /** 阶段预算（元） */
+  budget: number
+}
+
+/** Campaign 创意策略 */
+export interface CampaignCreativePlan {
+  /** 核心创意概念 */
+  bigIdea: string
+  /** 核心传播信息 */
+  coreMessage: string
+  /** 内容支柱 */
+  contentPillars: string[]
+  /** 语气与风格 */
+  tone: string
+  /** 必须包含的元素 */
+  mandatoryElements: string[]
+  /** 禁止或规避的元素 */
+  forbiddenElements: string[]
+}
+
 /** Campaign 项目 */
 export interface Campaign {
   /** 唯一标识 */
@@ -40,6 +70,10 @@ export interface Campaign {
   targetAudience: string
   /** 当前阶段（1-3） */
   currentPhase: number
+  /** 阶段计划 */
+  phasePlans: CampaignPhasePlan[]
+  /** 创意策略 */
+  creativePlan: CampaignCreativePlan
   /** 状态 */
   status: CampaignStatus
   /** 创建时间 */
@@ -57,6 +91,23 @@ export interface CreateCampaignInput {
   durationMonths: number
   targetCity: string[]
   targetAudience: string
+  phasePlans?: CampaignPhasePlan[]
+  creativePlan?: CampaignCreativePlan
+}
+
+/** 更新 Campaign 输入 */
+export interface UpdateCampaignInput {
+  name?: string
+  brand?: string
+  platform?: CampaignPlatform
+  budget?: number
+  durationMonths?: number
+  targetCity?: string[]
+  targetAudience?: string
+  currentPhase?: number
+  phasePlans?: CampaignPhasePlan[]
+  creativePlan?: CampaignCreativePlan
+  status?: CampaignStatus
 }
 
 // ===== KOL 候选池 =====
@@ -172,6 +223,8 @@ export const CAMPAIGN_IPC_CHANNELS = {
   GET: 'campaign:get',
   /** 创建 Campaign */
   CREATE: 'campaign:create',
+  /** 更新 Campaign */
+  UPDATE: 'campaign:update',
   /** 获取 Campaign 候选池 KOL */
   GET_POOL_KOLS: 'campaign:getPoolKols',
   /** 导入 KOL 到候选池 */
@@ -184,6 +237,8 @@ export const CAMPAIGN_IPC_CHANNELS = {
   SAVE_BRIEF: 'campaign:saveBrief',
   /** 推进 Campaign 到下一阶段 */
   ADVANCE_PHASE: 'campaign:advancePhase',
+  /** 确保 Campaign Workspace 工具文件存在（旧 Campaign 兼容） */
+  ENSURE_WORKSPACE: 'campaign:ensureWorkspace',
 } as const
 
 // ===== 内容审核 =====

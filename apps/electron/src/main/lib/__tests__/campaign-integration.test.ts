@@ -7,31 +7,55 @@
  * 3. 候选池查询
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, mock } from 'bun:test'
 import { existsSync, unlinkSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import {
-  closeCampaignDatabase,
-  listCampaigns,
-  createCampaign,
-  getCampaignById,
-  getPoolKOLs,
-  importKOLsToPool,
-  listAvailableKOLs,
-} from '../campaign-manager'
 import type { CreateCampaignInput } from '@ma-proma/shared'
+import type {
+  Campaign,
+  CampaignKOLPoolItem,
+  ImportKOLsToPoolInput,
+  KOLSearchResult,
+} from '@ma-proma/shared'
+
+mock.module('electron', () => ({
+  app: {
+    getPath: () => TEST_DIR,
+  },
+  safeStorage: {
+    isEncryptionAvailable: () => false,
+    encryptString: (value: string) => Buffer.from(value),
+    decryptString: (value: Buffer) => value.toString('utf8'),
+  },
+}))
 
 const TEST_DIR = join(tmpdir(), `mapro-campaign-test-${Date.now()}`)
 
-beforeAll(() => {
+interface CampaignManagerModule {
+  closeCampaignDatabase: () => void
+  listCampaigns: () => Campaign[]
+  createCampaign: (input: CreateCampaignInput) => Campaign
+  getCampaignById: (id: string) => Campaign | undefined
+  updateCampaign: (
+    id: string,
+    input: Partial<Pick<Campaign, 'phasePlans' | 'creativePlan'>>
+  ) => Campaign | null
+  getPoolKOLs: (campaignId: string) => CampaignKOLPoolItem[]
+  importKOLsToPool: (input: ImportKOLsToPoolInput) => { imported: number }
+  listAvailableKOLs: (filters?: { limit?: number }) => KOLSearchResult
+}
+
+let campaignManager: CampaignManagerModule
+
+beforeAll(async () => {
   mkdirSync(TEST_DIR, { recursive: true })
-  // @ts-expect-error 注入测试配置目录
   process.env._MAPRO_TEST_CONFIG_DIR = TEST_DIR
+  campaignManager = await import('../campaign-manager') as CampaignManagerModule
 })
 
 afterAll(() => {
-  closeCampaignDatabase()
+  campaignManager.closeCampaignDatabase()
   const dbPath = join(TEST_DIR, 'campaign-database.sqlite')
   if (existsSync(dbPath)) unlinkSync(dbPath)
   const kolDbPath = join(TEST_DIR, 'kol-database.sqlite')
@@ -52,18 +76,21 @@ describe('Campaign 集成测试', () => {
       targetAudience: '25-35岁沪杭都市女性，追求品质生活',
     }
 
-    const campaign = createCampaign(input)
+    const campaign = campaignManager.createCampaign(input)
 
     expect(campaign.id).toBeDefined()
     expect(campaign.name).toBe(input.name)
     expect(campaign.currentPhase).toBe(1)
+    expect(campaign.phasePlans).toHaveLength(3)
+    expect(campaign.phasePlans[0]?.budget).toBeGreaterThan(0)
+    expect(campaign.creativePlan.bigIdea).toContain(input.brand)
     expect(campaign.status).toBe('draft')
 
     testCampaignId = campaign.id
   })
 
   it('Slice 1: 列表包含新 Campaign', () => {
-    const list = listCampaigns()
+    const list = campaignManager.listCampaigns()
     expect(list.length).toBeGreaterThan(0)
     const found = list.find((c) => c.id === testCampaignId)
     expect(found).toBeDefined()
@@ -71,18 +98,47 @@ describe('Campaign 集成测试', () => {
   })
 
   it('Slice 2: 获取单个 Campaign', () => {
-    const campaign = getCampaignById(testCampaignId)
+    const campaign = campaignManager.getCampaignById(testCampaignId)
     expect(campaign).toBeDefined()
     expect(campaign!.id).toBe(testCampaignId)
   })
 
+  it('Slice 2: 可持久化更新阶段预算', () => {
+    const campaign = campaignManager.getCampaignById(testCampaignId)
+    expect(campaign).toBeDefined()
+
+    const nextPhasePlans = campaign!.phasePlans.map((phase) =>
+      phase.phase === 1 ? { ...phase, budget: 50000 } : phase,
+    )
+    const updated = campaignManager.updateCampaign(testCampaignId, { phasePlans: nextPhasePlans })
+
+    expect(updated?.phasePlans.find((phase) => phase.phase === 1)?.budget).toBe(50000)
+    expect(campaignManager.getCampaignById(testCampaignId)?.phasePlans.find((phase) => phase.phase === 1)?.budget).toBe(50000)
+  })
+
+  it('Slice 2: 可持久化更新创意策略', () => {
+    const campaign = campaignManager.getCampaignById(testCampaignId)
+    expect(campaign).toBeDefined()
+
+    const updated = campaignManager.updateCampaign(testCampaignId, {
+      creativePlan: {
+        ...campaign!.creativePlan,
+        bigIdea: '夏日轻盈通勤',
+        tone: '清爽、可信、都市感',
+      },
+    })
+
+    expect(updated?.creativePlan.bigIdea).toBe('夏日轻盈通勤')
+    expect(campaignManager.getCampaignById(testCampaignId)?.creativePlan.tone).toBe('清爽、可信、都市感')
+  })
+
   it('Slice 3: 候选池初始为空', () => {
-    const pool = getPoolKOLs(testCampaignId)
+    const pool = campaignManager.getPoolKOLs(testCampaignId)
     expect(pool).toEqual([])
   })
 
   it('Slice 3: 导入 KOL（gracious 处理空 DB）', () => {
-    const result = importKOLsToPool({
+    const result = campaignManager.importKOLsToPool({
       campaignId: testCampaignId,
       kolIds: ['mock_小红书_美妆达人小美'],
     })
@@ -93,7 +149,7 @@ describe('Campaign 集成测试', () => {
   })
 
   it('Slice 3: 获取可用 KOL 列表', () => {
-    const result = listAvailableKOLs({ limit: 10 })
+    const result = campaignManager.listAvailableKOLs({ limit: 10 })
     expect(Array.isArray(result.kols)).toBe(true)
     expect(typeof result.total).toBe('number')
   })

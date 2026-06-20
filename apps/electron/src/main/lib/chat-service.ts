@@ -264,20 +264,27 @@ export async function sendMessage(
       const campaign = getCampaignById(campaignId)
       if (campaign) {
         const kols = getPoolKOLs(campaignId)
+        const platformLabel: Record<string, string> = {
+          xiaohongshu: '小红书',
+          douyin: '抖音',
+          dual: '双平台',
+        }
         campaignContextPrompt = `
 <ma_campaign_context>
 你正在管理一个 Campaign 项目，以下是当前项目数据：
 
 - 项目名称：${campaign.name}
 - 品牌：${campaign.brand}
-- 品类：${campaign.category}
-- 预算：${campaign.budget} 万元
-- 周期：${campaign.startDate} 至 ${campaign.endDate}
-- 当前阶段：${campaign.currentPhase}（1=策略, 2=内容, 3=复盘）
+- 投放平台：${platformLabel[campaign.platform] ?? campaign.platform}
+- 总预算：${campaign.budget.toLocaleString()} 元
+- 投放周期：${campaign.durationMonths} 个月
+- 目标城市：${campaign.targetCity.length > 0 ? campaign.targetCity.join('、') : '未指定'}
+- 目标人群：${campaign.targetAudience || '未指定'}
+- 当前阶段：第 ${campaign.currentPhase} 阶段（1=策略制定, 2=内容制作, 3=复盘）
 - 状态：${campaign.status}
 
 候选池 KOL（${kols.length} 个）：
-${kols.map(k => `  - ${k.name}（${k.platform}）状态:${k.status} 评分:${k.overallScore ?? '-'}`).join('\n')}
+${kols.map((k) => `  - ${k.name}（${k.platform}）粉丝:${k.followers} 互动率:${k.engagement} 类目:${k.category} 报价:${k.price} 城市:${k.city || '-'} 状态:${k.status}`).join('\n')}
 
 你可以通过对话直接修改项目数据、调整 KOL 状态、编辑 Brief、触发审核等。
 </ma_campaign_context>

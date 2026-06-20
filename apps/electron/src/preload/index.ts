@@ -104,6 +104,7 @@ import type {
   PendingRequestsSnapshot,
   Campaign,
   CreateCampaignInput,
+  UpdateCampaignInput,
 } from '@ma-proma/shared'
 import type {
   UserProfile,
@@ -468,7 +469,7 @@ export interface ElectronAPI {
   listAgentWorkspaces: () => Promise<AgentWorkspace[]>
 
   /** 创建 Agent 工作区 */
-  createAgentWorkspace: (name: string) => Promise<AgentWorkspace>
+  createAgentWorkspace: (name: string, slug?: string) => Promise<AgentWorkspace>
 
   /** 更新 Agent 工作区 */
   updateAgentWorkspace: (id: string, updates: { name: string }) => Promise<AgentWorkspace>
@@ -946,6 +947,8 @@ export interface ElectronAPI {
   getCampaignById: (id: string) => Promise<Campaign | null>
   /** 创建 Campaign */
   createCampaign: (input: CreateCampaignInput) => Promise<Campaign>
+  /** 更新 Campaign */
+  updateCampaign: (id: string, input: UpdateCampaignInput) => Promise<Campaign | null>
 
   // ===== KOL 候选池 =====
 
@@ -964,6 +967,8 @@ export interface ElectronAPI {
   saveCampaignBrief: (input: import('@ma-proma/shared').SaveCampaignBriefInput) => Promise<import('@ma-proma/shared').CampaignBrief>
   /** 推进 Campaign 到下一阶段 */
   advanceCampaignPhase: (id: string) => Promise<import('@ma-proma/shared').Campaign | null>
+  /** 确保 Campaign Workspace 工具文件存在（旧 Campaign 兼容） */
+  ensureCampaignWorkspace: (campaign: import('@ma-proma/shared').Campaign) => Promise<string>
 
   // ===== KOL 数据管理 =====
 
@@ -1473,8 +1478,8 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.LIST_WORKSPACES)
   },
 
-  createAgentWorkspace: (name: string) => {
-    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.CREATE_WORKSPACE, name)
+  createAgentWorkspace: (name: string, slug?: string) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.CREATE_WORKSPACE, name, slug)
   },
 
   updateAgentWorkspace: (id: string, updates: { name: string }) => {
@@ -2115,6 +2120,10 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.GET, id)
   },
 
+  updateCampaign: (id: string, input: UpdateCampaignInput) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.UPDATE, id, input)
+  },
+
   getPoolKOLs: (campaignId: string) => {
     return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.GET_POOL_KOLS, campaignId)
   },
@@ -2137,6 +2146,10 @@ const electronAPI: ElectronAPI = {
 
   advanceCampaignPhase: (id: string) => {
     return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.ADVANCE_PHASE, id)
+  },
+
+  ensureCampaignWorkspace: (campaign: import('@ma-proma/shared').Campaign) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.ENSURE_WORKSPACE, campaign)
   },
 
   // ===== KOL 数据管理 =====

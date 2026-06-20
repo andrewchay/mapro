@@ -185,7 +185,7 @@ function copyDefaultSkills(workspaceSlug: string): void {
   }
 }
 
-export function createAgentWorkspace(name: string): AgentWorkspace {
+export function createAgentWorkspace(name: string, slug?: string): AgentWorkspace {
   const index = readIndex()
 
   const duplicate = index.workspaces.find((w) => w.name === name)
@@ -194,25 +194,29 @@ export function createAgentWorkspace(name: string): AgentWorkspace {
   }
 
   const existingSlugs = new Set(index.workspaces.map((w) => w.slug))
-  const slug = slugify(name, existingSlugs)
+  const finalSlug = slug ?? slugify(name, existingSlugs)
+  if (existingSlugs.has(finalSlug)) {
+    throw new Error(`工作区 slug「${finalSlug}」已存在`)
+  }
+
   const now = Date.now()
 
   const workspace: AgentWorkspace = {
     id: randomUUID(),
     name,
-    slug,
+    slug: finalSlug,
     createdAt: now,
     updatedAt: now,
   }
 
-  getAgentWorkspacePath(slug)
-  ensurePluginManifest(slug, name)
-  copyDefaultSkills(slug)
+  getAgentWorkspacePath(finalSlug)
+  ensurePluginManifest(finalSlug, name)
+  copyDefaultSkills(finalSlug)
 
   index.workspaces.unshift(workspace)
   writeIndex(index)
 
-  console.log(`[Agent 工作区] 已创建工作区: ${name} (slug: ${slug})`)
+  console.log(`[Agent 工作区] 已创建工作区: ${name} (slug: ${finalSlug})`)
   return workspace
 }
 

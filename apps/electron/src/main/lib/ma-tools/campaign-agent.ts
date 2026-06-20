@@ -187,13 +187,12 @@ export async function executeCampaignAgentTool(tc: ToolCall): Promise<ToolResult
       case 'ma_campaign_get': {
         const campaign = getCampaignById(campaignId)
         if (!campaign) {
-          return { toolName: tc.name, success: false, error: 'Campaign not found' }
+          return { toolCallId: tc.id, content: 'Campaign not found', isError: true }
         }
         const kols = getPoolKOLs(campaignId)
         return {
-          toolName: tc.name,
-          success: true,
-          result: JSON.stringify({ campaign, kols: kols.length, kolList: kols }, null, 2),
+          toolCallId: tc.id,
+          content: JSON.stringify({ campaign, kols: kols.length, kolList: kols }, null, 2),
         }
       }
 
@@ -222,7 +221,7 @@ export async function executeCampaignAgentTool(tc: ToolCall): Promise<ToolResult
         }
 
         if (updateFields.length === 0) {
-          return { toolName: tc.name, success: false, error: 'No fields to update' }
+          return { toolCallId: tc.id, content: 'No fields to update', isError: true }
         }
 
         updateFields.push('updated_at = ?')
@@ -232,9 +231,8 @@ export async function executeCampaignAgentTool(tc: ToolCall): Promise<ToolResult
         db.run(`UPDATE campaigns SET ${updateFields.join(', ')} WHERE id = ?`, values)
         const updated = getCampaignById(campaignId)
         return {
-          toolName: tc.name,
-          success: true,
-          result: JSON.stringify({ updated: !!updated, campaign: updated }, null, 2),
+          toolCallId: tc.id,
+          content: JSON.stringify({ updated: !!updated, campaign: updated }, null, 2),
         }
       }
 
@@ -242,9 +240,8 @@ export async function executeCampaignAgentTool(tc: ToolCall): Promise<ToolResult
         const kolId = String(args.kol_id ?? '')
         const brief = getBrief(campaignId, kolId)
         return {
-          toolName: tc.name,
-          success: true,
-          result: brief
+          toolCallId: tc.id,
+          content: brief
             ? JSON.stringify(brief, null, 2)
             : 'No brief found for this KOL',
         }
@@ -254,27 +251,26 @@ export async function executeCampaignAgentTool(tc: ToolCall): Promise<ToolResult
         const kolId = String(args.kol_id ?? '')
         const content = String(args.content ?? '')
         if (!content) {
-          return { toolName: tc.name, success: false, error: 'Content is required' }
+          return { toolCallId: tc.id, content: 'Content is required', isError: true }
         }
         const brief = saveBrief({
           campaignId,
           kolId,
+          kolName: String(args.kol_name ?? kolId),
           content,
           aiGenerated: false,
         })
         return {
-          toolName: tc.name,
-          success: true,
-          result: JSON.stringify({ saved: true, brief }, null, 2),
+          toolCallId: tc.id,
+          content: JSON.stringify({ saved: true, brief }, null, 2),
         }
       }
 
       case 'ma_campaign_kol_list': {
         const kols = getPoolKOLs(campaignId)
         return {
-          toolName: tc.name,
-          success: true,
-          result: JSON.stringify(kols, null, 2),
+          toolCallId: tc.id,
+          content: JSON.stringify(kols, null, 2),
         }
       }
 
@@ -290,9 +286,8 @@ export async function executeCampaignAgentTool(tc: ToolCall): Promise<ToolResult
           kolId,
         )
         return {
-          toolName: tc.name,
-          success: true,
-          result: JSON.stringify({ campaignId, kolId, status }, null, 2),
+          toolCallId: tc.id,
+          content: JSON.stringify({ campaignId, kolId, status }, null, 2),
         }
       }
 
@@ -313,20 +308,20 @@ export async function executeCampaignAgentTool(tc: ToolCall): Promise<ToolResult
           contentDescription,
         })
         return {
-          toolName: tc.name,
-          success: !!result,
-          result: result
+          toolCallId: tc.id,
+          content: result
             ? JSON.stringify({ auditId: result.auditId, status: result.auditStatus, overallScore: result.overallScore }, null, 2)
             : 'Audit failed',
+          isError: !result,
         }
       }
 
       default:
-        return { toolName: tc.name, success: false, error: `Unknown action: ${tc.name}` }
+        return { toolCallId: tc.id, content: `Unknown action: ${tc.name}`, isError: true }
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
-    return { toolName: tc.name, success: false, error: msg }
+    return { toolCallId: tc.id, content: msg, isError: true }
   }
 }
 

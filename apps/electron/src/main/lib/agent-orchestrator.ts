@@ -19,6 +19,7 @@ import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import { app } from 'electron'
 import type { AgentSendInput, AgentMessage, AgentGenerateTitleInput, AgentProviderAdapter, AgentSessionMeta, TypedError, RetryAttempt, SDKMessage, SDKAssistantMessage, AgentStreamPayload, RewindSessionResult, SdkBeta, ProviderType } from '@ma-proma/shared'
 import {
@@ -53,6 +54,7 @@ import { getMemoryConfig } from './memory-service'
 import { searchMemory, addMemory, formatSearchResult } from './memos-client'
 import { validateToolInput } from './agent-tool-input-validator'
 import { estimateTokenCount, WRITE_CONTENT_TOKEN_THRESHOLD } from './agent-tool-token-estimator'
+import { loadClaudeAgentSdk } from './claude-sdk-loader'
 
 // ===== 类型定义 =====
 
@@ -217,8 +219,10 @@ function resolveSDKCliPath(): string {
   let binaryPath: string | null = null
 
   // 策略 1：createRequire（标准 ESM/CJS 互操作）
+  // 兼容 ESM 和 CJS：ESM 中 __filename 为 undefined，使用 import.meta.url
   try {
-    const cjsRequire = createRequire(__filename)
+    const modulePath = typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url)
+    const cjsRequire = createRequire(modulePath)
     const sdkEntryPath = cjsRequire.resolve('@anthropic-ai/claude-agent-sdk')
     // sdkEntryPath: .../@anthropic-ai/claude-agent-sdk/sdk.mjs
     // anthropicDir:  .../@anthropic-ai
@@ -1071,7 +1075,7 @@ export class AgentOrchestrator {
 
     try {
       // 8. 动态导入 SDK
-      const sdk = await import('@anthropic-ai/claude-agent-sdk')
+      const sdk = await loadClaudeAgentSdk()
 
       // 9. 构建 SDK query
       const cliPath = resolveSDKCliPath()
@@ -1433,7 +1437,9 @@ export class AgentOrchestrator {
         sdkCliPath: cliPath,
         env: sdkEnv,
         ...(maxTurns != null && { maxTurns }),
-        sdkPermissionMode: MAPRO_PERMISSION_MODE_CONFIG[initialPermissionMode].sdkMode,
+        sdkPermissionMode: initialPermissionMode === 'bypassPermissions'
+          ? 'auto'  // 使用 auto 让 SDK 调用 canUseTool，由 canUseTool 的 bypassPermissions 分支直接放行
+          : MAPRO_PERMISSION_MODE_CONFIG[initialPermissionMode].sdkMode,
         // 当提供 canUseTool 回调时必须为 false，否则 CLI 同时收到
         // --allow-dangerously-skip-permissions 和 --permission-prompt-tool stdio
         // 两个矛盾的指令，导致 ExitPlanMode/AskUserQuestion 等交互式工具失败。

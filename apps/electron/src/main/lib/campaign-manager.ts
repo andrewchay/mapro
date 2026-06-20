@@ -9,14 +9,15 @@
  * Slice 4: 添加 Brief 表 + 生成/保存功能
  */
 
-import { existsSync, mkdirSync, cpSync } from 'node:fs'
+import { existsSync, mkdirSync, cpSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { getConfigDir } from './config-paths'
+import { getConfigDir, getAgentWorkspacePath } from './config-paths'
+import { createAgentWorkspace } from './agent-workspace-manager'
 import { getKOLById, computeKOLScores, recalculateAllScores, type KOLRecord } from './ma-tools/kol-data-service'
 export { recalculateAllScores }
 import { runContentAudit } from './ma-tools/content-audit'
-import type { Campaign, CreateCampaignInput, KOLListItem } from '@ma-proma/shared'
+import type { Campaign, CampaignCreativePlan, CampaignPhasePlan, CreateCampaignInput, KOLListItem } from '@ma-proma/shared'
 
 // =====================================================================
 // SQLite 运行时适配层（复用 kol-data-service 模式）
@@ -96,6 +97,80 @@ function getTestConfigDir(): string | undefined {
 
 let dbInstance: Database | null = null
 
+const DEFAULT_PHASE_TEMPLATE: Array<Omit<CampaignPhasePlan, 'budget'>> = [
+  { phase: 1, name: '美学吸睛期', months: '第 1-2 月', goal: '建立视觉认知，占领关键词' },
+  { phase: 2, name: '场景渗透期', months: '第 3-4 月', goal: '场景绑定，情感连接' },
+  { phase: 3, name: '价值深化期', months: '第 5-6 月', goal: '品牌护城河，长尾维护' },
+]
+
+function buildDefaultPhasePlans(budget: number, durationMonths: number): CampaignPhasePlan[] {
+  const phaseBudget = Math.round(budget / Math.max(durationMonths, 1) * 2)
+  return DEFAULT_PHASE_TEMPLATE.map((phase) => ({ ...phase, budget: phaseBudget }))
+}
+
+function normalizePhasePlans(value: unknown, budget: number, durationMonths: number): CampaignPhasePlan[] {
+  if (!value) return buildDefaultPhasePlans(budget, durationMonths)
+
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value
+    if (Array.isArray(parsed)) {
+      return parsed.map((item, index) => {
+        const raw = item as Partial<CampaignPhasePlan>
+        const fallback = DEFAULT_PHASE_TEMPLATE[index] ?? DEFAULT_PHASE_TEMPLATE[0]!
+        return {
+          phase: Number(raw.phase ?? fallback.phase),
+          name: String(raw.name ?? fallback.name),
+          months: String(raw.months ?? fallback.months),
+          goal: String(raw.goal ?? fallback.goal),
+          budget: Number(raw.budget ?? Math.round(budget / Math.max(durationMonths, 1) * 2)),
+        }
+      })
+    }
+  } catch {
+    // 兼容旧数据，回退到默认三阶段预算。
+  }
+
+  return buildDefaultPhasePlans(budget, durationMonths)
+}
+
+function buildDefaultCreativePlan(campaign: Pick<Campaign, 'brand' | 'targetAudience'>): CampaignCreativePlan {
+  return {
+    bigIdea: `${campaign.brand} 的生活方式种草`,
+    coreMessage: `面向${campaign.targetAudience || '目标人群'}传递品牌价值与使用场景。`,
+    contentPillars: ['产品体验', '生活场景', '用户口碑'],
+    tone: '真实、克制、有质感',
+    mandatoryElements: [campaign.brand],
+    forbiddenElements: [],
+  }
+}
+
+function normalizeCreativePlan(
+  value: unknown,
+  campaign: Pick<Campaign, 'brand' | 'targetAudience'>,
+): CampaignCreativePlan {
+  const fallback = buildDefaultCreativePlan(campaign)
+  if (!value) return fallback
+
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value
+    if (parsed && typeof parsed === 'object') {
+      const raw = parsed as Partial<CampaignCreativePlan>
+      return {
+        bigIdea: String(raw.bigIdea ?? fallback.bigIdea),
+        coreMessage: String(raw.coreMessage ?? fallback.coreMessage),
+        contentPillars: Array.isArray(raw.contentPillars) ? raw.contentPillars.map(String) : fallback.contentPillars,
+        tone: String(raw.tone ?? fallback.tone),
+        mandatoryElements: Array.isArray(raw.mandatoryElements) ? raw.mandatoryElements.map(String) : fallback.mandatoryElements,
+        forbiddenElements: Array.isArray(raw.forbiddenElements) ? raw.forbiddenElements.map(String) : fallback.forbiddenElements,
+      }
+    }
+  } catch {
+    // 兼容旧数据，回退到默认创意策略。
+  }
+
+  return fallback
+}
+
 function getDbPath(): string {
   const testDir = getTestConfigDir()
   return join(testDir ?? getConfigDir(), 'campaign-database.sqlite')
@@ -124,6 +199,8 @@ export function getDb(): Database {
       target_city TEXT,
       target_audience TEXT,
       current_phase INTEGER DEFAULT 1,
+      phase_plans TEXT,
+      creative_plan TEXT,
       status TEXT DEFAULT 'draft',
       created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
       updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
@@ -132,6 +209,14 @@ export function getDb(): Database {
 
   dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status)`)
   dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_campaigns_brand ON campaigns(brand)`)
+
+  const campaignColumns = dbInstance.query(`PRAGMA table_info(campaigns)`).all() as Array<{ name: string }>
+  if (!campaignColumns.some((col) => col.name === 'phase_plans')) {
+    dbInstance.run(`ALTER TABLE campaigns ADD COLUMN phase_plans TEXT`)
+  }
+  if (!campaignColumns.some((col) => col.name === 'creative_plan')) {
+    dbInstance.run(`ALTER TABLE campaigns ADD COLUMN creative_plan TEXT`)
+  }
 
   // Campaign KOL 候选池表（Slice 3）
   dbInstance.run(`
@@ -209,36 +294,56 @@ function getKolDb(): Database {
   const dbPath = getKolDbPath()
   const defaultDbPath = join(homedir(), 'LLM', 'ma', 'data', 'kol_database.db')
 
-  // 确保 .mapro 和 .mapro-dev 目录都存在
-  const maproDir = join(homedir(), '.mapro')
-  const maproDevDir = join(homedir(), '.mapro-dev')
-  if (!existsSync(maproDir)) mkdirSync(maproDir, { recursive: true })
-  if (!existsSync(maproDevDir)) mkdirSync(maproDevDir, { recursive: true })
+  if (!getTestConfigDir()) {
+    // 确保 .mapro 和 .mapro-dev 目录都存在
+    const maproDir = join(homedir(), '.mapro')
+    const maproDevDir = join(homedir(), '.mapro-dev')
+    if (!existsSync(maproDir)) mkdirSync(maproDir, { recursive: true })
+    if (!existsSync(maproDevDir)) mkdirSync(maproDevDir, { recursive: true })
 
-  const maproPath = join(maproDir, 'kol-database.sqlite')
-  const maproDevPath = join(maproDevDir, 'kol-database.sqlite')
+    const maproPath = join(maproDir, 'kol-database.sqlite')
+    const maproDevPath = join(maproDevDir, 'kol-database.sqlite')
 
-  console.log(`[Campaign 服务] KOL 数据库路径: ${dbPath}`)
-  console.log(`[Campaign 服务] 默认数据库路径: ${defaultDbPath}`)
-  console.log(`[Campaign 服务] 默认数据库存在: ${existsSync(defaultDbPath)}`)
-  console.log(`[Campaign 服务] .mapro 数据库存在: ${existsSync(maproPath)}`)
-  console.log(`[Campaign 服务] .mapro-dev 数据库存在: ${existsSync(maproDevPath)}`)
+    console.log(`[Campaign 服务] KOL 数据库路径: ${dbPath}`)
+    console.log(`[Campaign 服务] 默认数据库路径: ${defaultDbPath}`)
+    console.log(`[Campaign 服务] 默认数据库存在: ${existsSync(defaultDbPath)}`)
+    console.log(`[Campaign 服务] .mapro 数据库存在: ${existsSync(maproPath)}`)
+    console.log(`[Campaign 服务] .mapro-dev 数据库存在: ${existsSync(maproDevPath)}`)
 
-  // 同时复制到 .mapro 和 .mapro-dev
-  for (const targetPath of [maproPath, maproDevPath]) {
-    if (!existsSync(targetPath) && existsSync(defaultDbPath)) {
-      try {
-        cpSync(defaultDbPath, targetPath)
-        console.log(`[Campaign 服务] 已复制 KOL 数据库到 ${targetPath}`)
-      } catch (err) {
-        console.warn(`[Campaign 服务] 复制到 ${targetPath} 失败:`, err)
+    // 同时复制到 .mapro 和 .mapro-dev
+    for (const targetPath of [maproPath, maproDevPath]) {
+      if (!existsSync(targetPath) && existsSync(defaultDbPath)) {
+        try {
+          cpSync(defaultDbPath, targetPath)
+          console.log(`[Campaign 服务] 已复制 KOL 数据库到 ${targetPath}`)
+        } catch (err) {
+          console.warn(`[Campaign 服务] 复制到 ${targetPath} 失败:`, err)
+        }
+      } else if (existsSync(targetPath)) {
+        console.log(`[Campaign 服务] ${targetPath} 已存在，跳过复制`)
       }
-    } else if (existsSync(targetPath)) {
-      console.log(`[Campaign 服务] ${targetPath} 已存在，跳过复制`)
     }
   }
 
   kolDbInstance = new Database(dbPath)
+
+  kolDbInstance.run(`
+    CREATE TABLE IF NOT EXISTS kols (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      followers TEXT,
+      engagement TEXT,
+      category TEXT,
+      price TEXT,
+      city TEXT,
+      avatar TEXT,
+      source TEXT NOT NULL,
+      raw_data TEXT,
+      created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+      updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+    )
+  `)
 
   // 兼容原始数据库：如果原始数据库没有评分字段，添加它们
   // 使用显式列存在检查，避免 try/catch 吞掉真正的错误
@@ -281,18 +386,20 @@ function getKolDb(): Database {
 function seedMockKOLsIntoKolDb(db: Database): void {
   const now = Date.now()
   const mockKOLs: Array<Omit<KOLListItem, 'createdAt' | 'updatedAt'>> = [
-    { id: 'mock_xhs_美妆达人小美', name: '@美妆达人小美', platform: '小红书', followers: '50万', engagement: '8.5%', category: '美妆', price: '3万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
-    { id: 'mock_xhs_护肤分享师', name: '@护肤分享师', platform: '小红书', followers: '30万', engagement: '9.2%', category: '美妆', price: '2万', city: '杭州', avatar: '', source: 'mock', rawData: '{}' },
-    { id: 'mock_xhs_生活方式博主', name: '@生活方式博主', platform: '小红书', followers: '80万', engagement: '6.8%', category: '生活方式', price: '5万', city: '北京', avatar: '', source: 'mock', rawData: '{}' },
-    { id: 'mock_xhs_母婴博主乐乐', name: '@母婴博主乐乐', platform: '小红书', followers: '40万', engagement: '10.1%', category: '母婴', price: '2.5万', city: '广州', avatar: '', source: 'mock', rawData: '{}' },
-    { id: 'mock_xhs_数码测评君', name: '@数码测评君', platform: '小红书', followers: '60万', engagement: '7.5%', category: '3C', price: '4万', city: '深圳', avatar: '', source: 'mock', rawData: '{}' },
-    { id: 'mock_dy_时尚小姐姐', name: '@时尚小姐姐', platform: '抖音', followers: '200万', engagement: '5.2%', category: '时尚', price: '15万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
-    { id: 'mock_dy_搞笑日常', name: '@搞笑日常', platform: '抖音', followers: '500万', engagement: '4.8%', category: '娱乐', price: '30万', city: '成都', avatar: '', source: 'mock', rawData: '{}' },
-    { id: 'mock_dy_美食探店', name: '@美食探店', platform: '抖音', followers: '150万', engagement: '6.5%', category: '美食', price: '10万', city: '重庆', avatar: '', source: 'mock', rawData: '{}' },
-    { id: 'mock_dy_科技大人', name: '@科技大人', platform: '抖音', followers: '300万', engagement: '5.8%', category: '3C', price: '20万', city: '北京', avatar: '', source: 'mock', rawData: '{}' },
-    { id: 'mock_wb_时尚icon', name: '@时尚icon', platform: '微博', followers: '800万', engagement: '3.5%', category: '时尚', price: '50万', city: '北京', avatar: '', source: 'mock', rawData: '{}' },
-    { id: 'mock_wb_美妆教主', name: '@美妆教主', platform: '微博', followers: '600万', engagement: '4.2%', category: '美妆', price: '40万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
-    { id: 'mock_bz_测评实验室', name: '@测评实验室', platform: 'B站', followers: '150万', engagement: '12.5%', category: '3C', price: '12万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
+    ...[
+      { id: 'mock_xhs_美妆达人小美', name: '@美妆达人小美', platform: '小红书', followers: '50万', engagement: '8.5%', category: '美妆', price: '3万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
+      { id: 'mock_xhs_护肤分享师', name: '@护肤分享师', platform: '小红书', followers: '30万', engagement: '9.2%', category: '美妆', price: '2万', city: '杭州', avatar: '', source: 'mock', rawData: '{}' },
+      { id: 'mock_xhs_生活方式博主', name: '@生活方式博主', platform: '小红书', followers: '80万', engagement: '6.8%', category: '生活方式', price: '5万', city: '北京', avatar: '', source: 'mock', rawData: '{}' },
+      { id: 'mock_xhs_母婴博主乐乐', name: '@母婴博主乐乐', platform: '小红书', followers: '40万', engagement: '10.1%', category: '母婴', price: '2.5万', city: '广州', avatar: '', source: 'mock', rawData: '{}' },
+      { id: 'mock_xhs_数码测评君', name: '@数码测评君', platform: '小红书', followers: '60万', engagement: '7.5%', category: '3C', price: '4万', city: '深圳', avatar: '', source: 'mock', rawData: '{}' },
+      { id: 'mock_dy_时尚小姐姐', name: '@时尚小姐姐', platform: '抖音', followers: '200万', engagement: '5.2%', category: '时尚', price: '15万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
+      { id: 'mock_dy_搞笑日常', name: '@搞笑日常', platform: '抖音', followers: '500万', engagement: '4.8%', category: '娱乐', price: '30万', city: '成都', avatar: '', source: 'mock', rawData: '{}' },
+      { id: 'mock_dy_美食探店', name: '@美食探店', platform: '抖音', followers: '150万', engagement: '6.5%', category: '美食', price: '10万', city: '重庆', avatar: '', source: 'mock', rawData: '{}' },
+      { id: 'mock_dy_科技大人', name: '@科技大人', platform: '抖音', followers: '300万', engagement: '5.8%', category: '3C', price: '20万', city: '北京', avatar: '', source: 'mock', rawData: '{}' },
+      { id: 'mock_wb_时尚icon', name: '@时尚icon', platform: '微博', followers: '800万', engagement: '3.5%', category: '时尚', price: '50万', city: '北京', avatar: '', source: 'mock', rawData: '{}' },
+      { id: 'mock_wb_美妆教主', name: '@美妆教主', platform: '微博', followers: '600万', engagement: '4.2%', category: '美妆', price: '40万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
+      { id: 'mock_bz_测评实验室', name: '@测评实验室', platform: 'B站', followers: '150万', engagement: '12.5%', category: '3C', price: '12万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
+    ].map((kol) => ({ ...kol, baseScore: 0, contentScore: 0, commercialScore: 0, overallScore: 0 })),
   ]
 
   for (const kol of mockKOLs) {
@@ -319,8 +426,382 @@ function seedMockKOLsIntoKolDb(db: Database): void {
 }
 
 // =====================================================================
-// CRUD 操作
+// Campaign Agent Workspace 工具脚本
 // =====================================================================
+
+const CAMPAIGN_TOOLS_SCRIPT = `#!/usr/bin/env python3
+\"\"\"Campaign 数据管理工具
+
+用法:
+  python campaign.py get <campaign_id>
+  python campaign.py update <campaign_id> --field value ...
+  python campaign.py update-phase <campaign_id> <phase> --budget <amount>
+  python campaign.py update-creative <campaign_id> --big_idea <text> --core_message <text>
+  python campaign.py list-kols <campaign_id>
+  python campaign.py update-kol <campaign_id> <kol_id> --status <status>
+  python campaign.py get-brief <campaign_id> <kol_id>
+  python campaign.py update-brief <campaign_id> <kol_id> <content>
+"""
+
+import sqlite3
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+DB_PATH = os.path.expanduser("~/.mapro/campaign-database.sqlite")
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def normalize_update_value(key, value):
+    if key == "target_city":
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return json.dumps(parsed, ensure_ascii=False)
+        except Exception:
+            pass
+        cities = [item.strip() for item in value.replace("，", ",").replace("、", ",").split(",") if item.strip()]
+        return json.dumps(cities, ensure_ascii=False)
+    if key in ("budget", "duration_months", "current_phase"):
+        try:
+            return int(float(value))
+        except Exception:
+            return value
+    if key == "phase_plans":
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return json.dumps(parsed, ensure_ascii=False)
+        except Exception:
+            pass
+    return value
+
+def default_phase_plans(budget, duration_months):
+    phase_budget = round(float(budget or 0) / max(int(duration_months or 1), 1) * 2)
+    return [
+        {"phase": 1, "name": "美学吸睛期", "months": "第 1-2 月", "goal": "建立视觉认知，占领关键词", "budget": phase_budget},
+        {"phase": 2, "name": "场景渗透期", "months": "第 3-4 月", "goal": "场景绑定，情感连接", "budget": phase_budget},
+        {"phase": 3, "name": "价值深化期", "months": "第 5-6 月", "goal": "品牌护城河，长尾维护", "budget": phase_budget},
+    ]
+
+def split_list(value):
+    try:
+        parsed = json.loads(value)
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed]
+    except Exception:
+        pass
+    return [item.strip() for item in value.replace("，", ",").replace("、", ",").split(",") if item.strip()]
+
+def default_creative_plan(brand, target_audience):
+    return {
+        "bigIdea": f"{brand} 的生活方式种草",
+        "coreMessage": f"面向{target_audience or '目标人群'}传递品牌价值与使用场景。",
+        "contentPillars": ["产品体验", "生活场景", "用户口碑"],
+        "tone": "真实、克制、有质感",
+        "mandatoryElements": [brand],
+        "forbiddenElements": [],
+    }
+
+def cmd_get(campaign_id):
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM campaigns WHERE id = ?", (campaign_id,)
+        ).fetchone()
+        if not row:
+            print(json.dumps({"error": "Campaign not found"}))
+            return
+        print(json.dumps(dict(row), default=str))
+
+def cmd_update(campaign_id, kwargs):
+    if not kwargs:
+        print(json.dumps({"error": "No fields to update"}))
+        return
+    fields = []
+    values = []
+    field_map = {
+        "name": "name",
+        "brand": "brand",
+        "platform": "platform",
+        "budget": "budget",
+        "duration_months": "duration_months",
+        "target_city": "target_city",
+        "target_audience": "target_audience",
+        "current_phase": "current_phase",
+        "phase_plans": "phase_plans",
+        "status": "status",
+    }
+    for k, v in kwargs.items():
+        col = field_map.get(k)
+        if col:
+            fields.append(f"{col} = ?")
+            values.append(normalize_update_value(k, v))
+    if not fields:
+        print(json.dumps({"error": "No valid fields"}))
+        return
+    values.append(campaign_id)
+    sql = f"UPDATE campaigns SET {', '.join(fields)}, updated_at = ? WHERE id = ?"
+    with get_db() as conn:
+        conn.execute(sql, (*values[:-1], int(time.time() * 1000), campaign_id))
+        conn.commit()
+    print(json.dumps({"success": True, "updated": len(fields)}))
+
+def cmd_update_phase(campaign_id, phase, kwargs):
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT budget, duration_months, phase_plans FROM campaigns WHERE id = ?",
+            (campaign_id,),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"error": "Campaign not found"}))
+            return
+        try:
+            plans = json.loads(row["phase_plans"]) if row["phase_plans"] else default_phase_plans(row["budget"], row["duration_months"])
+        except Exception:
+            plans = default_phase_plans(row["budget"], row["duration_months"])
+
+        phase_num = int(phase)
+        target = next((p for p in plans if int(p.get("phase", 0)) == phase_num), None)
+        if not target:
+            print(json.dumps({"error": f"Phase {phase_num} not found"}))
+            return
+        if "name" in kwargs:
+            target["name"] = kwargs["name"]
+        if "months" in kwargs:
+            target["months"] = kwargs["months"]
+        if "goal" in kwargs:
+            target["goal"] = kwargs["goal"]
+        if "budget" in kwargs:
+            target["budget"] = int(float(kwargs["budget"]))
+
+        conn.execute(
+            "UPDATE campaigns SET phase_plans = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(plans, ensure_ascii=False), int(time.time() * 1000), campaign_id),
+        )
+        conn.commit()
+        print(json.dumps({"success": True, "phasePlans": plans}, ensure_ascii=False))
+
+def cmd_update_creative(campaign_id, kwargs):
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT brand, target_audience, creative_plan FROM campaigns WHERE id = ?",
+            (campaign_id,),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"error": "Campaign not found"}))
+            return
+        try:
+            plan = json.loads(row["creative_plan"]) if row["creative_plan"] else default_creative_plan(row["brand"], row["target_audience"])
+        except Exception:
+            plan = default_creative_plan(row["brand"], row["target_audience"])
+
+        field_map = {
+            "big_idea": "bigIdea",
+            "core_message": "coreMessage",
+            "content_pillars": "contentPillars",
+            "tone": "tone",
+            "mandatory_elements": "mandatoryElements",
+            "forbidden_elements": "forbiddenElements",
+        }
+        list_fields = {"contentPillars", "mandatoryElements", "forbiddenElements"}
+        for key, value in kwargs.items():
+            target = field_map.get(key)
+            if not target:
+                continue
+            plan[target] = split_list(value) if target in list_fields else value
+
+        conn.execute(
+            "UPDATE campaigns SET creative_plan = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(plan, ensure_ascii=False), int(time.time() * 1000), campaign_id),
+        )
+        conn.commit()
+        print(json.dumps({"success": True, "creativePlan": plan}, ensure_ascii=False))
+
+def cmd_list_kols(campaign_id):
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM campaign_kol_pool WHERE campaign_id = ? ORDER BY added_at DESC",
+            (campaign_id,),
+        ).fetchall()
+        print(json.dumps([dict(r) for r in rows], default=str))
+
+def cmd_update_kol(campaign_id, kol_id, status):
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE campaign_kol_pool SET status = ? WHERE campaign_id = ? AND kol_id = ?",
+            (status, campaign_id, kol_id),
+        )
+        conn.commit()
+    print(json.dumps({"success": True}))
+
+def cmd_get_brief(campaign_id, kol_id):
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM campaign_briefs WHERE campaign_id = ? AND kol_id = ?",
+            (campaign_id, kol_id),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"error": "Brief not found"}))
+            return
+        print(json.dumps(dict(row), default=str))
+
+def cmd_update_brief(campaign_id, kol_id, content, kol_name=""):
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT id FROM campaign_briefs WHERE campaign_id = ? AND kol_id = ?",
+            (campaign_id, kol_id),
+        ).fetchone()
+        now = int(time.time() * 1000)
+        if existing:
+            conn.execute(
+                "UPDATE campaign_briefs SET content = ?, updated_at = ? WHERE id = ?",
+                (content, now, existing["id"]),
+            )
+        else:
+            brief_id = f"brief_{now}_{os.urandom(4).hex()}"
+            conn.execute(
+                """INSERT INTO campaign_briefs (id, campaign_id, kol_id, kol_name, content, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (brief_id, campaign_id, kol_id, kol_name or kol_id, content, now, now),
+            )
+        conn.commit()
+    print(json.dumps({"success": True}))
+
+def main():
+    if len(sys.argv) < 3:
+        print(__doc__)
+        sys.exit(1)
+
+    cmd = sys.argv[1]
+    campaign_id = sys.argv[2]
+
+    if cmd == "get":
+        cmd_get(campaign_id)
+    elif cmd == "update":
+        kwargs = {}
+        i = 3
+        while i < len(sys.argv):
+            if sys.argv[i].startswith("--"):
+                key = sys.argv[i][2:]
+                val = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
+                kwargs[key] = val
+                i += 2
+            else:
+                i += 1
+        cmd_update(campaign_id, kwargs)
+    elif cmd == "update-phase":
+        if len(sys.argv) < 4:
+            print(json.dumps({"error": "Missing phase"}))
+            sys.exit(1)
+        kwargs = {}
+        i = 4
+        while i < len(sys.argv):
+            if sys.argv[i].startswith("--"):
+                key = sys.argv[i][2:]
+                val = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
+                kwargs[key] = val
+                i += 2
+            else:
+                i += 1
+        cmd_update_phase(campaign_id, sys.argv[3], kwargs)
+    elif cmd == "update-creative":
+        kwargs = {}
+        i = 3
+        while i < len(sys.argv):
+            if sys.argv[i].startswith("--"):
+                key = sys.argv[i][2:]
+                val = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
+                kwargs[key] = val
+                i += 2
+            else:
+                i += 1
+        cmd_update_creative(campaign_id, kwargs)
+    elif cmd == "list-kols":
+        cmd_list_kols(campaign_id)
+    elif cmd == "update-kol":
+        if len(sys.argv) < 5:
+            print(json.dumps({"error": "Missing kol_id or status"}))
+            sys.exit(1)
+        kol_id = sys.argv[3]
+        status = sys.argv[5] if len(sys.argv) > 5 else "candidate"
+        cmd_update_kol(campaign_id, kol_id, status)
+    elif cmd == "get-brief":
+        if len(sys.argv) < 4:
+            print(json.dumps({"error": "Missing kol_id"}))
+            sys.exit(1)
+        cmd_get_brief(campaign_id, sys.argv[3])
+    elif cmd == "update-brief":
+        if len(sys.argv) < 5:
+            print(json.dumps({"error": "Missing kol_id or content"}))
+            sys.exit(1)
+        cmd_update_brief(campaign_id, sys.argv[3], sys.argv[4])
+    else:
+        print(json.dumps({"error": f"Unknown command: {cmd}"}))
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+`
+
+/** 确保 Campaign 的 Workspace 工具文件存在（用于旧 Campaign 兼容性） */
+export function ensureCampaignWorkspace(campaign: Campaign): string {
+  const workspaceSlug = `campaign-${campaign.id}`
+  
+  try {
+    const workspacePath = getAgentWorkspacePath(workspaceSlug)
+    
+    // 如果 Workspace 目录不存在，创建它
+    if (!existsSync(workspacePath)) {
+      createAgentWorkspace(campaign.name, workspaceSlug)
+    }
+    
+    const toolsDir = join(workspacePath, '.campaign-tools')
+    if (!existsSync(toolsDir)) {
+      mkdirSync(toolsDir, { recursive: true })
+    }
+    
+    // 动态替换 DB_PATH
+    const dbPath = join(getConfigDir(), 'campaign-database.sqlite')
+    const scriptWithCorrectPath = CAMPAIGN_TOOLS_SCRIPT.replace(
+      'DB_PATH = os.path.expanduser("~/.mapro/campaign-database.sqlite")',
+      `DB_PATH = os.path.expanduser("${dbPath}")`
+    )
+    
+    const scriptPath = join(toolsDir, 'campaign.py')
+    writeFileSync(scriptPath, scriptWithCorrectPath)
+    
+    const jsonPath = join(workspacePath, 'campaign.json')
+    if (!existsSync(jsonPath)) {
+      writeFileSync(
+        jsonPath,
+        JSON.stringify({
+          id: campaign.id,
+          name: campaign.name,
+          brand: campaign.brand,
+          platform: campaign.platform,
+          budget: campaign.budget,
+          durationMonths: campaign.durationMonths,
+          targetCity: campaign.targetCity,
+          targetAudience: campaign.targetAudience,
+          currentPhase: campaign.currentPhase,
+          phasePlans: campaign.phasePlans,
+          creativePlan: campaign.creativePlan,
+          status: campaign.status,
+        }, null, 2)
+      )
+    }
+    
+    return workspacePath
+  } catch (err) {
+    console.error(`[Campaign] 确保 Workspace 失败 (${campaign.id}):`, err)
+    throw err
+  }
+}
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
@@ -328,16 +809,38 @@ function generateId(): string {
 
 /** 行数据 → Campaign 对象 */
 function rowToCampaign(row: any): Campaign {
+  const parseTargetCity = (value: unknown): string[] => {
+    if (!value) return []
+    if (Array.isArray(value)) return value.map(String)
+    const text = String(value)
+    try {
+      const parsed = JSON.parse(text)
+      if (Array.isArray(parsed)) return parsed.map(String)
+    } catch {
+      // 兼容旧工具脚本直接写入的「上海、杭州」或「上海,杭州」字符串。
+    }
+    return text
+      .split(/[、,，]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+
+  const budget = row.budget ?? 0
+  const durationMonths = row.duration_months ?? 1
+  const brand = row.brand
+  const targetAudience = row.target_audience ?? ''
   return {
     id: row.id,
     name: row.name,
-    brand: row.brand,
+    brand,
     platform: row.platform as Campaign['platform'],
-    budget: row.budget ?? 0,
-    durationMonths: row.duration_months ?? 1,
-    targetCity: row.target_city ? JSON.parse(row.target_city) : [],
-    targetAudience: row.target_audience ?? '',
+    budget,
+    durationMonths,
+    targetCity: parseTargetCity(row.target_city),
+    targetAudience,
     currentPhase: row.current_phase ?? 1,
+    phasePlans: normalizePhasePlans(row.phase_plans, budget, durationMonths),
+    creativePlan: normalizeCreativePlan(row.creative_plan, { brand, targetAudience }),
     status: row.status as Campaign['status'],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -376,10 +879,15 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
   const db = getDb()
   const now = Date.now()
   const id = generateId()
+  const phasePlans = normalizePhasePlans(input.phasePlans, input.budget, input.durationMonths)
+  const creativePlan = normalizeCreativePlan(input.creativePlan, {
+    brand: input.brand,
+    targetAudience: input.targetAudience,
+  })
 
   db.run(
-    `INSERT INTO campaigns (id, name, brand, platform, budget, duration_months, target_city, target_audience, current_phase, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO campaigns (id, name, brand, platform, budget, duration_months, target_city, target_audience, current_phase, phase_plans, creative_plan, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     input.name,
     input.brand,
@@ -389,12 +897,14 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
     JSON.stringify(input.targetCity),
     input.targetAudience,
     1,
+    JSON.stringify(phasePlans),
+    JSON.stringify(creativePlan),
     'draft',
     now,
     now,
   )
 
-  return {
+  const campaign: Campaign = {
     id,
     name: input.name,
     brand: input.brand,
@@ -404,10 +914,56 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
     targetCity: input.targetCity,
     targetAudience: input.targetAudience,
     currentPhase: 1,
+    phasePlans,
+    creativePlan,
     status: 'draft',
     createdAt: now,
     updatedAt: now,
   }
+
+  // 创建 Campaign 专属的 Agent Workspace
+  const workspaceSlug = `campaign-${id}`
+  try {
+    createAgentWorkspace(campaign.name, workspaceSlug)
+
+    // 在 Workspace 中创建 Campaign 工具脚本
+    const workspacePath = getAgentWorkspacePath(workspaceSlug)
+    const toolsDir = join(workspacePath, '.campaign-tools')
+    mkdirSync(toolsDir, { recursive: true })
+
+    // 动态替换 DB_PATH 为正确的配置目录
+    const dbPath = join(getConfigDir(), 'campaign-database.sqlite')
+    const scriptWithCorrectPath = CAMPAIGN_TOOLS_SCRIPT.replace(
+      'DB_PATH = os.path.expanduser("~/.mapro/campaign-database.sqlite")',
+      `DB_PATH = os.path.expanduser("${dbPath}")`
+    )
+
+    // 创建工具脚本
+    writeFileSync(join(toolsDir, 'campaign.py'), scriptWithCorrectPath)
+
+    // 创建初始 Campaign 数据文件
+    writeFileSync(
+      join(workspacePath, 'campaign.json'),
+      JSON.stringify({
+        id: campaign.id,
+        name: campaign.name,
+        brand: campaign.brand,
+        platform: campaign.platform,
+        budget: campaign.budget,
+        durationMonths: campaign.durationMonths,
+        targetCity: campaign.targetCity,
+        targetAudience: campaign.targetAudience,
+        currentPhase: campaign.currentPhase,
+        phasePlans: campaign.phasePlans,
+        creativePlan: campaign.creativePlan,
+        status: campaign.status,
+      }, null, 2)
+    )
+  } catch (err) {
+    console.error('[Campaign] 创建 Agent Workspace 失败:', err)
+  }
+
+  return campaign
 }
 
 /** 获取单个 Campaign */
@@ -417,6 +973,57 @@ export function getCampaignById(id: string): Campaign | null {
     `SELECT * FROM campaigns WHERE id = ?`
   ).get(id)
   return row ? rowToCampaign(row) : null
+}
+
+/** 更新 Campaign */
+export function updateCampaign(
+  id: string,
+  updates: Partial<Pick<Campaign, 'name' | 'brand' | 'platform' | 'budget' | 'durationMonths' | 'targetCity' | 'targetAudience' | 'currentPhase' | 'phasePlans' | 'creativePlan' | 'status'>>
+): Campaign | null {
+  const db = getDb()
+  const campaign = getCampaignById(id)
+  if (!campaign) return null
+
+  const fields: string[] = []
+  const values: unknown[] = []
+
+  if (updates.name !== undefined) { fields.push('name = ?'); values.push(updates.name) }
+  if (updates.brand !== undefined) { fields.push('brand = ?'); values.push(updates.brand) }
+  if (updates.platform !== undefined) { fields.push('platform = ?'); values.push(updates.platform) }
+  if (updates.budget !== undefined) { fields.push('budget = ?'); values.push(updates.budget) }
+  if (updates.durationMonths !== undefined) { fields.push('duration_months = ?'); values.push(updates.durationMonths) }
+  if (updates.targetCity !== undefined) { fields.push('target_city = ?'); values.push(JSON.stringify(updates.targetCity)) }
+  if (updates.targetAudience !== undefined) { fields.push('target_audience = ?'); values.push(updates.targetAudience) }
+  if (updates.currentPhase !== undefined) { fields.push('current_phase = ?'); values.push(updates.currentPhase) }
+  if (updates.phasePlans !== undefined) { fields.push('phase_plans = ?'); values.push(JSON.stringify(updates.phasePlans)) }
+  if (updates.creativePlan !== undefined) { fields.push('creative_plan = ?'); values.push(JSON.stringify(updates.creativePlan)) }
+  if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status) }
+
+  if (fields.length === 0) return campaign
+
+  fields.push('updated_at = ?')
+  values.push(Date.now())
+  values.push(id)
+
+  db.run(
+    `UPDATE campaigns SET ${fields.join(', ')} WHERE id = ?`,
+    ...values
+  )
+
+  const updatedCampaign = getCampaignById(id)!
+
+  // 同步更新 workspace 中的 campaign.json
+  try {
+    const workspacePath = getAgentWorkspacePath(`campaign-${id}`)
+    const campaignJsonPath = join(workspacePath, 'campaign.json')
+    if (existsSync(campaignJsonPath)) {
+      writeFileSync(campaignJsonPath, JSON.stringify(updatedCampaign, null, 2))
+    }
+  } catch (err) {
+    console.error('[Campaign] 同步 campaign.json 失败:', err)
+  }
+
+  return updatedCampaign
 }
 
 // =====================================================================

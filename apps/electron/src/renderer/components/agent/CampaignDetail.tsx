@@ -6,6 +6,7 @@
  */
 
 import * as React from 'react'
+import { useSetAtom } from 'jotai'
 import { ArrowLeft, Calendar, MapPin, Users, DollarSign, Plus, UserCheck, FileText, Rocket, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -13,7 +14,8 @@ import { Button } from '@/components/ui/button'
 import { CampaignBriefDialog } from './CampaignBriefDialog'
 import { CampaignKOLImportDialog } from './CampaignKOLImportDialog'
 import { ContentAuditDialog } from './ContentAuditDialog'
-import { CampaignChatPanel } from './CampaignChatPanel'
+import { CampaignAgentPanel } from './CampaignAgentPanel'
+import { campaignsAtom } from '@/atoms/campaign-atoms'
 import type { Campaign, CampaignKOLPoolItem } from '@ma-proma/shared'
 
 interface CampaignDetailProps {
@@ -54,6 +56,7 @@ const PHASES = [
 ]
 
 export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateToKolData }: CampaignDetailProps): React.ReactElement {
+  const setCampaigns = useSetAtom(campaignsAtom)
   const [campaign, setCampaign] = React.useState(initialCampaign)
   const [poolKOLs, setPoolKOLs] = React.useState<CampaignKOLPoolItem[]>([])
   const [importDialogOpen, setImportDialogOpen] = React.useState(false)
@@ -62,12 +65,23 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
   const [loadingPool, setLoadingPool] = React.useState(true)
   const [advancing, setAdvancing] = React.useState(false)
 
+  // ... rest of the component
+
   // 内容审核状态
   const [auditDialogOpen, setAuditDialogOpen] = React.useState(false)
   const [selectedAuditKOL, setSelectedAuditKOL] = React.useState<CampaignKOLPoolItem | null>(null)
   const [auditHistoryOpen, setAuditHistoryOpen] = React.useState(false)
   const [auditHistory, setAuditHistory] = React.useState<import('@ma-proma/shared').ContentAudit[]>([])
   const [loadingAudits, setLoadingAudits] = React.useState(false)
+
+  React.useEffect(() => {
+    setCampaign(initialCampaign)
+  }, [initialCampaign])
+
+  const applyCampaignUpdate = React.useCallback((updated: Campaign) => {
+    setCampaign(updated)
+    setCampaigns((prev) => prev.map((item) => item.id === updated.id ? updated : item))
+  }, [setCampaigns])
 
   // 加载候选池 KOL
   React.useEffect(() => {
@@ -108,7 +122,7 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
     try {
       const updated = await window.electronAPI.advanceCampaignPhase(campaign.id)
       if (updated) {
-        setCampaign(updated)
+        applyCampaignUpdate(updated)
         toast.success(`已进入第 ${updated.currentPhase} 阶段：${PHASES[updated.currentPhase - 1]?.name ?? ''}`)
       } else {
         toast.error('推进失败')
@@ -193,12 +207,12 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
             投放阶段
           </h3>
           <div className="space-y-3">
-            {PHASES.map((phase) => {
-              const isActive = phase.num === campaign.currentPhase
-              const isCompleted = phase.num < campaign.currentPhase
+            {campaign.phasePlans.map((phase) => {
+              const isActive = phase.phase === campaign.currentPhase
+              const isCompleted = phase.phase < campaign.currentPhase
               return (
                 <div
-                  key={phase.num}
+                  key={phase.phase}
                   className={cn(
                     'flex items-start gap-3 p-3 rounded-xl border transition-all',
                     isActive
@@ -218,7 +232,7 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
                           : 'bg-muted text-muted-foreground'
                     )}
                   >
-                    {isCompleted ? '✓' : phase.num}
+                    {isCompleted ? '✓' : phase.phase}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
@@ -235,6 +249,27 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
                 </div>
               )
             })}
+          </div>
+        </div>
+
+        {/* 创意策略 */}
+        <div className="mb-5">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+            创意策略
+          </h3>
+          <div className="p-3 rounded-xl border border-border bg-background">
+            <div className="text-sm font-semibold">{campaign.creativePlan.bigIdea}</div>
+            <p className="text-xs text-muted-foreground mt-1">{campaign.creativePlan.coreMessage}</p>
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {campaign.creativePlan.contentPillars.map((pillar) => (
+                <span key={pillar} className="px-2 py-1 rounded-md bg-muted text-[10px] text-muted-foreground">
+                  {pillar}
+                </span>
+              ))}
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-3">
+              语气：{campaign.creativePlan.tone}
+            </div>
           </div>
         </div>
 
@@ -263,21 +298,20 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
             )}
           </div>
           <div className="grid grid-cols-3 gap-2">
-            {PHASES.map((phase) => {
-              const phaseBudget = Math.round(campaign.budget / campaign.durationMonths * 2)
-              const isActive = phase.num === campaign.currentPhase
+            {campaign.phasePlans.map((phase) => {
+              const isActive = phase.phase === campaign.currentPhase
               return (
                 <div
-                  key={phase.num}
+                  key={phase.phase}
                   className={cn(
                     'p-3 rounded-xl border text-center',
                     isActive ? 'border-primary/20 bg-primary/5' : 'border-border bg-background'
                   )}
                 >
                   <div className="text-[11px] text-muted-foreground mb-1">{phase.name}</div>
-                  <div className="text-sm font-semibold">{phaseBudget.toLocaleString()} 元</div>
+                  <div className="text-sm font-semibold">{phase.budget.toLocaleString()} 元</div>
                   <div className="text-[10px] text-muted-foreground mt-0.5">
-                    {campaign.durationMonths >= 6 ? '2个月' : '约' + Math.round(campaign.durationMonths / 3) + '个月'}
+                    {phase.months}
                   </div>
                 </div>
               )
@@ -406,10 +440,11 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
         />
       )}
 
-      {/* Campaign 专属聊天面板 */}
+      {/* Campaign Agent 底部嵌入面板 */}
       <div className="h-[300px] border-t border-border">
-        <CampaignChatPanel campaign={campaign} />
+        <CampaignAgentPanel campaign={campaign} onCampaignChanged={applyCampaignUpdate} />
       </div>
+
     </div>
   )
 }

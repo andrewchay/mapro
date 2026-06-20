@@ -27,6 +27,7 @@ import {
 import type { CanUseToolOptions, PermissionResult } from '../agent-permission-service'
 import { TRANSIENT_NETWORK_PATTERN } from '../error-patterns'
 import { spawn as spawnChild, execFileSync } from 'node:child_process'
+import { loadClaudeAgentSdk } from '../claude-sdk-loader'
 
 /** SDK Query 对象类型（从动态导入中推断） */
 type SDKQuery = ReturnType<typeof import('@anthropic-ai/claude-agent-sdk').query>
@@ -654,7 +655,7 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
 
     try {
       // 动态导入 SDK
-      const sdk = await import('@anthropic-ai/claude-agent-sdk')
+      const sdk = await loadClaudeAgentSdk()
 
       // SDK options 构建
       const sdkOptions = {
