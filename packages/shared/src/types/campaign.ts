@@ -264,6 +264,14 @@ export type CampaignWorkflowStepId =
 /** 工作流步骤状态 */
 export type CampaignWorkflowStepStatus = 'pending' | 'in_progress' | 'completed' | 'skipped' | 'failed'
 
+/** 产物校验要求（每步一组） */
+export interface ArtifactRequirement {
+  /** 语义锚点描述，人类可读 */
+  name: string
+  /** 可匹配的关键词/短语列表（任一匹配即通过） */
+  aliases: string[]
+}
+
 /** 单个工作流步骤 */
 export interface CampaignWorkflowStep {
   /** 步骤 ID */
@@ -278,6 +286,10 @@ export interface CampaignWorkflowStep {
   agentPrompt: string
   /** 关联的 Chat Tool 名称 */
   toolName: string
+  /** 产物校验要求列表 */
+  artifactRequirements?: ArtifactRequirement[]
+  /** 产物最低字数阈值（默认 300） */
+  minArtifactLength?: number
   /** 完成时间（可选） */
   completedAt?: number
   /** 输出结果摘要（可选） */

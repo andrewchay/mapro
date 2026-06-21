@@ -35,7 +35,7 @@ interface WorkflowServiceModule {
   loadCampaignWorkflow: (campaignId: string) => import('@ma-proma/shared').CampaignWorkflow
   updateWorkflowStep: (input: import('@ma-proma/shared').UpdateWorkflowStepInput) => import('@ma-proma/shared').CampaignWorkflow
   resetWorkflow: (campaignId: string) => import('@ma-proma/shared').CampaignWorkflow
-  validateStepArtifacts: (campaignId: string, stepId: string) => { valid: boolean; files: string[]; missing: string[] }
+  validateStepArtifacts: (campaignId: string, stepId: string) => { valid: boolean; files: string[]; totalChars: number; missing: string[]; unmetRequirements: import('@ma-proma/shared').ArtifactRequirement[] }
   extractOutputSummary: (messages: import('@ma-proma/shared').AgentMessage[] | undefined) => string
   completeStepWithValidation: (
     campaignId: string,
@@ -141,27 +141,72 @@ describe('Campaign 工作流测试', () => {
     expect(campaignMdContent).toContain('Campaign 上下文')
   })
 
-  // ===== Slice 2: 产物校验 =====
+  // ===== Slice 2: 产物校验（基础结构校验） =====
 
-  it('Slice 2: 产物为空时 validateStepArtifacts 返回 valid=false', () => {
+  it('Slice 2: 空目录 → valid=false', () => {
     const result = workflowService.validateStepArtifacts(testCampaignId, 'brand_dna')
     expect(result.valid).toBe(false)
     expect(result.files).toHaveLength(0)
     expect(result.missing.length).toBeGreaterThan(0)
   })
 
-  it('Slice 2: 有产物时 validateStepArtifacts 返回 valid=true', () => {
-    // 创建产物文件
+  it('Slice 2: 非文本文件（如 .jpg）不计入有效产物', () => {
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
     const artifactDir = join(workspaceDir, 'brand-dna')
-    const testFile = join(artifactDir, 'brand-dna.md')
     mkdirSync(artifactDir, { recursive: true })
-    writeFileSync(testFile, '# Brand DNA\n\nTest content', 'utf-8')
+    writeFileSync(join(artifactDir, 'image.jpg'), 'fake-image-binary', 'utf-8')
 
     const result = workflowService.validateStepArtifacts(testCampaignId, 'brand_dna')
+    expect(result.valid).toBe(false)
+    expect(result.files).toHaveLength(0) // .jpg 不是文本文件
+    expect(result.missing.some((m) => m.includes('没有可读产物'))).toBe(true)
+  })
+
+  it('Slice 2: 空文本文件（0 字）→ valid=false', () => {
+    const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
+    const artifactDir = join(workspaceDir, 'brand-dna')
+    mkdirSync(artifactDir, { recursive: true })
+    writeFileSync(join(artifactDir, 'brand-dna.md'), '', 'utf-8')
+
+    const result = workflowService.validateStepArtifacts(testCampaignId, 'brand_dna')
+    expect(result.valid).toBe(false)
+    expect(result.files).toHaveLength(0) // 空文件被过滤
+    expect(result.missing.some((m) => m.includes('均为空'))).toBe(true)
+  })
+
+  it('Slice 2: 有内容但缺少语义锚点 → valid=false', () => {
+    const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
+    const artifactDir = join(workspaceDir, 'ta-portrait')
+    mkdirSync(artifactDir, { recursive: true })
+    // 写内容但故意缺少关键词
+    writeFileSync(
+      join(artifactDir, 'ta-portrait.md'),
+      '这是一份关于用户画像的文档，包含基本信息，但没有包含兴趣标签和痛点。'.repeat(10),
+      'utf-8',
+    )
+
+    const result = workflowService.validateStepArtifacts(testCampaignId, 'ta_portrait')
+    expect(result.valid).toBe(false)
+    expect(result.missing.some((m) => m.includes('语义锚点'))).toBe(true)
+    expect(result.unmetRequirements.length).toBeGreaterThan(0)
+  })
+
+  it('Slice 2: 合格内容（字数够、覆盖所有锚点）→ valid=true', () => {
+    const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
+    const artifactDir = join(workspaceDir, 'creative-concept')
+    mkdirSync(artifactDir, { recursive: true })
+    writeFileSync(
+      join(artifactDir, 'big-idea.md'),
+      '# Big Idea\n\n核心创意概念：以"城市漫步者"为主题，打造沉浸式内容体验。\n\n传播主张：让每个人都能在忙碌都市中找到属于自己的慢时光。\n创意钩子：通过 3 组对比场景（快节奏 vs 慢生活），引发用户共鸣。\n\n## 创意方向\n\n方向一：视觉叙事——用电影级画面呈现城市角落的美好瞬间。\n方向二：情感共鸣——邀请真实用户分享他们的"慢生活"故事。\n方向三：互动体验——发起"城市漫步挑战"话题，鼓励 UGC 内容。\n\n推荐方案：方向一（视觉叙事），理由：品牌调性高端优雅，视觉呈现最能体现品质感。\n',
+      'utf-8',
+    )
+
+    const result = workflowService.validateStepArtifacts(testCampaignId, 'creative_concept')
     expect(result.valid).toBe(true)
-    expect(result.files).toContain('brand-dna.md')
+    expect(result.files).toContain('big-idea.md')
+    expect(result.totalChars).toBeGreaterThan(300)
     expect(result.missing).toHaveLength(0)
+    expect(result.unmetRequirements).toHaveLength(0)
   })
 
   // ===== Slice 3: 完成步骤（产物校验） =====

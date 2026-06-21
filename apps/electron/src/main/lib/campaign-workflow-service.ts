@@ -71,6 +71,12 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
     title: '提取品牌 DNA',
     description: '分析品牌核心价值、视觉基因、语言调性，输出品牌 DNA 文档',
     toolName: 'ma-brand-dna',
+    minArtifactLength: 300,
+    artifactRequirements: [
+      { name: '品牌核心价值', aliases: ['核心价值', '价值主张', '品牌定位', '使命', '愿景'] },
+      { name: '视觉基因', aliases: ['视觉', '色彩', '风格', '字体', '视觉风格'] },
+      { name: '语言调性', aliases: ['语气', '调性', '语言', '用词', '禁忌词', '表达'] },
+    ],
     agentPrompt: `## 步骤 1: 提取品牌 DNA
 
 目标：分析当前 Campaign 的品牌 DNA，提取品牌核心价值主张、视觉基因、语言调性。
@@ -79,10 +85,10 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
 1. 使用 ma-brand-dna 工具分析品牌
 2. 产出必须保存到以下目录：\`brand-dna/\`
 3. 文件命名建议：\`brand-dna.md\`、\`visual-dna.md\`、\`tone-voice.md\`
-4. 完成标准：
-   - brand-dna.md 包含品牌核心价值、使命、愿景、定位
-   - visual-dna.md 包含视觉风格、色彩、字体偏好
-   - tone-voice.md 包含语言调性、用词风格、禁忌词
+4. 完成标准（校验时会检查）：
+   - brand-dna.md 必须包含品牌核心价值、使命、愿景、定位（至少300字）
+   - visual-dna.md 必须包含视觉风格、色彩、字体偏好（至少300字）
+   - tone-voice.md 必须包含语言调性、用词风格、禁忌词（至少300字）
 
 完成后，请返回 "已完成：品牌 DNA 提取"并附上产物摘要。`,
   },
@@ -91,6 +97,12 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
     title: '构建 TA 画像',
     description: '基于品牌 DNA 和目标城市，构建精准的受众画像（人口统计、兴趣、痛点）',
     toolName: 'ma-ta-portrait',
+    minArtifactLength: 300,
+    artifactRequirements: [
+      { name: '人口统计', aliases: ['年龄', '性别', '收入', '学历', '职业', '地域'] },
+      { name: '兴趣标签', aliases: ['兴趣', '爱好', '生活方式', '关注点', '消费偏好'] },
+      { name: '痛点', aliases: ['痛点', '需求', '问题', '困扰', '使用场景'] },
+    ],
     agentPrompt: `## 步骤 2: 构建 TA 画像
 
 目标：基于品牌 DNA 和目标城市（{targetCity}）、投放平台（{platform}），构建精准受众画像。
@@ -99,9 +111,9 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
 1. 使用 ma-ta-portrait 工具构建 TA 画像
 2. 产出必须保存到：\`ta-portrait/\`
 3. 文件命名建议：\`ta-portrait.md\`、\`personas.md\`
-4. 完成标准：
-   - ta-portrait.md 包含人口统计、兴趣标签、消费行为、内容偏好
-   - personas.md 包含 2-3 个典型用户 persona（含痛点、使用场景）
+4. 完成标准（校验时会检查）：
+   - ta-portrait.md 必须包含人口统计、兴趣标签、消费行为、内容偏好（至少300字）
+   - personas.md 必须包含 2-3 个典型用户 persona（含痛点、使用场景）（至少300字）
 
 前置产物：\`brand-dna/\` 目录中的品牌 DNA 文件
 完成后，请返回 "已完成：TA 画像构建"并附上产物摘要。`,
@@ -111,6 +123,12 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
     title: '生成 Big Idea',
     description: '基于品牌 DNA 和 TA 画像，生成 Campaign 核心创意概念（Big Idea）',
     toolName: 'ma-creative-concept',
+    minArtifactLength: 300,
+    artifactRequirements: [
+      { name: '核心创意', aliases: ['Big Idea', '核心概念', '创意概念', '传播主张', '大创意'] },
+      { name: '创意方向', aliases: ['创意方向', '视觉方向', '文案方向', '内容方向', '媒介建议'] },
+      { name: '推荐方案', aliases: ['推荐', '最优方案', '首选', '主推方案', '最终选择'] },
+    ],
     agentPrompt: `## 步骤 3: 生成 Big Idea
 
 目标：基于品牌 DNA 和 TA 画像，生成 3 个创意方向并推荐最优方案。
@@ -119,10 +137,10 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
 1. 使用 ma-creative-concept 工具生成创意概念
 2. 产出必须保存到：\`creative-concept/\`
 3. 文件命名建议：\`big-idea.md\`、\`creative-directions.md\`
-4. 完成标准：
-   - big-idea.md 包含核心创意概念、传播主张、创意钩子
-   - creative-directions.md 包含 3 个方向（每个方向含视觉示意、文案框架、媒介建议）
-   - 明确推荐最优方案及理由
+4. 完成标准（校验时会检查）：
+   - big-idea.md 必须包含核心创意概念、传播主张、创意钩子（至少300字）
+   - creative-directions.md 必须包含 3 个方向及推荐（至少300字）
+   - 必须明确推荐最优方案及理由
 
 前置产物：\`brand-dna/\`、\`ta-portrait/\` 目录中的文件
 完成后，请返回 "已完成：Big Idea 生成"并附上产物摘要。`,
@@ -132,6 +150,13 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
     title: '设计平台矩阵',
     description: '根据创意概念和 TA 画像，设计多平台内容分发矩阵和角色分工',
     toolName: 'ma-platform-role-mapper',
+    minArtifactLength: 300,
+    artifactRequirements: [
+      { name: '平台角色', aliases: ['平台角色', '平台定位', '平台策略', '内容角色', '分发策略'] },
+      { name: 'KPI', aliases: ['KPI', '指标', '目标', '考核', '效果指标'] },
+      { name: '预算分配', aliases: ['预算', '分配', '预算比例', '预算分配', '资源分配'] },
+      { name: '内容排期', aliases: ['排期', '日历', '排期表', '时间线', '内容日历'] },
+    ],
     agentPrompt: `## 步骤 4: 设计平台矩阵
 
 目标：基于 Big Idea 和 TA 画像，为每个平台分配内容角色、KPI 和预算比例。
@@ -140,9 +165,9 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
 1. 使用 ma-platform-role-mapper 工具设计平台矩阵
 2. 产出必须保存到：\`platform-matrix/\`
 3. 文件命名建议：\`platform-matrix.md\`、\`content-calendar.md\`
-4. 完成标准：
-   - platform-matrix.md 包含各平台角色、内容类型、发布频率、KPI、预算分配
-   - content-calendar.md 包含首月内容排期（日期、平台、内容类型、负责人）
+4. 完成标准（校验时会检查）：
+   - platform-matrix.md 必须包含各平台角色、内容类型、发布频率、KPI、预算分配（至少300字）
+   - content-calendar.md 必须包含首月内容排期（至少300字）
 
 前置产物：\`creative-concept/\` 目录中的 Big Idea 文件
 完成后，请返回 "已完成：平台矩阵设计"并附上产物摘要。`,
@@ -152,6 +177,12 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
     title: '设计 KOL 金字塔',
     description: '根据预算和平台矩阵，设计 KOL 合作金字塔（头部/腰部/尾部比例）',
     toolName: 'ma-kol-pyramid',
+    minArtifactLength: 300,
+    artifactRequirements: [
+      { name: '金字塔结构', aliases: ['金字塔', '层级', '头部', '腰部', '尾部', '比例'] },
+      { name: '预算分配', aliases: ['预算', '预算分配', '预算比例', '费用', '投入'] },
+      { name: '筛选标准', aliases: ['筛选', '标准', '要求', '条件', '粉丝量', '互动率'] },
+    ],
     agentPrompt: `## 步骤 5: 设计 KOL 金字塔
 
 目标：基于总预算 {budget} 元、平台矩阵和目标人群，设计头部/腰部/尾部 KOL 金字塔。
@@ -160,9 +191,9 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
 1. 使用 ma-kol-pyramid 工具设计 KOL 金字塔
 2. 产出必须保存到：\`kol-pyramid/\`
 3. 文件命名建议：\`kol-pyramid.md\`、\`kol-tier-spec.md\`
-4. 完成标准：
-   - kol-pyramid.md 包含各层级比例、数量、预算分配、筛选标准
-   - kol-tier-spec.md 包含各层级 KOL 的具体要求（粉丝量、互动率、内容风格）
+4. 完成标准（校验时会检查）：
+   - kol-pyramid.md 必须包含各层级比例、数量、预算分配、筛选标准（至少300字）
+   - kol-tier-spec.md 必须包含各层级 KOL 的具体要求（至少300字）
    - 总预算分配不超过 {budget} 元
 
 前置产物：\`platform-matrix/\` 目录中的平台矩阵文件
@@ -173,6 +204,12 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
     title: '筛选候选达人',
     description: '基于 KOL 金字塔参数，从数据库中搜索并筛选符合要求的候选达人',
     toolName: 'kol-data/search_kols',
+    minArtifactLength: 300,
+    artifactRequirements: [
+      { name: '搜索条件', aliases: ['搜索', '筛选', '条件', '参数', '筛选标准'] },
+      { name: 'KOL 列表', aliases: ['KOL', '达人', '博主', '候选人', '推荐列表'] },
+      { name: '推荐理由', aliases: ['推荐理由', '匹配度', '分析', '评估', '为什么'] },
+    ],
     agentPrompt: `## 步骤 6: 筛选候选达人
 
 目标：基于 KOL 金字塔参数（平台、类目、粉丝量级、预算范围），搜索并筛选候选达人。
@@ -181,9 +218,9 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
 1. 使用 kol-data/search_kols 工具筛选候选 KOL
 2. 筛选结果必须保存到：\`kol-search/\`
 3. 文件命名建议：\`kol-search-results.md\`、\`kol-shortlist.md\`
-4. 完成标准：
-   - kol-search-results.md 包含搜索条件、筛选逻辑、符合条件的 KOL 列表
-   - kol-shortlist.md 包含精选推荐（10-20 位，含推荐理由、匹配度分析）
+4. 完成标准（校验时会检查）：
+   - kol-search-results.md 必须包含搜索条件、筛选逻辑、KOL 列表（至少300字）
+   - kol-shortlist.md 必须包含精选推荐及推荐理由（至少300字）
    - 每位 KOL 信息包含：ID、名称、平台、粉丝量、互动率、类目、报价、城市
 
 前置产物：\`kol-pyramid/\` 目录中的 KOL 金字塔文件
@@ -194,6 +231,12 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
     title: '加入候选池',
     description: '将筛选出的达人从数据库导入 Campaign 候选池，并设置初始状态',
     toolName: 'ma-campaign-agent',
+    minArtifactLength: 100,
+    artifactRequirements: [
+      { name: '导入记录', aliases: ['导入', '加入', '候选池', '导入记录', '导入日志'] },
+      { name: 'KOL ID', aliases: ['KOL ID', '达人ID', 'ID列表', 'kol_id', '编号'] },
+      { name: '导入结果', aliases: ['成功', '失败', '跳过', '结果', '状态'] },
+    ],
     agentPrompt: `## 步骤 7: 将达人加入候选池
 
 目标：将上一步筛选出的候选 KOL 从数据库导入当前 Campaign 候选池。
@@ -204,8 +247,8 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
 3. 导入完成后，调用 ma_campaign_kol_list 确认导入结果
 4. 记录保存到：\`kol-search/\`
 5. 文件命名建议：\`pool-import-log.md\`
-6. 完成标准：
-   - pool-import-log.md 包含导入时间、导入的 KOL ID 列表、成功/失败数、导入后候选池总数
+6. 完成标准（校验时会检查）：
+   - pool-import-log.md 必须包含导入时间、KOL ID 列表、成功/失败数、导入后候选池总数（至少100字）
    - 所有目标 KOL 都已出现在候选池中（status = candidate）
    - 已存在的 KOL 会被跳过（不会重复导入）
 
@@ -217,6 +260,13 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
     title: '生成达人 Brief',
     description: '为每个已确认的达人生成个性化的合作 Brief（内容方向、交付物、时间线）',
     toolName: 'ma-creative-pilot',
+    minArtifactLength: 300,
+    artifactRequirements: [
+      { name: 'Brief 索引', aliases: ['Brief', '索引', 'briefs', '清单', '列表'] },
+      { name: '内容方向', aliases: ['内容方向', '内容策略', '关键信息', '信息点', '核心信息'] },
+      { name: '交付物', aliases: ['交付物', '交付清单', '要求', '产出', '作品'] },
+      { name: '时间线', aliases: ['时间', '时间线', '节点', 'deadline', '截止日期'] },
+    ],
     agentPrompt: `## 步骤 8: 生成达人 Brief
 
 目标：为当前 Campaign 候选池中的每位已确认达人（status = confirmed）生成个性化 Brief。
@@ -225,9 +275,9 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
 1. 使用 ma-creative-pilot 工具生成 Brief
 2. 产出必须保存到：\`briefs/\`
 3. 文件命名建议：\`briefs-index.md\`、\`brief-{kol-id}.md\`（每位达人单独一个文件）
-4. 完成标准：
-   - briefs-index.md 包含所有已确认 KOL 列表、Brief 状态、交付时间线
-   - 每个 brief-{kol-id}.md 包含：内容方向、关键信息点、交付物清单、时间节点、审核要求、预算
+4. 完成标准（校验时会检查）：
+   - briefs-index.md 必须包含所有已确认 KOL 列表、Brief 状态、交付时间线（至少300字）
+   - 每个 brief-{kol-id}.md 必须包含：内容方向、交付物清单、时间节点（至少300字）
    - 每位达人的 Brief 都体现其个人风格和受众特点
 
 前置产物：\`brand-dna/\`、\`creative-concept/\`、\`kol-search/\` 目录中的文件
@@ -238,6 +288,13 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
     title: '设计 A/B 测试',
     description: '为 Campaign 设计 A/B 测试方案（变量、分组、指标、样本量）',
     toolName: 'ma-campaign-tester',
+    minArtifactLength: 300,
+    artifactRequirements: [
+      { name: '测试变量', aliases: ['变量', '测试变量', 'A/B测试', '对比', '测试方案'] },
+      { name: '分组方案', aliases: ['分组', '受众分组', '分组方案', '测试组', '对照组'] },
+      { name: '指标', aliases: ['指标', 'KPI', '关键指标', '成功指标', '统计指标'] },
+      { name: '样本量', aliases: ['样本量', '样本', '计算', '统计', '显著性'] },
+    ],
     agentPrompt: `## 步骤 9: 设计 A/B 测试
 
 目标：为 Campaign 设计 A/B 测试方案，定义测试变量、受众分组、成功指标和样本量计算。
@@ -246,9 +303,9 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
 1. 使用 ma-campaign-tester 工具设计 A/B 测试
 2. 产出必须保存到：\`ab-test/\`
 3. 文件命名建议：\`ab-test-plan.md\`、\`test-metrics.md\`
-4. 完成标准：
-   - ab-test-plan.md 包含测试目标、变量定义、分组方案、测试周期、执行计划
-   - test-metrics.md 包含关键指标（CTR、转化率、互动率）、样本量计算、统计显著性阈值
+4. 完成标准（校验时会检查）：
+   - ab-test-plan.md 必须包含测试目标、变量定义、分组方案、测试周期（至少300字）
+   - test-metrics.md 必须包含关键指标、样本量计算、统计显著性阈值（至少300字）
    - 测试方案与创意概念和平台矩阵一致
 
 前置产物：\`creative-concept/\`、\`platform-matrix/\` 目录中的文件
@@ -638,26 +695,117 @@ export function getWorkflowProgress(campaignId: string): number {
 
 import { readdirSync } from 'node:fs'
 
-/** 验证步骤产物目录是否有文件 */
+/** 检查内容是否满足语义锚点要求（任一 alias 匹配即通过） */
+function checkRequirement(content: string, req: import('@ma-proma/shared').ArtifactRequirement): boolean {
+  const lower = content.toLowerCase()
+  return req.aliases.some((alias) => lower.includes(alias.toLowerCase()))
+}
+
+/** 读取目录下所有文本文件内容 */
+function readTextFiles(dirPath: string): { files: string[]; totalChars: number; combinedContent: string } {
+  const files: string[] = []
+  let totalChars = 0
+  let combinedContent = ''
+
+  if (!existsSync(dirPath)) return { files, totalChars, combinedContent }
+
+  const entries = readdirSync(dirPath).filter((f) => !f.startsWith('.'))
+  const textFiles = entries.filter((f) => f.endsWith('.md') || f.endsWith('.txt') || f.endsWith('.json'))
+
+  for (const file of textFiles) {
+    const filePath = join(dirPath, file)
+    try {
+      const content = readFileSync(filePath, 'utf-8')
+      if (content.trim().length > 0) {
+        files.push(file)
+        totalChars += content.trim().length
+        combinedContent += content + '\n'
+      }
+    } catch (err) {
+      console.error(`[CampaignWorkflow] 读取文件失败: ${filePath}`, err)
+    }
+  }
+
+  return { files, totalChars, combinedContent }
+}
+
+/** 验证步骤产物（基础结构校验：目录、文件、长度、语义锚点） */
 export function validateStepArtifacts(
   campaignId: string,
   stepId: CampaignWorkflowStepId,
-): { valid: boolean; files: string[]; missing: string[] } {
+): {
+  valid: boolean
+  files: string[]
+  totalChars: number
+  missing: string[]
+  unmetRequirements: import('@ma-proma/shared').ArtifactRequirement[]
+} {
   const slug = `campaign-${campaignId}`
   const dirName = STEP_DIR_MAP[stepId]
   const dirPath = join(getAgentWorkspacePath(slug), dirName)
 
+  const missing: string[] = []
+  const unmetRequirements: import('@ma-proma/shared').ArtifactRequirement[] = []
+
+  // 1. 检查目录存在
   if (!existsSync(dirPath)) {
-    return { valid: false, files: [], missing: [dirName] }
+    missing.push(`${dirName}/ 目录不存在`)
+    return { valid: false, files: [], totalChars: 0, missing, unmetRequirements }
   }
 
-  const files = readdirSync(dirPath).filter((f) => !f.startsWith('.'))
-  const hasFiles = files.length > 0
+  // 2. 读取文本文件
+  const { files, totalChars, combinedContent } = readTextFiles(dirPath)
+
+  // 3. 检查是否有文本文件
+  if (files.length === 0) {
+    missing.push(`${dirName}/ 目录中没有可读产物（.md/.txt/.json）`)
+  }
+
+  // 4. 检查文件非空
+  if (totalChars === 0) {
+    missing.push(`${dirName}/ 目录中文件均为空`)
+  }
+
+  // 5. 加载工作流获取 minArtifactLength
+  let minLength = 300
+  try {
+    const workflow = loadCampaignWorkflow(campaignId)
+    const step = workflow.steps.find((s) => s.id === stepId)
+    if (step?.minArtifactLength) minLength = step.minArtifactLength
+  } catch {
+    // 忽略，使用默认 300
+  }
+
+  // 6. 检查字数
+  if (totalChars < minLength) {
+    missing.push(`${dirName}/ 总字数 ${totalChars} 低于最低要求 ${minLength} 字`)
+  }
+
+  // 7. 检查语义锚点
+  let requirements: import('@ma-proma/shared').ArtifactRequirement[] = []
+  try {
+    const workflow = loadCampaignWorkflow(campaignId)
+    const step = workflow.steps.find((s) => s.id === stepId)
+    if (step?.artifactRequirements) requirements = step.artifactRequirements
+  } catch {
+    // 忽略
+  }
+
+  for (const req of requirements) {
+    if (!checkRequirement(combinedContent, req)) {
+      unmetRequirements.push(req)
+      missing.push(`缺少语义锚点: ${req.name}（可匹配: ${req.aliases.join(' / ')}）`)
+    }
+  }
+
+  const valid = missing.length === 0
 
   return {
-    valid: hasFiles,
+    valid,
     files,
-    missing: hasFiles ? [] : [`${dirName}/ 目录为空`],
+    totalChars,
+    missing,
+    unmetRequirements,
   }
 }
 
@@ -717,7 +865,7 @@ export function appendHistory(
 export function completeStepWithValidation(
   campaignId: string,
   stepId: CampaignWorkflowStepId,
-  messages: any[],
+  messages: import('@ma-proma/shared').AgentMessage[] | undefined,
 ): { success: boolean; workflow: CampaignWorkflow; reason?: string } {
   const validation = validateStepArtifacts(campaignId, stepId)
   const outputSummary = extractOutputSummary(messages)
@@ -728,10 +876,10 @@ export function completeStepWithValidation(
       campaignId,
       stepId,
       status: 'failed',
-      outputSummary: `产物校验失败: ${validation.missing.join(', ')}`,
+      outputSummary: `产物校验失败: ${validation.missing.join('; ')}`,
     })
     appendHistory(campaignId, stepId, workflow.steps.find(s => s.id === stepId)?.title ?? stepId, 'failed', outputSummary)
-    return { success: false, workflow, reason: validation.missing.join(', ') }
+    return { success: false, workflow, reason: validation.missing.join('; ') }
   }
 
   // 产物校验通过，标记完成
