@@ -7,7 +7,7 @@
 
 import * as React from 'react'
 import { useSetAtom } from 'jotai'
-import { ArrowLeft, Calendar, MapPin, Users, DollarSign, Plus, UserCheck, FileText, Rocket, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, Calendar, MapPin, Users, DollarSign, Plus, UserCheck, FileText, Rocket, ShieldCheck, FolderOpen } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -15,6 +15,7 @@ import { CampaignBriefDialog } from './CampaignBriefDialog'
 import { CampaignKOLImportDialog } from './CampaignKOLImportDialog'
 import { ContentAuditDialog } from './ContentAuditDialog'
 import { CampaignWorkflowSteps } from './CampaignWorkflowSteps'
+import { FileBrowser } from '@/components/file-browser'
 import { campaignsAtom } from '@/atoms/campaign-atoms'
 import type { Campaign, CampaignKOLPoolItem } from '@ma-proma/shared'
 
@@ -96,7 +97,18 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
       .finally(() => setLoadingPool(false))
   }, [campaign.id])
 
-  // 加载审核历史
+  const [workspacePath, setWorkspacePath] = React.useState<string | null>(null)
+  const [loadingWorkspace, setLoadingWorkspace] = React.useState(true)
+
+  // 加载工作区路径
+  React.useEffect(() => {
+    setLoadingWorkspace(true)
+    window.electronAPI
+      .ensureCampaignWorkspace(campaign)
+      .then((path) => setWorkspacePath(path))
+      .catch(console.error)
+      .finally(() => setLoadingWorkspace(false))
+  }, [campaign])
   React.useEffect(() => {
     if (!auditHistoryOpen) return
     setLoadingAudits(true)
@@ -419,6 +431,28 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
             </div>
           )}
         </div>
+        {/* 产物文件区域 */}
+        {workspacePath && (
+          <div className="mb-5">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
+              <FolderOpen size={14} />
+              产物文件
+            </h3>
+            <div className="rounded-xl border border-border bg-background overflow-hidden">
+              {loadingWorkspace ? (
+                <div className="p-4 text-center text-sm text-muted-foreground">加载文件中...</div>
+              ) : (
+                <FileBrowser
+                  rootPath={workspacePath}
+                  hideToolbar
+                  embedded
+                  onFilePreview={(filePath) => window.electronAPI.openFile(filePath)}
+                />
+              )}
+            </div>
+          </div>
+        )}
+
       </div>
 
       <CampaignKOLImportDialog
