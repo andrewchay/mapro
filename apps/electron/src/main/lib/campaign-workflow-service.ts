@@ -662,16 +662,16 @@ export function validateStepArtifacts(
 }
 
 /** 从 Agent 消息中提取摘要（最后一条 assistant 消息的前 200 字符） */
-export function extractOutputSummary(messages: any[] | undefined): string {
+export function extractOutputSummary(
+  messages: import('@ma-proma/shared').AgentMessage[] | undefined,
+): string {
   if (!messages || messages.length === 0) return '执行完成，未获取输出摘要'
 
   // 找最后一条 assistant 消息
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]
-    const text = msg?.message?.content?.[0]?.text
-      || msg?.content?.[0]?.text
-      || msg?.message?.content
-      || ''
+    if (!msg) continue
+    const text = msg.content
     if (text && typeof text === 'string' && text.trim()) {
       return text.trim().slice(0, 200)
     }
