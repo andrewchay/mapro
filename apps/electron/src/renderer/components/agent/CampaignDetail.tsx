@@ -7,7 +7,7 @@
 
 import * as React from 'react'
 import { useSetAtom } from 'jotai'
-import { ArrowLeft, Calendar, MapPin, Users, DollarSign, Plus, UserCheck, FileText, Rocket, ShieldCheck, Bot } from 'lucide-react'
+import { ArrowLeft, Calendar, MapPin, Users, DollarSign, Plus, UserCheck, FileText, Rocket, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -16,16 +16,13 @@ import { CampaignKOLImportDialog } from './CampaignKOLImportDialog'
 import { ContentAuditDialog } from './ContentAuditDialog'
 import { CampaignWorkflowSteps } from './CampaignWorkflowSteps'
 import { campaignsAtom } from '@/atoms/campaign-atoms'
-import { appModeAtom } from '@/atoms/app-mode'
-import { activeViewAtom } from '@/atoms/active-view'
-import { currentAgentSessionIdAtom, currentAgentWorkspaceIdAtom } from '@/atoms/agent-atoms'
-import { tabsAtom, activeTabIdAtom, openTab } from '@/atoms/tab-atoms'
 import type { Campaign, CampaignKOLPoolItem } from '@ma-proma/shared'
 
 interface CampaignDetailProps {
   campaign: Campaign
   onBack: () => void
   onNavigateToKolData?: () => void
+  onSendToAssistant?: (prompt: string) => void
 }
 
 const PLATFORM_LABEL: Record<string, string> = {
@@ -59,14 +56,8 @@ const PHASES = [
   { num: 3, name: '价值深化期', months: '第 5-6 月', goal: '品牌护城河，长尾维护' },
 ]
 
-export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateToKolData }: CampaignDetailProps): React.ReactElement {
+export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateToKolData, onSendToAssistant }: CampaignDetailProps): React.ReactElement {
   const setCampaigns = useSetAtom(campaignsAtom)
-  const setAppMode = useSetAtom(appModeAtom)
-  const setActiveView = useSetAtom(activeViewAtom)
-  const setCurrentAgentSessionId = useSetAtom(currentAgentSessionIdAtom)
-  const setCurrentAgentWorkspaceId = useSetAtom(currentAgentWorkspaceIdAtom)
-  const setTabs = useSetAtom(tabsAtom)
-  const setActiveTabId = useSetAtom(activeTabIdAtom)
   const [campaign, setCampaign] = React.useState(initialCampaign)
   const [poolKOLs, setPoolKOLs] = React.useState<CampaignKOLPoolItem[]>([])
   const [importDialogOpen, setImportDialogOpen] = React.useState(false)
@@ -74,7 +65,6 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
   const [selectedBriefKOL, setSelectedBriefKOL] = React.useState<CampaignKOLPoolItem | null>(null)
   const [loadingPool, setLoadingPool] = React.useState(true)
   const [advancing, setAdvancing] = React.useState(false)
-  const [openingAgent, setOpeningAgent] = React.useState(false)
 
   // ... rest of the component
 
@@ -146,73 +136,6 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
     }
   }
 
-  const handleOpenInAgent = async (customPrompt?: string) => {
-    setOpeningAgent(true)
-    try {
-      const workspaceSlug = `campaign-${campaign.id}`
-      const channels = await window.electronAPI.listChannels()
-      const defaultChannel = channels.find((c) => c.enabled)
-      if (!defaultChannel) {
-        toast.error('未找到可用的 Agent 渠道')
-        return
-      }
-
-      const workspaces = await window.electronAPI.listAgentWorkspaces()
-      let workspace = workspaces.find((w) => w.slug === workspaceSlug)
-      if (!workspace) {
-        workspace = await window.electronAPI.createAgentWorkspace(campaign.name, workspaceSlug)
-      }
-      if (!workspace) {
-        toast.error('Agent 工作区初始化失败')
-        return
-      }
-
-      const sessions = await window.electronAPI.listAgentSessions()
-      let session = sessions.find(
-        (s) => s.title === campaign.name && s.workspaceId === workspace!.id
-      )
-      if (!session) {
-        session = await window.electronAPI.createAgentSession(
-          campaign.name,
-          defaultChannel.id,
-          workspace.id,
-        )
-      }
-
-      // 打开 Agent 标签并切换模式
-      setTabs((prev) => {
-        const result = openTab(prev, { type: 'agent', sessionId: session!.id, title: campaign.name })
-        return result.tabs
-      })
-      setActiveTabId(session!.id)
-      setAppMode('agent')
-      setActiveView('conversations')
-      setCurrentAgentSessionId(session!.id)
-      setCurrentAgentWorkspaceId(workspace.id)
-      window.electronAPI.updateSettings({ agentWorkspaceId: workspace.id }).catch(console.error)
-
-      // 如果有自定义提示词，延迟发送（等待 Agent 初始化完成）
-      if (customPrompt) {
-        // 等待一小段时间确保会话已初始化
-        setTimeout(() => {
-          window.electronAPI.sendAgentMessage({
-            sessionId: session!.id,
-            userMessage: customPrompt,
-            channelId: defaultChannel.id,
-            workspaceId: workspace!.id,
-            permissionModeOverride: 'bypassPermissions',
-            startedAt: Date.now(),
-          }).catch(console.error)
-        }, 500)
-      }
-    } catch (error) {
-      console.error('[CampaignDetail] 打开 Agent 失败:', error)
-      toast.error('打开 Agent 失败')
-    } finally {
-      setOpeningAgent(false)
-    }
-  }
-
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
       {/* 头部 */}
@@ -234,16 +157,6 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
             </span>
           </div>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => void handleOpenInAgent()}
-          disabled={openingAgent}
-          className="text-xs border-primary/30 text-primary hover:bg-primary/5 flex-shrink-0"
-        >
-          <Bot size={14} className="mr-1.5" />
-          {openingAgent ? '启动中...' : '使用 Agent 协助'}
-        </Button>
       </div>
 
       {/* 基本信息卡片 */}
@@ -302,7 +215,7 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
               targetAudience: campaign.targetAudience,
               durationMonths: campaign.durationMonths.toString(),
             }}
-            onOpenInAgent={(prompt) => void handleOpenInAgent(prompt)}
+            onOpenInAgent={(prompt) => onSendToAssistant?.(prompt)}
           />
         </div>
 
