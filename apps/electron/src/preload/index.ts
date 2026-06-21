@@ -667,6 +667,9 @@ export interface ElectronAPI {
   /** 用系统默认应用打开文件 */
   openFile: (filePath: string) => Promise<void>
 
+  /** 读取文本文件内容 */
+  readFileContent: (filePath: string) => Promise<{ content: string; error?: string }>
+
   /** 将剪贴板文本写入临时预览文件并返回绝对路径 */
   writeClipboardPreview: (filename: string, content: string) => Promise<string>
 
@@ -1781,6 +1784,10 @@ const electronAPI: ElectronAPI = {
 
   openFile: (filePath: string) => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.OPEN_FILE, filePath)
+  },
+
+  readFileContent: (filePath: string) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.READ_FILE_CONTENT, filePath)
   },
 
   writeClipboardPreview: (filename: string, content: string) => {

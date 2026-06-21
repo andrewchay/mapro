@@ -16,6 +16,7 @@ import { CampaignKOLImportDialog } from './CampaignKOLImportDialog'
 import { ContentAuditDialog } from './ContentAuditDialog'
 import { CampaignWorkflowSteps } from './CampaignWorkflowSteps'
 import { FileBrowser } from '@/components/file-browser'
+import { FilePreviewDialog } from './FilePreviewDialog'
 import { campaignsAtom } from '@/atoms/campaign-atoms'
 import type { Campaign, CampaignKOLPoolItem } from '@ma-proma/shared'
 
@@ -75,6 +76,10 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
   const [auditHistoryOpen, setAuditHistoryOpen] = React.useState(false)
   const [auditHistory, setAuditHistory] = React.useState<import('@ma-proma/shared').ContentAudit[]>([])
   const [loadingAudits, setLoadingAudits] = React.useState(false)
+
+  // 文件预览状态
+  const [previewFilePath, setPreviewFilePath] = React.useState<string | null>(null)
+  const [previewOpen, setPreviewOpen] = React.useState(false)
 
   React.useEffect(() => {
     setCampaign(initialCampaign)
@@ -446,7 +451,16 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
                   rootPath={workspacePath}
                   hideToolbar
                   embedded
-                  onFilePreview={(filePath) => window.electronAPI.openFile(filePath)}
+                  onFilePreview={(filePath) => {
+                    const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
+                    const isText = ['md', 'txt', 'json', 'yaml', 'yml', 'csv', 'xml', 'html', 'css', 'js', 'ts'].includes(ext) || !ext
+                    if (isText) {
+                      setPreviewFilePath(filePath)
+                      setPreviewOpen(true)
+                    } else {
+                      window.electronAPI.openFile(filePath)
+                    }
+                  }}
                 />
               )}
             </div>
@@ -491,6 +505,15 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
           }}
         />
       )}
+
+      <FilePreviewDialog
+        filePath={previewFilePath}
+        open={previewOpen}
+        onOpenChange={(open) => {
+          setPreviewOpen(open)
+          if (!open) setPreviewFilePath(null)
+        }}
+      />
 
     </div>
   )

@@ -2225,6 +2225,33 @@ export function registerIpcHandlers(): void {
     }
   )
 
+  // 读取文本文件内容（用于内联预览）
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.READ_FILE_CONTENT,
+    async (_, filePath: string): Promise<{ content: string; error?: string }> => {
+      const { resolve } = await import('node:path')
+      const { readFileSync, existsSync } = await import('node:fs')
+
+      const safePath = resolve(filePath)
+      const workspacesRoot = resolve(getAgentWorkspacesDir())
+      if (!safePath.startsWith(workspacesRoot)) {
+        return { content: '', error: '访问路径超出 Agent 工作区范围' }
+      }
+
+      if (!existsSync(safePath)) {
+        return { content: '', error: '文件不存在' }
+      }
+
+      try {
+        const content = readFileSync(safePath, 'utf-8')
+        return { content }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return { content: '', error: `读取失败: ${msg}` }
+      }
+    }
+  )
+
   // 将剪贴板文本写入临时预览文件
   ipcMain.handle(
     AGENT_IPC_CHANNELS.WRITE_CLIPBOARD_PREVIEW,
