@@ -7,7 +7,7 @@
 
 import * as React from 'react'
 import { useSetAtom } from 'jotai'
-import { ArrowLeft, Calendar, MapPin, Users, DollarSign, Plus, UserCheck, FileText, Rocket, ShieldCheck, FolderOpen } from 'lucide-react'
+import { ArrowLeft, Calendar, MapPin, Users, DollarSign, Plus, UserCheck, FileText, Rocket, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -15,7 +15,6 @@ import { CampaignBriefDialog } from './CampaignBriefDialog'
 import { CampaignKOLImportDialog } from './CampaignKOLImportDialog'
 import { ContentAuditDialog } from './ContentAuditDialog'
 import { CampaignWorkflowSteps } from './CampaignWorkflowSteps'
-import { FileBrowser } from '@/components/file-browser'
 import { FilePreviewDialog } from './FilePreviewDialog'
 import { campaignsAtom } from '@/atoms/campaign-atoms'
 import type { Campaign, CampaignKOLPoolItem } from '@ma-proma/shared'
@@ -85,6 +84,13 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
     setCampaign(initialCampaign)
   }, [initialCampaign])
 
+  // 加载工作区路径（确保工作区存在即可）
+  React.useEffect(() => {
+    window.electronAPI
+      .ensureCampaignWorkspace(campaign)
+      .catch(console.error)
+  }, [campaign])
+
   const applyCampaignUpdate = React.useCallback((updated: Campaign) => {
     setCampaign(updated)
     setCampaigns((prev) => prev.map((item) => item.id === updated.id ? updated : item))
@@ -102,18 +108,6 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
       .finally(() => setLoadingPool(false))
   }, [campaign.id])
 
-  const [workspacePath, setWorkspacePath] = React.useState<string | null>(null)
-  const [loadingWorkspace, setLoadingWorkspace] = React.useState(true)
-
-  // 加载工作区路径
-  React.useEffect(() => {
-    setLoadingWorkspace(true)
-    window.electronAPI
-      .ensureCampaignWorkspace(campaign)
-      .then((path) => setWorkspacePath(path))
-      .catch(console.error)
-      .finally(() => setLoadingWorkspace(false))
-  }, [campaign])
   React.useEffect(() => {
     if (!auditHistoryOpen) return
     setLoadingAudits(true)
@@ -436,37 +430,6 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
             </div>
           )}
         </div>
-        {/* 产物文件区域 */}
-        {workspacePath && (
-          <div className="mb-5">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
-              <FolderOpen size={14} />
-              产物文件
-            </h3>
-            <div className="rounded-xl border border-border bg-background overflow-hidden">
-              {loadingWorkspace ? (
-                <div className="p-4 text-center text-sm text-muted-foreground">加载文件中...</div>
-              ) : (
-                <FileBrowser
-                  rootPath={workspacePath}
-                  hideToolbar
-                  embedded
-                  onFilePreview={(filePath) => {
-                    const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
-                    const isText = ['md', 'txt', 'json', 'yaml', 'yml', 'csv', 'xml', 'html', 'css', 'js', 'ts'].includes(ext) || !ext
-                    if (isText) {
-                      setPreviewFilePath(filePath)
-                      setPreviewOpen(true)
-                    } else {
-                      window.electronAPI.openFile(filePath)
-                    }
-                  }}
-                />
-              )}
-            </div>
-          </div>
-        )}
-
       </div>
 
       <CampaignKOLImportDialog

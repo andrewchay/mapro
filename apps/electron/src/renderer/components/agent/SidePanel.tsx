@@ -34,6 +34,7 @@ import {
 } from '@/atoms/agent-atoms'
 import { previewPanelOpenMapAtom, previewFileMapAtom } from '@/atoms/preview-atoms'
 import { detectIsWindows } from '@/lib/platform'
+import { FilePreviewDialog } from './FilePreviewDialog'
 import type { FileEntry, AgentPendingFile } from '@ma-proma/shared'
 
 function getPathBasename(filePath: string): string {
@@ -72,14 +73,28 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
   // 用 ref 存 basePaths 相关值，避免声明顺序问题
   const basePathsRef = React.useRef<string[]>([])
 
+  // 内联文件预览弹窗
+  const [previewFilePath, setPreviewFilePath] = React.useState<string | null>(null)
+  const [previewOpen, setPreviewOpen] = React.useState(false)
+
   const handleFilePreview = React.useCallback((filePath: string) => {
     const bp = basePathsRef.current
+    // 同时触发全局 PreviewPanel 和内联弹窗
     setPreviewFileMap((prev) => {
       const m = new Map(prev)
       m.set(sessionId, { filePath, previewOnly: true, basePaths: bp.length > 0 ? bp : undefined })
       return m
     })
     setPreviewOpenMap((prev) => { const m = new Map(prev); m.set(sessionId, true); return m })
+    // 内联弹窗：文本文件直接预览，二进制文件用系统应用打开
+    const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
+    const isText = ['md', 'txt', 'json', 'yaml', 'yml', 'csv', 'xml', 'html', 'css', 'js', 'ts'].includes(ext) || !ext
+    if (isText) {
+      setPreviewFilePath(filePath)
+      setPreviewOpen(true)
+    } else {
+      window.electronAPI.openFile(filePath).catch(console.error)
+    }
   }, [sessionId, setPreviewFileMap, setPreviewOpenMap])
 
   // 动画标志：isOpen 变化时启用过渡动画，切换会话时即时显示
@@ -579,6 +594,16 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
                 </div>
               )}
         </div>
+
+        {/* 内联文件预览弹窗 */}
+        <FilePreviewDialog
+          filePath={previewFilePath}
+          open={previewOpen}
+          onOpenChange={(open) => {
+            setPreviewOpen(open)
+            if (!open) setPreviewFilePath(null)
+          }}
+        />
     </div>
   )
 }

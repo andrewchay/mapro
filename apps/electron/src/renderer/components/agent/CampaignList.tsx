@@ -7,14 +7,13 @@
 
 import * as React from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
-import { Bot, MessageSquare, Target } from 'lucide-react'
+import { Bot, Target } from 'lucide-react'
 import { campaignsAtom, campaignConversationMapAtom, currentCampaignIdAtom } from '@/atoms/campaign-atoms'
 import { activeViewAtom } from '@/atoms/active-view'
 import { conversationsAtom, chatPendingMessageAtom } from '@/atoms/chat-atoms'
 import { agentWorkspacesAtom, currentAgentSessionIdAtom, currentAgentWorkspaceIdAtom } from '@/atoms/agent-atoms'
 import { CampaignDetail } from './CampaignDetail'
 import { AgentView } from './AgentView'
-import { ChatView } from '@/components/chat'
 import { cn } from '@/lib/utils'
 import type { AgentSessionMeta, AgentWorkspace, Campaign, Channel, ConversationMeta } from '@ma-proma/shared'
 
@@ -33,8 +32,6 @@ export function CampaignList(): React.ReactElement {
   const setCurrentAgentWorkspaceId = useSetAtom(currentAgentWorkspaceIdAtom)
   const [loading, setLoading] = React.useState(true)
   const [selectedCampaign, setSelectedCampaign] = React.useState<Campaign | null>(null)
-  const [assistantMode, setAssistantMode] = React.useState<CampaignAssistantMode>('agent')
-  const [chatConversationId, setChatConversationId] = React.useState<string | null>(null)
   const [agentSession, setAgentSession] = React.useState<AgentSessionMeta | null>(null)
   const [agentWorkspace, setAgentWorkspace] = React.useState<AgentWorkspace | null>(null)
   const [defaultChannel, setDefaultChannel] = React.useState<Channel | null>(null)
@@ -83,35 +80,6 @@ export function CampaignList(): React.ReactElement {
     return channel
   }, [defaultChannel])
 
-  const ensureCampaignChat = React.useCallback(async (campaign: Campaign): Promise<string | null> => {
-    const mappedId = campaignConversationMap.get(campaign.id)
-    if (mappedId) return mappedId
-
-    const existing = conversations.find((conversation) => conversation.title === `${campaign.name} · Campaign`)
-    if (existing) {
-      setCampaignConversationMap((prev) => {
-        const next = new Map(prev)
-        next.set(campaign.id, existing.id)
-        return next
-      })
-      return existing.id
-    }
-
-    const channel = await ensureDefaultChannel()
-    const meta: ConversationMeta = await window.electronAPI.createConversation(
-      `${campaign.name} · Campaign`,
-      undefined,
-      channel?.id,
-    )
-    setConversations((prev) => [meta, ...prev])
-    setCampaignConversationMap((prev) => {
-      const next = new Map(prev)
-      next.set(campaign.id, meta.id)
-      return next
-    })
-    return meta.id
-  }, [campaignConversationMap, conversations, ensureDefaultChannel, setCampaignConversationMap, setConversations])
-
   const ensureCampaignAgent = React.useCallback(async (campaign: Campaign): Promise<{ session: AgentSessionMeta; workspace: AgentWorkspace; channel: Channel } | null> => {
     const channel = await ensureDefaultChannel()
     if (!channel) return null
@@ -151,7 +119,6 @@ export function CampaignList(): React.ReactElement {
 
   React.useEffect(() => {
     if (!selectedCampaign) {
-      setChatConversationId(null)
       setAgentSession(null)
       setAgentWorkspace(null)
       return
@@ -159,13 +126,9 @@ export function CampaignList(): React.ReactElement {
 
     let cancelled = false
     setAssistantLoading(true)
-    Promise.all([
-      ensureCampaignChat(selectedCampaign),
-      ensureCampaignAgent(selectedCampaign),
-    ])
-      .then(([conversationId]) => {
+    ensureCampaignAgent(selectedCampaign)
+      .then(() => {
         if (cancelled) return
-        setChatConversationId(conversationId)
       })
       .catch(console.error)
       .finally(() => {
@@ -175,16 +138,10 @@ export function CampaignList(): React.ReactElement {
     return () => {
       cancelled = true
     }
-  }, [ensureCampaignAgent, ensureCampaignChat, selectedCampaign])
+  }, [ensureCampaignAgent, selectedCampaign])
 
   const handleSendToAssistant = React.useCallback((prompt: string) => {
     if (!selectedCampaign) return
-    if (assistantMode === 'chat') {
-      if (!chatConversationId) return
-      setChatPendingMessage({ conversationId: chatConversationId, message: prompt })
-      return
-    }
-
     ensureCampaignAgent(selectedCampaign)
       .then((result) => {
         if (!result) return
@@ -198,7 +155,7 @@ export function CampaignList(): React.ReactElement {
         })
       })
       .catch(console.error)
-  }, [assistantMode, chatConversationId, ensureCampaignAgent, selectedCampaign, setChatPendingMessage])
+  }, [ensureCampaignAgent, selectedCampaign])
 
   if (loading) {
     return (
@@ -227,65 +184,34 @@ export function CampaignList(): React.ReactElement {
         )}
       </main>
 
-      {/* 右侧：原生 Agent / Chat 对话框 */}
+      {/* 右侧：Agent 对话框 */}
       <aside className="min-w-0 min-h-0 flex flex-col bg-background">
-        <div className="h-14 px-4 border-b border-border flex items-center justify-between gap-3 titlebar-no-drag">
+        <div className="h-14 px-4 border-b border-border flex items-center gap-3 titlebar-no-drag">
+          <Bot size={16} className="text-muted-foreground flex-shrink-0" />
           <div className="min-w-0">
             <div className="text-sm font-semibold truncate">
-              {assistantMode === 'agent' ? 'Agent 对话' : 'Chat 对话'}
+              Agent 对话
             </div>
             <div className="text-[11px] text-muted-foreground truncate">
               {selectedCampaign ? selectedCampaign.name : '未选择 Campaign'}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1 flex-shrink-0">
-            <button
-              type="button"
-              onClick={() => setAssistantMode('agent')}
-              className={cn(
-                'h-8 px-3 rounded-md text-xs font-medium flex items-center justify-center gap-1.5 transition-colors',
-                assistantMode === 'agent' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <Bot size={13} />
-              Agent
-            </button>
-            <button
-              type="button"
-              onClick={() => setAssistantMode('chat')}
-              className={cn(
-                'h-8 px-3 rounded-md text-xs font-medium flex items-center justify-center gap-1.5 transition-colors',
-                assistantMode === 'chat' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <MessageSquare size={13} />
-              Chat
-            </button>
-          </div>
         </div>
         <div className="flex-1 min-h-0">
           {!selectedCampaign ? (
             <div className="h-full flex flex-col items-center justify-center text-sm text-muted-foreground gap-2">
-              <MessageSquare size={28} className="opacity-20" />
+              <Bot size={28} className="opacity-20" />
               <span>选择 Campaign 后开始对话</span>
             </div>
           ) : assistantLoading ? (
             <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
               初始化对话中...
             </div>
-          ) : assistantMode === 'agent' ? (
-            agentSession ? (
-              <AgentView sessionId={agentSession.id} />
-            ) : (
-              <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-                Agent 会话初始化失败
-              </div>
-            )
-          ) : chatConversationId ? (
-            <ChatView conversationId={chatConversationId} campaignId={selectedCampaign.id} />
+          ) : agentSession ? (
+            <AgentView sessionId={agentSession.id} />
           ) : (
             <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-              Chat 会话初始化失败
+              Agent 会话初始化失败
             </div>
           )}
         </div>
