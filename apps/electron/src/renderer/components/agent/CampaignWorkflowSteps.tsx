@@ -466,6 +466,45 @@ export function CampaignWorkflowSteps({
             </div>
           )
         })}
+        {/* 整合方案（全部完成后显示） */}
+        {completedCount === workflow.steps.length && (
+          <div className="mt-5 p-4 rounded-xl border border-primary/20 bg-primary/5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">🎉 工作流全部完成</h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  所有 9 个步骤已完成。生成完整整合方案文档。
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="default"
+                className="h-8 text-xs"
+                onClick={() => {
+                  const prompt = `## 生成 Campaign 完整整合方案
+
+请基于以下已完成的工作流步骤，生成一份完整的 Campaign 整合方案文档。
+
+已完成步骤：
+${workflow.steps
+  .map((s, i) => `${i + 1}. ${s.title} — ${s.outputSummary ?? '已完成'}`)
+  .join('\n')}
+
+要求：
+1. 汇总所有步骤的关键产出
+2. 形成一份结构清晰的 Campaign 执行手册
+3. 包含：品牌定位、TA 画像、创意概念、平台策略、KOL 方案、Brief 汇总、测试计划
+4. 保存到 \`campaign-summary.md\`
+
+请生成整合方案。`
+                  onOpenInAgent(prompt)
+                }}
+              >
+                生成整合方案
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
