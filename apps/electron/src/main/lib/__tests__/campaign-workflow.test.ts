@@ -310,6 +310,42 @@ describe('Campaign 工作流测试', () => {
     expect(step?.completedAt).toBeDefined()
   })
 
+  it('Slice 3c: Agent 只输出正文但未写文件 → 自动落盘后完成', () => {
+    const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
+    const dir = join(workspaceDir, 'brand-dna')
+    rmSync(dir, { recursive: true, force: true })
+    mkdirSync(dir, { recursive: true })
+
+    workflowService.updateWorkflowStep({
+      campaignId: testCampaignId,
+      stepId: 'brand_dna',
+      status: 'in_progress',
+    })
+
+    const content = [
+      '品牌核心价值：品牌以新鲜、可信赖和城市品质生活作为核心价值，强调每日鲜果带来的稳定幸福感。',
+      '价值主张：让忙碌都市用户用更低决策成本获得高品质鲜果体验，品牌定位是深耕线下的鲜果服务品牌。',
+      '使命：通过稳定供应链和精细化服务，让更多家庭和办公室用户持续获得安心的水果选择。',
+      '愿景：成为上海都市女性日常鲜果消费中的首选品牌，建立长期的生活方式心智。',
+      '视觉基因：整体视觉风格应保持清爽、自然、明亮，色彩以鲜果本身的高饱和色与干净留白组合。',
+      '色彩策略：使用绿色、橙色、红色作为内容中的味觉提示色，同时保留高级感背景色。',
+      '字体偏好：标题字体需要清晰、有亲和力，正文保持易读，避免过度装饰。',
+      '语言调性：语气真诚、轻松、可靠，语言表达强调鲜、甜、安心、即时满足。',
+      '用词风格：多使用生活化表达和场景化句子，例如下班路上、办公室下午茶、周末家庭补给。',
+      '禁忌词：避免夸张功效承诺、医疗化表达和过度焦虑营销，保持自然可信。',
+    ].join('\n')
+
+    const result = workflowService.completeStepWithValidation(
+      testCampaignId,
+      'brand_dna',
+      [{ id: 'msg-brand', role: 'assistant', content, createdAt: Date.now() }],
+    )
+
+    expect(result.success).toBe(true)
+    expect(existsSync(join(dir, 'agent-output.md'))).toBe(true)
+    expect(result.workflow.steps.find((s) => s.id === 'brand_dna')?.status).toBe('completed')
+  })
+
   // ===== Slice 4: outputSummary 提取 =====
 
   it('Slice 4a: 从消息提取内容', () => {

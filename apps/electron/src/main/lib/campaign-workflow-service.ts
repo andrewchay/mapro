@@ -863,6 +863,48 @@ export function extractOutputSummary(
   return '执行完成'
 }
 
+function extractAssistantOutput(messages: import('@ma-proma/shared').AgentMessage[] | undefined): string {
+  if (!messages || messages.length === 0) return ''
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (msg?.role !== 'assistant') continue
+    const text = msg.content
+    if (text && typeof text === 'string' && text.trim()) {
+      return text.trim()
+    }
+  }
+
+  return ''
+}
+
+/**
+ * 兜底产物落盘：如果 Agent 只在对话里输出内容、没有写入文件，则将输出保存为该步骤产物。
+ * 真正是否达标仍交给 validateStepArtifacts 判定。
+ */
+function materializeAssistantOutputIfNeeded(
+  campaignId: string,
+  stepId: CampaignWorkflowStepId,
+  messages: import('@ma-proma/shared').AgentMessage[] | undefined,
+): void {
+  const slug = `campaign-${campaignId}`
+  const dirName = STEP_DIR_MAP[stepId]
+  const dirPath = join(getAgentWorkspacePath(slug), dirName)
+  const existing = readTextFiles(dirPath)
+
+  if (existing.files.length > 0 && existing.totalChars > 0) return
+
+  const output = extractAssistantOutput(messages)
+  if (!output) return
+
+  mkdirSync(dirPath, { recursive: true })
+  const workflow = loadCampaignWorkflow(campaignId)
+  const stepTitle = workflow.steps.find((step) => step.id === stepId)?.title ?? stepId
+  const content = `# ${stepTitle}\n\n${output}\n`
+  writeFileSync(join(dirPath, 'agent-output.md'), content, 'utf-8')
+  console.log(`[CampaignWorkflow] 已将 Agent 输出保存为兜底产物: ${dirName}/agent-output.md`)
+}
+
 /** 追加执行历史到 history.md */
 export function appendHistory(
   campaignId: string,
@@ -902,6 +944,7 @@ export function completeStepWithValidation(
   stepId: CampaignWorkflowStepId,
   messages: import('@ma-proma/shared').AgentMessage[] | undefined,
 ): { success: boolean; workflow: CampaignWorkflow; reason?: string } {
+  materializeAssistantOutputIfNeeded(campaignId, stepId, messages)
   const validation = validateStepArtifacts(campaignId, stepId)
   const outputSummary = extractOutputSummary(messages)
 
