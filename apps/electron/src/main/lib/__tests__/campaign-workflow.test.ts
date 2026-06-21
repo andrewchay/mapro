@@ -344,9 +344,12 @@ describe('Campaign 工作流测试', () => {
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
     const todoContent = readFileSync(join(workspaceDir, '.context', 'todo.md'), 'utf-8')
 
-    // ab_test 已标记 completed，应该出现在已完成
-    expect(todoContent).toContain('✅ 完成')
-    // generate_briefs 标记 failed，应该出现在失败/待完成
+    // ab_test 已标记 completed，应该出现在已完成区块
+    expect(todoContent).toContain('## ✅ 已完成')
+    expect(todoContent).toContain('步骤 9')
+    expect(todoContent).toContain('[x]')
+
+    // generate_briefs 标记 failed，应该出现在待完成区块
     expect(todoContent).toContain('⏳ 待完成')
   })
 
