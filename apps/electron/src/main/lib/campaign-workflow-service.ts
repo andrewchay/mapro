@@ -701,31 +701,50 @@ function checkRequirement(content: string, req: import('@ma-proma/shared').Artif
   return req.aliases.some((alias) => lower.includes(alias.toLowerCase()))
 }
 
-/** 读取目录下所有文本文件内容 */
-function readTextFiles(dirPath: string): { files: string[]; totalChars: number; combinedContent: string } {
+/** 判断文件是否像文本文件（基于扩展名） */
+function isTextFile(filename: string): boolean {
+  if (filename.startsWith('.')) return false
+  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+  if (!ext) return true // 无扩展名，尝试读取
+  const textExts = ['md', 'txt', 'json', 'yaml', 'yml', 'csv', 'tsv', 'xml', 'html', 'css', 'js', 'ts']
+  return textExts.includes(ext)
+}
+
+/** 读取目录下所有文本文件内容（递归） */
+function readTextFiles(dirPath: string, options?: { recursive?: boolean }): { files: string[]; totalChars: number; combinedContent: string } {
   const files: string[] = []
   let totalChars = 0
   let combinedContent = ''
 
   if (!existsSync(dirPath)) return { files, totalChars, combinedContent }
 
-  const entries = readdirSync(dirPath).filter((f) => !f.startsWith('.'))
-  const textFiles = entries.filter((f) => f.endsWith('.md') || f.endsWith('.txt') || f.endsWith('.json'))
+  function scanDir(currentDir: string, prefix: string = '') {
+    const entries = readdirSync(currentDir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name
 
-  for (const file of textFiles) {
-    const filePath = join(dirPath, file)
-    try {
-      const content = readFileSync(filePath, 'utf-8')
-      if (content.trim().length > 0) {
-        files.push(file)
-        totalChars += content.trim().length
-        combinedContent += content + '\n'
+      if (entry.isDirectory()) {
+        if (options?.recursive) {
+          scanDir(join(currentDir, entry.name), relativePath)
+        }
+      } else if (isTextFile(entry.name)) {
+        const filePath = join(currentDir, entry.name)
+        try {
+          const content = readFileSync(filePath, 'utf-8')
+          if (content.trim().length > 0) {
+            files.push(relativePath)
+            totalChars += content.trim().length
+            combinedContent += content + '\n'
+          }
+        } catch (err) {
+          console.error(`[CampaignWorkflow] 读取文件失败: ${filePath}`, err)
+        }
       }
-    } catch (err) {
-      console.error(`[CampaignWorkflow] 读取文件失败: ${filePath}`, err)
     }
   }
 
+  scanDir(dirPath)
   return { files, totalChars, combinedContent }
 }
 
@@ -743,6 +762,7 @@ export function validateStepArtifacts(
   const slug = `campaign-${campaignId}`
   const dirName = STEP_DIR_MAP[stepId]
   const dirPath = join(getAgentWorkspacePath(slug), dirName)
+  const workspaceRoot = getAgentWorkspacePath(slug)
 
   const missing: string[] = []
   const unmetRequirements: import('@ma-proma/shared').ArtifactRequirement[] = []
@@ -750,23 +770,38 @@ export function validateStepArtifacts(
   // 1. 检查目录存在
   if (!existsSync(dirPath)) {
     missing.push(`${dirName}/ 目录不存在`)
-    return { valid: false, files: [], totalChars: 0, missing, unmetRequirements }
   }
 
-  // 2. 读取文本文件
-  const { files, totalChars, combinedContent } = readTextFiles(dirPath)
+  // 2. 读取目标目录文本文件（递归）
+  let { files, totalChars, combinedContent } = readTextFiles(dirPath, { recursive: true })
 
-  // 3. 检查是否有文本文件
+  // 3. 如果目标目录为空，尝试在工作区根目录搜索相关文件（fallback）
   if (files.length === 0) {
-    missing.push(`${dirName}/ 目录中没有可读产物（.md/.txt/.json）`)
+    const rootResult = readTextFiles(workspaceRoot, { recursive: true })
+    // 过滤出与步骤相关的文件（文件名包含步骤关键词）
+    const stepKeywords = [dirName, stepId.replace('_', '-')]
+    const relatedFiles = rootResult.files.filter((f) =>
+      stepKeywords.some((kw) => f.toLowerCase().includes(kw.toLowerCase()))
+    )
+    if (relatedFiles.length > 0) {
+      console.log(`[CampaignWorkflow] 在根目录找到相关文件: ${relatedFiles.join(', ')}`)
+      files = relatedFiles
+      totalChars = rootResult.totalChars
+      combinedContent = rootResult.combinedContent
+    }
   }
 
-  // 4. 检查文件非空
+  // 4. 检查是否有文本文件
+  if (files.length === 0) {
+    missing.push(`${dirName}/ 目录中没有可读产物（文本文件）`)
+  }
+
+  // 5. 检查文件非空
   if (totalChars === 0) {
     missing.push(`${dirName}/ 目录中文件均为空`)
   }
 
-  // 5. 加载工作流获取 minArtifactLength
+  // 6. 加载工作流获取 minArtifactLength
   let minLength = 300
   try {
     const workflow = loadCampaignWorkflow(campaignId)
@@ -776,12 +811,12 @@ export function validateStepArtifacts(
     // 忽略，使用默认 300
   }
 
-  // 6. 检查字数
+  // 7. 检查字数
   if (totalChars < minLength) {
     missing.push(`${dirName}/ 总字数 ${totalChars} 低于最低要求 ${minLength} 字`)
   }
 
-  // 7. 检查语义锚点
+  // 8. 检查语义锚点
   let requirements: import('@ma-proma/shared').ArtifactRequirement[] = []
   try {
     const workflow = loadCampaignWorkflow(campaignId)
