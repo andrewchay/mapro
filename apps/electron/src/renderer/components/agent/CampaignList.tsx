@@ -7,11 +7,11 @@
 
 import * as React from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
-import { Bot, MessageSquare } from 'lucide-react'
-import { campaignsAtom, campaignConversationMapAtom, currentCampaignIdAtom } from '@/atoms/campaign-atoms'
+import { Bot, MessageSquare, Plus, Target } from 'lucide-react'
+import { campaignsAtom, campaignConversationMapAtom, currentCampaignIdAtom, campaignCreateDialogOpenAtom } from '@/atoms/campaign-atoms'
 import { activeViewAtom } from '@/atoms/active-view'
 import { conversationsAtom, chatPendingMessageAtom } from '@/atoms/chat-atoms'
-import { currentAgentSessionIdAtom, currentAgentWorkspaceIdAtom } from '@/atoms/agent-atoms'
+import { agentWorkspacesAtom, currentAgentSessionIdAtom, currentAgentWorkspaceIdAtom } from '@/atoms/agent-atoms'
 import { CampaignDetail } from './CampaignDetail'
 import { AgentView } from './AgentView'
 import { ChatView } from '@/components/chat'
@@ -20,16 +20,35 @@ import type { AgentSessionMeta, AgentWorkspace, Campaign, Channel, ConversationM
 
 type CampaignAssistantMode = 'agent' | 'chat'
 
+const PLATFORM_LABEL: Record<string, string> = {
+  xiaohongshu: '小红书',
+  douyin: '抖音',
+  dual: '双平台',
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  draft: '草稿',
+  strategy: '策略制定',
+  kol_selection: '达人筛选',
+  negotiation: '商务洽谈',
+  content_production: '内容制作',
+  live: '投放执行',
+  review: '复盘',
+  completed: '已完成',
+}
+
 export function CampaignList(): React.ReactElement {
   const [campaigns, setCampaigns] = useAtom(campaignsAtom)
   const [conversations, setConversations] = useAtom(conversationsAtom)
   const [campaignConversationMap, setCampaignConversationMap] = useAtom(campaignConversationMapAtom)
+  const [, setAgentWorkspaces] = useAtom(agentWorkspacesAtom)
   const currentCampaignId = useAtomValue(currentCampaignIdAtom)
   const setCurrentCampaignId = useSetAtom(currentCampaignIdAtom)
   const setActiveView = useSetAtom(activeViewAtom)
   const setChatPendingMessage = useSetAtom(chatPendingMessageAtom)
   const setCurrentAgentSessionId = useSetAtom(currentAgentSessionIdAtom)
   const setCurrentAgentWorkspaceId = useSetAtom(currentAgentWorkspaceIdAtom)
+  const setCampaignCreateDialogOpen = useSetAtom(campaignCreateDialogOpenAtom)
   const [loading, setLoading] = React.useState(true)
   const [selectedCampaign, setSelectedCampaign] = React.useState<Campaign | null>(null)
   const [assistantMode, setAssistantMode] = React.useState<CampaignAssistantMode>('agent')
@@ -116,10 +135,21 @@ export function CampaignList(): React.ReactElement {
     if (!channel) return null
 
     const workspaceSlug = `campaign-${campaign.id}`
-    const workspaces = await window.electronAPI.listAgentWorkspaces()
+    let workspaces = await window.electronAPI.listAgentWorkspaces()
+    setAgentWorkspaces(workspaces)
     let workspace = workspaces.find((item) => item.slug === workspaceSlug)
     if (!workspace) {
-      workspace = await window.electronAPI.createAgentWorkspace(campaign.name, workspaceSlug)
+      try {
+        workspace = await window.electronAPI.createAgentWorkspace(campaign.name, workspaceSlug)
+        setAgentWorkspaces((prev) => [workspace!, ...prev.filter((item) => item.id !== workspace!.id)])
+      } catch (error) {
+        // 可能是旧工作区同名或另一个窗口刚刚创建；重新拉取，优先找 campaign slug。
+        console.warn('[CampaignList] 创建 Campaign 工作区失败，尝试复用已有工作区:', error)
+        workspaces = await window.electronAPI.listAgentWorkspaces()
+        setAgentWorkspaces(workspaces)
+        workspace = workspaces.find((item) => item.slug === workspaceSlug)
+          ?? workspaces.find((item) => item.name === campaign.name && item.slug.startsWith('campaign-'))
+      }
     }
     if (!workspace) return null
 
@@ -135,7 +165,7 @@ export function CampaignList(): React.ReactElement {
     setCurrentAgentWorkspaceId(workspace.id)
     window.electronAPI.updateSettings({ agentWorkspaceId: workspace.id }).catch(console.error)
     return { session, workspace, channel }
-  }, [ensureDefaultChannel, setCurrentAgentSessionId, setCurrentAgentWorkspaceId])
+  }, [ensureDefaultChannel, setAgentWorkspaces, setCurrentAgentSessionId, setCurrentAgentWorkspaceId])
 
   React.useEffect(() => {
     if (!selectedCampaign) {
@@ -197,7 +227,57 @@ export function CampaignList(): React.ReactElement {
   }
 
   return (
-    <div className="flex-1 min-h-0 grid grid-cols-[minmax(520px,1fr)_minmax(380px,0.72fr)] overflow-hidden">
+    <div className="flex-1 min-h-0 grid grid-cols-[minmax(320px,0.4fr)_minmax(520px,1fr)_minmax(380px,0.72fr)] overflow-hidden">
+      {/* 左侧：Campaign 列表 */}
+      <aside className="min-w-0 min-h-0 flex flex-col border-r border-border bg-background">
+        <div className="h-12 px-4 border-b border-border flex items-center justify-between titlebar-no-drag">
+          <div className="text-sm font-semibold">Campaign 项目</div>
+          <button
+            type="button"
+            onClick={() => setCampaignCreateDialogOpen(true)}
+            className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            title="新建 Campaign"
+          >
+            <Plus size={14} />
+          </button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
+          {campaigns.map((campaign) => (
+            <button
+              key={campaign.id}
+              type="button"
+              onClick={() => setCurrentCampaignId(campaign.id)}
+              className={cn(
+                'w-full text-left px-3 py-2.5 rounded-xl border transition-all',
+                currentCampaignId === campaign.id
+                  ? 'border-primary/30 bg-primary/5'
+                  : 'border-border/60 bg-background hover:bg-muted/50'
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-medium truncate">{campaign.name}</span>
+                <span className={cn(
+                  'text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0',
+                  campaign.status === 'completed' ? 'bg-emerald-500/10 text-emerald-600' :
+                  campaign.status === 'live' ? 'bg-blue-500/10 text-blue-600' :
+                  'bg-muted text-muted-foreground'
+                )}>
+                  {STATUS_LABEL[campaign.status]}
+                </span>
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                {campaign.brand} · {PLATFORM_LABEL[campaign.platform]}
+              </div>
+            </button>
+          ))}
+          {campaigns.length === 0 && (
+            <div className="text-center text-sm text-muted-foreground py-8">
+              暂无 Campaign 项目
+            </div>
+          )}
+        </div>
+      </aside>
+
       {/* 中间：Campaign 细节和工作流 */}
       <main className="min-w-0 min-h-0 flex border-r border-border">
         {selectedCampaign ? (
@@ -208,8 +288,9 @@ export function CampaignList(): React.ReactElement {
             onSendToAssistant={handleSendToAssistant}
           />
         ) : (
-          <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-            选择一个 Campaign 查看详情
+          <div className="flex-1 flex flex-col items-center justify-center text-sm text-muted-foreground gap-2">
+            <Target size={32} className="opacity-20 mb-2" />
+            <span>选择一个 Campaign 查看详情</span>
           </div>
         )}
       </main>
@@ -252,8 +333,9 @@ export function CampaignList(): React.ReactElement {
         </div>
         <div className="flex-1 min-h-0">
           {!selectedCampaign ? (
-            <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-              选择 Campaign 后开始对话
+            <div className="h-full flex flex-col items-center justify-center text-sm text-muted-foreground gap-2">
+              <MessageSquare size={28} className="opacity-20" />
+              <span>选择 Campaign 后开始对话</span>
             </div>
           ) : assistantLoading ? (
             <div className="h-full flex items-center justify-center text-sm text-muted-foreground">

@@ -68,6 +68,7 @@ export function CampaignWorkflowSteps({
   const [expandedSteps, setExpandedSteps] = React.useState<Set<string>>(new Set())
   const [executingStep, setExecutingStep] = React.useState<string | null>(null)
   const [updatingStep, setUpdatingStep] = React.useState<string | null>(null)
+  const hasInProgressStep = workflow?.steps.some((step) => step.status === 'in_progress') ?? false
 
   // 加载工作流
   React.useEffect(() => {
@@ -87,6 +88,30 @@ export function CampaignWorkflowSteps({
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [campaignId])
+
+  // Agent 完成后主进程会回写 workflow 文件；这里在步骤进行中时轻量刷新，避免 UI 停在"进行中"。
+  React.useEffect(() => {
+    if (!hasInProgressStep) return
+
+    let cancelled = false
+    const refreshWorkflow = () => {
+      window.electronAPI
+        .getCampaignWorkflow(campaignId)
+        .then((updated) => {
+          if (cancelled) return
+          setWorkflow(updated)
+        })
+        .catch(console.error)
+    }
+
+    const timer = window.setInterval(refreshWorkflow, 2000)
+    refreshWorkflow()
+
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [campaignId, hasInProgressStep])
 
   // 切换步骤展开
   const toggleExpand = (stepId: string) => {
