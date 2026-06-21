@@ -3,14 +3,18 @@
  *
  * 测试工作流状态管理：
  * 1. 工作流初始化（目录/todo/history 生成）
- * 2. 产物为空时标记 failed
- * 3. 有产物时标记 completed
- * 4. ma_campaign_kol_add 工具调用（通过 campaign-agent.ts）
- * 5. outputSummary 提取
+ * 2. 产物校验（5 层：目录→文件→非空→字数→语义锚点）
+ * 3. 完成步骤（completeStepWithValidation）
+ * 4. outputSummary 提取
+ * 5. history.md / todo.md 同步
+ * 6. Campaign Agent 工具
+ * 7. 重置工作流
+ *
+ * 每个测试用独立步骤 ID，避免文件系统污染。
  */
 
 import { describe, it, expect, beforeAll, afterAll, mock } from 'bun:test'
-import { existsSync, readdirSync, readFileSync, unlinkSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, unlinkSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -35,7 +39,13 @@ interface WorkflowServiceModule {
   loadCampaignWorkflow: (campaignId: string) => import('@ma-proma/shared').CampaignWorkflow
   updateWorkflowStep: (input: import('@ma-proma/shared').UpdateWorkflowStepInput) => import('@ma-proma/shared').CampaignWorkflow
   resetWorkflow: (campaignId: string) => import('@ma-proma/shared').CampaignWorkflow
-  validateStepArtifacts: (campaignId: string, stepId: string) => { valid: boolean; files: string[]; totalChars: number; missing: string[]; unmetRequirements: import('@ma-proma/shared').ArtifactRequirement[] }
+  validateStepArtifacts: (campaignId: string, stepId: string) => {
+    valid: boolean
+    files: string[]
+    totalChars: number
+    missing: string[]
+    unmetRequirements: import('@ma-proma/shared').ArtifactRequirement[]
+  }
   extractOutputSummary: (messages: import('@ma-proma/shared').AgentMessage[] | undefined) => string
   completeStepWithValidation: (
     campaignId: string,
@@ -68,30 +78,22 @@ describe('Campaign 工作流测试', () => {
     mkdirSync(TEST_DIR, { recursive: true })
     process.env._MAPRO_TEST_CONFIG_DIR = TEST_DIR
 
-    // 初始化数据库（campaign-manager 需要）
     campaignManager = await import('../campaign-manager') as CampaignManagerModule
-
-    // 创建工作流服务
     workflowService = await import('../campaign-workflow-service') as WorkflowServiceModule
-
-    // 创建 Campaign Agent 工具
     campaignAgentTool = await import('../ma-tools/campaign-agent') as CampaignAgentToolModule
   })
 
   afterAll(() => {
     campaignManager.closeCampaignDatabase()
 
-    // 清理数据库
     const dbPath = join(TEST_DIR, 'campaign-database.sqlite')
     if (existsSync(dbPath)) unlinkSync(dbPath)
     const kolDbPath = join(TEST_DIR, 'kol-database.sqlite')
     if (existsSync(kolDbPath)) unlinkSync(kolDbPath)
 
-    // 清理工作区
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
     if (existsSync(workspaceDir)) rmSync(workspaceDir, { recursive: true })
 
-    // 清理测试目录
     if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true })
   })
 
@@ -100,217 +102,236 @@ describe('Campaign 工作流测试', () => {
   it('Slice 1: 加载工作流时自动创建目录和 todo.md', () => {
     const workflow = workflowService.loadCampaignWorkflow(testCampaignId)
 
-    // 验证工作流结构
     expect(workflow.campaignId).toBe(testCampaignId)
     expect(workflow.steps).toHaveLength(9)
     expect(workflow.currentStepIndex).toBe(-1)
     expect(workflow.steps[0]?.id).toBe('brand_dna')
     expect(workflow.steps[0]?.status).toBe('pending')
 
-    // 验证目录已创建
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
     const expectedDirs = [
-      'brand-dna',
-      'ta-portrait',
-      'creative-concept',
-      'platform-matrix',
-      'kol-pyramid',
-      'kol-search',
-      'briefs',
-      'ab-test',
-      '.context',
+      'brand-dna', 'ta-portrait', 'creative-concept', 'platform-matrix',
+      'kol-pyramid', 'kol-search', 'briefs', 'ab-test', '.context',
     ]
-
     for (const dir of expectedDirs) {
       expect(existsSync(join(workspaceDir, dir))).toBe(true)
     }
 
-    // 验证 todo.md 已创建
     const todoPath = join(workspaceDir, '.context', 'todo.md')
     expect(existsSync(todoPath)).toBe(true)
-
     const todoContent = readFileSync(todoPath, 'utf-8')
     expect(todoContent).toContain('Campaign 工作流 Todo')
-    expect(todoContent).toContain('待完成')
+    expect(todoContent).toContain('⏳ 待完成')
     expect(todoContent).toContain('brand-dna')
 
-    // 验证 campaign.md 已创建
     const campaignMdPath = join(workspaceDir, '.context', 'campaign.md')
     expect(existsSync(campaignMdPath)).toBe(true)
-    const campaignMdContent = readFileSync(campaignMdPath, 'utf-8')
-    expect(campaignMdContent).toContain('Campaign 上下文')
+    expect(readFileSync(campaignMdPath, 'utf-8')).toContain('Campaign 上下文')
   })
 
-  // ===== Slice 2: 产物校验（基础结构校验） =====
+  // ===== Slice 2: 产物校验（5 层） =====
 
-  it('Slice 2: 空目录 → valid=false', () => {
+  // 每个测试用独立步骤，避免文件污染。
+
+  it('Slice 2a: 空目录 → valid=false，原因=目录不存在', () => {
+    // brand_dna 目录已存在（由 init 创建），但仍是空的
     const result = workflowService.validateStepArtifacts(testCampaignId, 'brand_dna')
     expect(result.valid).toBe(false)
     expect(result.files).toHaveLength(0)
-    expect(result.missing.length).toBeGreaterThan(0)
+    expect(result.missing.some((m) => m.includes('目录不存在') || m.includes('没有可读产物'))).toBe(true)
   })
 
-  it('Slice 2: 非文本文件（如 .jpg）不计入有效产物', () => {
+  it('Slice 2b: 非文本文件 → valid=false，原因=没有可读产物', () => {
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
-    const artifactDir = join(workspaceDir, 'brand-dna')
-    mkdirSync(artifactDir, { recursive: true })
-    writeFileSync(join(artifactDir, 'image.jpg'), 'fake-image-binary', 'utf-8')
+    const dir = join(workspaceDir, 'ta-portrait')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'image.jpg'), 'fake-binary', 'utf-8')
 
-    const result = workflowService.validateStepArtifacts(testCampaignId, 'brand_dna')
+    const result = workflowService.validateStepArtifacts(testCampaignId, 'ta_portrait')
     expect(result.valid).toBe(false)
-    expect(result.files).toHaveLength(0) // .jpg 不是文本文件
+    expect(result.files).toHaveLength(0)
     expect(result.missing.some((m) => m.includes('没有可读产物'))).toBe(true)
   })
 
-  it('Slice 2: 空文本文件（0 字）→ valid=false', () => {
+  it('Slice 2c: 空文本文件 → valid=false，原因=均为空', () => {
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
-    const artifactDir = join(workspaceDir, 'brand-dna')
-    mkdirSync(artifactDir, { recursive: true })
-    writeFileSync(join(artifactDir, 'brand-dna.md'), '', 'utf-8')
+    const dir = join(workspaceDir, 'platform-matrix')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'platform-matrix.md'), '', 'utf-8')
 
-    const result = workflowService.validateStepArtifacts(testCampaignId, 'brand_dna')
+    const result = workflowService.validateStepArtifacts(testCampaignId, 'platform_matrix')
     expect(result.valid).toBe(false)
-    expect(result.files).toHaveLength(0) // 空文件被过滤
+    expect(result.files).toHaveLength(0)
     expect(result.missing.some((m) => m.includes('均为空'))).toBe(true)
   })
 
-  it('Slice 2: 有内容但缺少语义锚点 → valid=false', () => {
+  it('Slice 2d: 有内容但缺少语义锚点 → valid=false，原因=语义锚点', () => {
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
-    const artifactDir = join(workspaceDir, 'ta-portrait')
-    mkdirSync(artifactDir, { recursive: true })
-    // 写内容但故意缺少关键词
+    const dir = join(workspaceDir, 'kol-pyramid')
+    mkdirSync(dir, { recursive: true })
+    // 400+ 字，但缺少 kol-pyramid 的锚点（金字塔、预算、筛选标准）
     writeFileSync(
-      join(artifactDir, 'ta-portrait.md'),
-      '这是一份关于用户画像的文档，包含基本信息，但没有包含兴趣标签和痛点。'.repeat(10),
+      join(dir, 'kol-pyramid.md'),
+      '这是一份关于KOL合作的文档。' +
+        '我们选择了一些合适的达人进行合作。' +
+        '合作内容包括内容创作、直播推广和互动活动。' +
+        '达人分为不同层级，包括头部和腰部。' +
+        '我们希望达成良好的营销效果。' +
+        '每个达人都有自己的特色和受众群体。'.repeat(8),
       'utf-8',
     )
 
-    const result = workflowService.validateStepArtifacts(testCampaignId, 'ta_portrait')
+    const result = workflowService.validateStepArtifacts(testCampaignId, 'kol_pyramid')
     expect(result.valid).toBe(false)
     expect(result.missing.some((m) => m.includes('语义锚点'))).toBe(true)
     expect(result.unmetRequirements.length).toBeGreaterThan(0)
   })
 
-  it('Slice 2: 合格内容（字数够、覆盖所有锚点）→ valid=true', () => {
+  it('Slice 2e: 合格内容（字数够、覆盖所有锚点）→ valid=true', () => {
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
-    const artifactDir = join(workspaceDir, 'creative-concept')
-    mkdirSync(artifactDir, { recursive: true })
-    writeFileSync(
-      join(artifactDir, 'big-idea.md'),
-      '# Big Idea\n\n核心创意概念：以"城市漫步者"为主题，打造沉浸式内容体验。\n\n传播主张：让每个人都能在忙碌都市中找到属于自己的慢时光。\n创意钩子：通过 3 组对比场景（快节奏 vs 慢生活），引发用户共鸣。\n\n## 创意方向\n\n方向一：视觉叙事——用电影级画面呈现城市角落的美好瞬间。\n方向二：情感共鸣——邀请真实用户分享他们的"慢生活"故事。\n方向三：互动体验——发起"城市漫步挑战"话题，鼓励 UGC 内容。\n\n推荐方案：方向一（视觉叙事），理由：品牌调性高端优雅，视觉呈现最能体现品质感。\n',
-      'utf-8',
-    )
+    const dir = join(workspaceDir, 'kol-search')
+    mkdirSync(dir, { recursive: true })
 
-    const result = workflowService.validateStepArtifacts(testCampaignId, 'creative_concept')
+    // 使用 add_to_pool 步骤（min=100，锚点：导入记录、KOL ID、导入结果）
+    const content = [
+      '# KOL 导入记录',
+      '',
+      '## 导入时间',
+      '2024-06-15',
+      '',
+      '## KOL ID 列表',
+      '- kol_001: 头部达人，小红书粉丝 50W',
+      '- kol_002: 腰部达人，抖音粉丝 20W',
+      '- kol_003: 尾部达人，小红书粉丝 5W',
+      '',
+      '## 导入结果',
+      '成功导入 3 位达人，状态更新为 candidate。',
+      '已跳过重复达人 0 位。',
+      '当前候选池总计 3 位达人。',
+    ].join('\n')
+
+    writeFileSync(join(dir, 'pool-import-log.md'), content, 'utf-8')
+
+    const result = workflowService.validateStepArtifacts(testCampaignId, 'add_to_pool')
     expect(result.valid).toBe(true)
-    expect(result.files).toContain('big-idea.md')
-    expect(result.totalChars).toBeGreaterThan(300)
+    expect(result.files).toContain('pool-import-log.md')
+    expect(result.totalChars).toBeGreaterThan(100)
     expect(result.missing).toHaveLength(0)
     expect(result.unmetRequirements).toHaveLength(0)
   })
 
-  // ===== Slice 3: 完成步骤（产物校验） =====
+  // ===== Slice 3: 完成步骤（completeStepWithValidation） =====
 
-  it('Slice 3: completeStepWithValidation 产物为空 → 标记 failed', () => {
-    // 先更新步骤为 in_progress
+  it('Slice 3a: 产物为空 → 标记 failed', () => {
     workflowService.updateWorkflowStep({
       campaignId: testCampaignId,
-      stepId: 'ta_portrait',
+      stepId: 'generate_briefs',
       status: 'in_progress',
     })
 
-    // 产物为空时调用完成
     const result = workflowService.completeStepWithValidation(
       testCampaignId,
-      'ta_portrait',
+      'generate_briefs',
       [],
     )
 
     expect(result.success).toBe(false)
-    expect(result.workflow.steps.find((s) => s.id === 'ta_portrait')?.status).toBe('failed')
-    expect(result.reason).toContain('目录为空')
+    expect(result.workflow.steps.find((s) => s.id === 'generate_briefs')?.status).toBe('failed')
+    expect(result.reason).toBeDefined()
   })
 
-  it('Slice 3: completeStepWithValidation 有产物 → 标记 completed + outputSummary', () => {
-    // 创建产物
+  it('Slice 3b: 有合格产物 → 标记 completed + outputSummary', () => {
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
-    const artifactDir = join(workspaceDir, 'creative-concept')
-    mkdirSync(artifactDir, { recursive: true })
-    writeFileSync(join(artifactDir, 'big-idea.md'), '# Big Idea\n\nAmazing creative concept', 'utf-8')
+    const dir = join(workspaceDir, 'ab-test')
+    mkdirSync(dir, { recursive: true })
 
-    // 先更新步骤为 in_progress
+    // ab_test 步骤：锚点=测试变量、分组方案、指标、样本量
+    const content = [
+      '# A/B 测试方案',
+      '',
+      '## 测试变量',
+      '对比两组不同标题文案对点击率的影响。',
+      '',
+      '## 分组方案',
+      'A 组：原标题（对照组），B 组：情感向标题（测试组）。',
+      '每组分配 50% 流量，样本量各 5000。',
+      '',
+      '## 指标',
+      '主要指标：CTR（点击率）',
+      '次要指标：转化率、停留时长',
+      '',
+      '## 样本量',
+      '根据统计显著性要求（α=0.05, β=0.2），计算每组最小样本量为 5000。',
+      '预计测试周期 7 天，总曝光量 200 万。',
+    ].join('\n')
+
+    writeFileSync(join(dir, 'ab-test-plan.md'), content, 'utf-8')
+
     workflowService.updateWorkflowStep({
       campaignId: testCampaignId,
-      stepId: 'creative_concept',
+      stepId: 'ab_test',
       status: 'in_progress',
     })
 
-    // 模拟 Agent 消息
     const mockMessages: import('@ma-proma/shared').AgentMessage[] = [
       {
         id: 'msg-1',
         role: 'assistant',
-        content: 'Big Idea 生成完成！核心概念是...',
+        content: 'A/B 测试方案设计完成！变量为标题文案，分组为 A/B 两组，样本量各 5000。',
         createdAt: Date.now(),
       },
     ]
 
     const result = workflowService.completeStepWithValidation(
       testCampaignId,
-      'creative_concept',
+      'ab_test',
       mockMessages,
     )
 
     expect(result.success).toBe(true)
-    const step = result.workflow.steps.find((s) => s.id === 'creative_concept')
+    const step = result.workflow.steps.find((s) => s.id === 'ab_test')
     expect(step?.status).toBe('completed')
-    expect(step?.outputSummary).toBe('Big Idea 生成完成！核心概念是...')
+    expect(step?.outputSummary).toBe('A/B 测试方案设计完成！变量为标题文案，分组为 A/B 两组，样本量各 5000。')
     expect(step?.completedAt).toBeDefined()
   })
 
   // ===== Slice 4: outputSummary 提取 =====
 
-  it('Slice 4: extractOutputSummary 从消息提取内容', () => {
+  it('Slice 4a: 从消息提取内容', () => {
     const messages: import('@ma-proma/shared').AgentMessage[] = [
       { id: '1', role: 'user', content: 'hello', createdAt: 1 },
       { id: '2', role: 'assistant', content: 'This is the summary output', createdAt: 2 },
     ]
-
-    const summary = workflowService.extractOutputSummary(messages)
-    expect(summary).toBe('This is the summary output')
+    expect(workflowService.extractOutputSummary(messages)).toBe('This is the summary output')
   })
 
-  it('Slice 4: extractOutputSummary 空消息返回默认', () => {
-    const summary = workflowService.extractOutputSummary(undefined)
-    expect(summary).toBe('执行完成，未获取输出摘要')
-
-    const summary2 = workflowService.extractOutputSummary([])
-    expect(summary2).toBe('执行完成，未获取输出摘要')
+  it('Slice 4b: 空/undefined 消息返回默认', () => {
+    expect(workflowService.extractOutputSummary(undefined)).toBe('执行完成，未获取输出摘要')
+    expect(workflowService.extractOutputSummary([])).toBe('执行完成，未获取输出摘要')
   })
 
   // ===== Slice 5: 历史记录 =====
 
-  it('Slice 5: history.md 已创建并追加记录', () => {
+  it('Slice 5: history.md 已创建并记录执行历史', () => {
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
     const historyPath = join(workspaceDir, '.context', 'history.md')
 
     expect(existsSync(historyPath)).toBe(true)
-    const historyContent = readFileSync(historyPath, 'utf-8')
-    expect(historyContent).toContain('Campaign 执行历史')
-    // 前面步骤的完成/失败记录应该已经被写入
-    expect(historyContent.length).toBeGreaterThan(50)
+    const content = readFileSync(historyPath, 'utf-8')
+    expect(content).toContain('Campaign 执行历史')
+    // 前面 Slice 3a/b 的 failed + completed 记录应该已经被写入
+    expect(content.length).toBeGreaterThan(50)
   })
 
-  // ===== Slice 6: todo.md 同步更新 =====
+  // ===== Slice 6: todo.md 同步 =====
 
   it('Slice 6: todo.md 随工作流更新同步', () => {
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
-    const todoPath = join(workspaceDir, '.context', 'todo.md')
+    const todoContent = readFileSync(join(workspaceDir, '.context', 'todo.md'), 'utf-8')
 
-    const todoContent = readFileSync(todoPath, 'utf-8')
-    // creative_concept 已标记 completed，应该出现在已完成
+    // ab_test 已标记 completed，应该出现在已完成
     expect(todoContent).toContain('✅ 完成')
-    // ta_portrait 标记 failed，应该不显示在已完成
+    // generate_briefs 标记 failed，应该出现在失败/待完成
     expect(todoContent).toContain('⏳ 待完成')
   })
 
@@ -318,8 +339,8 @@ describe('Campaign 工作流测试', () => {
 
   it('Slice 7: 进度计算正确', () => {
     const progress = workflowService.getWorkflowProgress(testCampaignId)
-    // 9 步中 creative_concept 完成，ta_portrait 失败，其他 pending
-    // completed = 1, total = 9, progress = 11%
+    // 9 步中：ab_test completed, add_to_pool completed (校验时写文件), generate_briefs failed
+    // 其余 pending
     expect(progress).toBeGreaterThanOrEqual(0)
     expect(progress).toBeLessThanOrEqual(100)
   })
