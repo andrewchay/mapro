@@ -65,6 +65,10 @@ import { TabSwitcher } from './components/tabs/TabSwitcher'
 import { htmlToMarkdown, markdownToHtml } from './lib/markdown-rich-text'
 import './styles/globals.css'
 import 'katex/dist/katex.min.css'
+import { migratePromaKeysToMapro } from './lib/migrate-local-storage'
+
+// ===== localStorage key 迁移（proma-* → mapro-*，必须在任何 atomWithStorage 读取前执行）=====
+migratePromaKeysToMapro()
 
 // ===== 窗口类型检测 =====
 const isQuickTaskWindow = new URLSearchParams(window.location.search).get('window') === 'quick-task'

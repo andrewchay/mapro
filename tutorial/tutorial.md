@@ -28,7 +28,7 @@ MAPro 的核心价值是 **"让每一分投放都有复利"** —— 通过 AI �
 
 MAPro 基于开源项目构建，支持 macOS、Windows 和 Linux。
 
-**开源版本下载地址**：https://github.com/ErlichLiu/Proma/releases
+**开源版本下载地址**：https://github.com/andrewchay/mapro/releases
 
 Windows 用户推荐安装到 `C 盘`，这样会对营销工具脚本的执行更加友好。
 
@@ -406,4 +406,4 @@ MAPro 的目标是让每一个营销团队都能拥有 **"策略-达人-内容-�
 
 感谢你的使用，祝你的每一个 campaign 都超预期！
 
-MAPro 开源地址：https://github.com/ErlichLiu/Proma.git
+MAPro 开源地址：https://github.com/andrewchay/mapro.git

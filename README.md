@@ -10,7 +10,7 @@ MAPro 是一个本地优先的 AI 桌面应用，把多模型 Chat、通用 Agen
   <source src="https://img.erlich.fun/personal-blog/uPic/%E7%AE%80%E5%8D%95%E4%BB%8B%E7%BB%8D%20Proma.mp4" type="video/mp4">
 </video>
 
-[English README](./README.en.md) | [新手教程](./tutorial/tutorial.md) | [下载开源版](https://github.com/ErlichLiu/Proma/releases) | [下载商业版](https://proma.cool/download)
+[English README](./README.en.md) | [新手教程](./tutorial/tutorial.md) | [下载开源版](https://github.com/andrewchay/mapro/releases) | [下载商业版](https://proma.cool/download)
 
 ## 现在能做什么
 
@@ -20,14 +20,14 @@ MAPro 是一个本地优先的 AI 桌面应用，把多模型 Chat、通用 Agen
 - **Skills & MCP**：每个工作区可以独立配置 Skills、MCP Server 和工作区文件，适合沉淀可复用能力。
 - **远程机器人**：支持飞书 / Lark 机器人桥接，并已提供钉钉、微信桥接入口，用手机或群聊触发本机 Agent 工作流。
 - **记忆与工具**：Chat 和 Agent 可共享记忆能力，并支持联网搜索、内置 Chat 工具、Agent 推荐等辅助能力。
-- **本地优先**：会话、工作区、附件、配置、Skills 等默认存储在 `~/.mapro/`，使用 JSON / JSONL 文件组织，不依赖本地数据库。
+- **本地优先**：会话、工作区、附件、配置、Skills 等默认存储在 `~/.mapro/`，使用 JSON / JSONL 文件组织；Campaign / KOL 等需要关系查询的业务数据使用 SQLite。
 - **桌面体验**：自动更新、代理设置、文件预览、全局快捷键、快速任务窗口、语音输入、亮色 / 暗色 / 跟随系统主题。
 
 ## 快速开始
 
 ### 下载安装
 
-从 [GitHub Releases](https://github.com/ErlichLiu/Proma/releases) 下载开源版本。当前 release notes 以 `v0.9.12` 为准，提供 macOS Apple Silicon、macOS Intel 和 Windows 安装包。
+从 [GitHub Releases](https://github.com/andrewchay/mapro/releases) 下载开源版本。当前版本为 `v0.1.9`，提供 macOS Apple Silicon、macOS Intel 和 Windows 安装包。
 
 如果你希望开箱即用、减少 API 配置成本，也可以使用 [MAPro 商业版](https://proma.cool/download)。商业版和开源版并行运行，主要区别是商业版提供内置渠道和订阅方案。
 
@@ -267,11 +267,11 @@ MAPro 目前设有 PR 赠金计划。提交 PR 时可以在描述中留下邮箱
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=ErlichLiu%2FProma&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=andrewchay%2Fmapro&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ErlichLiu/Proma&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ErlichLiu/Proma&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ErlichLiu/Proma&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=andrewchay/mapro&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=andrewchay/mapro&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=andrewchay/mapro&type=date&legend=top-left" />
  </picture>
 </a>
 

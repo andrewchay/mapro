@@ -6,7 +6,7 @@ It is not just another chat box. MAPro is meant to become a long-lived Agent wor
 
 ![MAPro Poster](https://img.erlich.fun/personal-blog/uPic/pb.png)
 
-[中文 README](./README.md) | [Beginner Tutorial](./tutorial/tutorial.md) | [Open-Source Release](https://github.com/ErlichLiu/Proma/releases) | [Commercial Version](https://proma.cool/download)
+[中文 README](./README.md) | [Beginner Tutorial](./tutorial/tutorial.md) | [Open-Source Release](https://github.com/andrewchay/mapro/releases) | [Commercial Version](https://proma.cool/download)
 
 ## What MAPro Can Do
 
@@ -16,14 +16,14 @@ It is not just another chat box. MAPro is meant to become a long-lived Agent wor
 - **Skills & MCP**: each workspace can manage its own Skills, MCP servers, and workspace files.
 - **Remote bots**: Lark / Feishu bot bridging is supported, with DingTalk and WeChat bridge entry points also present in the app.
 - **Memory and tools**: Chat and Agent can share memory, with web search, built-in Chat tools, and Agent recommendation helpers.
-- **Local-first data**: conversations, workspaces, attachments, settings, and Skills are stored under `~/.mapro/` as JSON / JSONL files, without a local database.
+- **Local-first data**: conversations, workspaces, attachments, settings, and Skills are stored under `~/.mapro/` as JSON / JSONL files; Campaign / KOL data that needs relational queries uses SQLite.
 - **Desktop experience**: auto-update, proxy settings, file preview, global shortcuts, quick task window, voice input, and light / dark / system themes.
 
 ## Getting Started
 
 ### Download
 
-Download the open-source version from [GitHub Releases](https://github.com/ErlichLiu/Proma/releases). The current release notes are for `v0.9.12`, with builds for macOS Apple Silicon, macOS Intel, and Windows.
+Download the open-source version from [GitHub Releases](https://github.com/andrewchay/mapro/releases). The current version is `v0.1.9`, with builds for macOS Apple Silicon, macOS Intel, and Windows.
 
 If you want fewer API setup steps, you can also use the [MAPro commercial version](https://proma.cool/download). The commercial and open-source versions run in parallel; the commercial version mainly adds built-in model channels and subscription options.
 
@@ -264,11 +264,11 @@ MAPro currently has a PR bounty program. You can leave your email in the PR desc
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=ErlichLiu%2FProma&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=andrewchay%2Fmapro&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ErlichLiu/Proma&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ErlichLiu/Proma&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ErlichLiu/Proma&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=andrewchay/mapro&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=andrewchay/mapro&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=andrewchay/mapro&type=date&legend=top-left" />
  </picture>
 </a>
 

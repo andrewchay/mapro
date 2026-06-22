@@ -23,8 +23,8 @@ Bun workspace monorepo：
 ```
 proma-v2/
 ├── packages/
-│   ├── shared/     # 共享类型、IPC 通道常量、配置、工具函数 (v0.1.15)
-│   ├── core/       # AI Provider 适配器、代码高亮服务 (v0.2.2)
+│   ├── shared/     # 共享类型、IPC 通道常量、配置、工具函数 (v0.1.23)
+│   ├── core/       # AI Provider 适配器、代码高亮服务 (v0.2.9)
 │   └── ui/         # 共享 UI 组件 (CodeBlock, MermaidBlock) (v0.1.3)
 └── apps/
     └── electron/   # Electron 桌面应用 (v0.1.9)
@@ -40,12 +40,12 @@ proma-v2/
 
 ### 包职责详解
 
-#### @ma-proma/shared (v0.1.15)
+#### @ma-proma/shared (v0.1.23)
 - **导出模块**：`./types`、`./config`、`./utils`、`./constants/permission-rules`
 - **关键类型**：`AgentMessage`、`ChatMessage`、`Channel`、`PermissionRequest`、`FeishuConfig`
 - **依赖**：无运行时依赖（仅 TypeScript）
 
-#### @ma-proma/core (v0.2.2)
+#### @ma-proma/core (v0.2.9)
 - **导出模块**：`./providers`、`./highlight`、`./types`、`./utils`
 - **关键功能**：Provider 适配器注册表、代码高亮（Shiki）
 - **依赖**：`@ma-proma/shared`、`shiki`
