@@ -55,17 +55,19 @@ import type {
 
 interface ChatViewProps {
   conversationId: string
+  /** 关联的 Campaign ID（用于 Campaign Agent 模式） */
+  campaignId?: string
 }
 
-export function ChatView({ conversationId }: ChatViewProps): React.ReactElement {
+export function ChatView({ conversationId, campaignId }: ChatViewProps): React.ReactElement {
   return (
     <ConversationProvider conversationId={conversationId}>
-      <ChatViewInner conversationId={conversationId} />
+      <ChatViewInner conversationId={conversationId} campaignId={campaignId} />
     </ConversationProvider>
   )
 }
 
-function ChatViewInner({ conversationId }: ChatViewProps): React.ReactElement {
+function ChatViewInner({ conversationId, campaignId }: ChatViewProps): React.ReactElement {
   // ===== 本地状态（每个实例独立） =====
   const [messages, setMessages] = React.useState<ChatMessage[]>([])
   const [contextDividers, setContextDividers] = React.useState<string[]>([])
@@ -307,6 +309,7 @@ function ChatViewInner({ conversationId }: ChatViewProps): React.ReactElement {
       thinkingEnabled: thinkingEnabled || undefined,
       systemMessage: resolveSystemMessage(conversationPromptId, promptConfig, userProfile.userName),
       enabledToolIds: activeToolIds.length > 0 ? activeToolIds : undefined,
+      campaignId: campaignId || undefined,
     }
 
     // 乐观更新：立即在 UI 中显示用户消息

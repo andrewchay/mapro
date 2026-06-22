@@ -8,6 +8,7 @@
 import * as React from 'react'
 import { useAtomValue } from 'jotai'
 import { tabsAtom } from '@/atoms/tab-atoms'
+import { campaignConversationMapAtom } from '@/atoms/campaign-atoms'
 import { ChatView } from '@/components/chat'
 import { AgentView } from '@/components/agent'
 import { ScratchPadView } from '@/components/scratch-pad/ScratchPadView'
@@ -19,6 +20,7 @@ export interface TabContentProps {
 
 export function TabContent({ tabId }: TabContentProps): React.ReactElement {
   const tabs = useAtomValue(tabsAtom)
+  const campaignMap = useAtomValue(campaignConversationMapAtom)
   const tab = tabs.find((t) => t.id === tabId)
 
   // [FLASH-DEBUG] 监控 tab 查找失败（说明 tabId 指向了不存在的标签）
@@ -41,9 +43,10 @@ export function TabContent({ tabId }: TabContentProps): React.ReactElement {
   }
 
   if (tab.type === 'chat') {
+    const campaignId = campaignMap.get(tab.sessionId)
     return (
       <TabErrorBoundary key={tab.sessionId} sessionId={tab.sessionId}>
-        <ChatView conversationId={tab.sessionId} />
+        <ChatView conversationId={tab.sessionId} campaignId={campaignId} />
       </TabErrorBoundary>
     )
   }
