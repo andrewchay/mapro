@@ -1,13 +1,13 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to Claude (claude.ai/code) when working with code in this repository.
 
 **重要提示：**
 - 当功能发生变化时，请保持此文件和 `README.md` 同步更新。请更新文档以反映当前状态，但是需要经过我的允许后再修改。
 - 所有的注释和日志优先采用中文，保留必要的专业术语部分。
 - 所有的依赖包的安装都要先进行搜索，综合判断依赖采用的版本，而不是默认采用某个版本。
 - 状态管理上我们全部采用 Jotai 来实现。
-- 这是个开源项目，本地存储优先，善用配置文件优于大部分默认采用 localstorage，不采用本地数据库方案。
+- 这是个开源项目，本地存储优先，善用配置文件优于大部分默认采用 localstorage；除 Campaign / KOL 等需要关系查询的业务数据使用 SQLite 外，其余配置/会话/工作区仍采用 JSON / JSONL 文件方案。
 - 保证充分的组件化以及人类的可读性，每次完成改动后都要思考这一点，运行@code-simplifier 来简化优化代码，保持简单直接不过渡设计的风格。
 - 在 UI 设计上采用更现代的方案，UI 组件推荐采用 ShadcnUI，在合适的情况下，用卡片和阴影取代边框，用符合主题的饱满色彩，设置界面要设置背景，为未来做不同主题留下空间。
 - 采用 BDD 行为驱动开发的方案。
@@ -27,7 +27,7 @@ proma-v2/
 │   ├── core/       # AI Provider 适配器、代码高亮服务 (v0.2.2)
 │   └── ui/         # 共享 UI 组件 (CodeBlock, MermaidBlock) (v0.1.3)
 └── apps/
-    └── electron/   # Electron 桌面应用 (v0.9.5)
+    └── electron/   # Electron 桌面应用 (v0.1.9)
         └── src/
             ├── main/       # 主进程 + 服务层 (main/lib/)
             ├── preload/    # IPC 上下文桥接
@@ -49,17 +49,17 @@ proma-v2/
 - **导出模块**：`./providers`、`./highlight`、`./types`、`./utils`
 - **关键功能**：Provider 适配器注册表、代码高亮（Shiki）
 - **依赖**：`@ma-proma/shared`、`shiki`
-- **Peer 依赖**：`@anthropic-ai/Codex-agent-sdk`、`@anthropic-ai/sdk`、`@modelcontextprotocol/sdk`
+- **Peer 依赖**：`@anthropic-ai/claude-agent-sdk`、`@anthropic-ai/sdk`、`@modelcontextprotocol/sdk`
 
 #### @ma-proma/ui (v0.1.3)
 - **关键组件**：共享 React UI 组件库
 - **依赖**：`@ma-proma/core`、`beautiful-mermaid`、`shiki`、Radix UI
 - **Peer 依赖**：`react@^18.3.0`、`react-dom@^18.3.0`
 
-#### @ma-proma/electron (v0.9.5)
+#### @ma-proma/electron (v0.1.9)
 - **职责**：Electron 桌面应用主体，集成所有包
 - **关键依赖**：
-  - `@anthropic-ai/Codex-agent-sdk@0.2.120` - Agent SDK
+  - `@anthropic-ai/claude-agent-sdk@0.3.143` - Agent SDK
   - `@larksuiteoapi/node-sdk` - 飞书集成
   - Radix UI、TipTap、Tailwind CSS
   - 文件解析：`pdf-parse`、`officeparser`、`word-extractor`
@@ -122,7 +122,7 @@ bun run generate:icons    # 生成应用图标
 |------|------|------|
 | **运行时** | Bun | 1.2.5+ |
 | **语言** | TypeScript | 5.0.0+ |
-| **桌面框架** | Electron | 39.5.1 |
+| **桌面框架** | Electron | 39.8.10 |
 | **前端框架** | React | 18.3.1 |
 | **状态管理** | Jotai | 2.17.1 |
 | **UI 组件** | Radix UI | 最新 |
@@ -135,7 +135,7 @@ bun run generate:icons    # 生成应用图标
 | **构建工具** | Vite | 6.0.3 |
 | **打包工具** | esbuild | 0.24.0+ |
 | **分发工具** | Electron Builder | 25.1.8 |
-| **Agent SDK** | @anthropic-ai/Codex-agent-sdk | 0.2.120 |
+| **Agent SDK** | @anthropic-ai/claude-agent-sdk | 0.3.143 |
 | **飞书 SDK** | @larksuiteoapi/node-sdk | 最新 |
 
 ## 核心架构
@@ -163,6 +163,9 @@ bun run generate:icons    # 生成应用图标
 - `MEMORY_IPC_CHANNELS` - 记忆功能
 - `CHAT_TOOL_IPC_CHANNELS` - Chat 工具
 - `FEISHU_IPC_CHANNELS` - 飞书集成
+- `CAMPAIGN_IPC_CHANNELS` - Campaign 项目管理（Campaign / KOL 候选池 / Brief / 工作流）
+- `CONTENT_AUDIT_IPC_CHANNELS` - 内容审核
+- `KOL_DATA_IPC_CHANNELS` - KOL 数据管理
 - `GITHUB_RELEASE_IPC_CHANNELS` - GitHub 发布
 
 ### 主进程服务层（`main/lib/`）
@@ -187,18 +190,32 @@ bun run generate:icons    # 生成应用图标
 | 服务 | 职责 |
 |------|------|
 | `feishu-bridge.ts` | 飞书集成（68KB）：消息同步、任务通知、OAuth 认证 |
+| `dingtalk-bridge.ts` / `dingtalk-bridge-manager.ts` | 钉钉集成：机器人桥接、消息同步 |
+| `wechat-bridge.ts` | 微信集成：机器人桥接入口 |
 | `memory-service.ts` | 记忆管理：跨会话记忆存储与检索 |
 | `memos-client.ts` | Memos 客户端：笔记服务集成 |
+
+#### Campaign 业务服务（fork 后新增）
+
+| 服务 | 职责 |
+|------|------|
+| `campaign-manager.ts` | Campaign 项目数据服务：SQLite 存储（`~/.mapro/campaign-database.sqlite`）、Campaign CRUD、KOL 候选池、Brief、阶段推进、内容审核、KOL 数据库连接（双引擎适配 `bun:sqlite` / `better-sqlite3`） |
+| `campaign-workflow-service.ts` | Campaign 9 步工作流状态机：工作流 JSON 持久化、标准产物目录管理、语义锚点校验（`artifactRequirements` + `minArtifactLength`）、兜底落盘、执行历史（`history.md`）、`todo.md` 同步 |
+| `ma-tools/` | MA 营销工具集（17 个 Chat Tool）：strategy-iq、match-ai、connect-bot、creative-pilot、script-studio、kol-search、kol-crm、kol-portal、kol-data-mcp、kol-data-service、campaign-agent、campaign-optimizer、campaign-tester、content-audit、llm-service 等，通过 `ChatToolMeta` + `ToolDefinition` 注册到 Chat 模式 |
 
 #### 工具与文件
 
 | 服务 | 职责 |
 |------|------|
 | `chat-tools/` | Chat 工具实现目录：内置工具函数 |
+| `ma-tools/` | MA 营销工具集：17 个营销相关 Chat Tool（见上方 Campaign 业务服务） |
 | `workspace-watcher.ts` | 工作区文件监听：文件系统变化监控 |
 | `chat-tools-watcher.ts` | Chat 工具监听：工具配置变化监控 |
 | `attachment-service.ts` | 附件管理：存储/读取/删除、文件对话框 |
 | `document-parser.ts` | 文档解析：PDF/Office/文本文件提取 |
+| `file-preview-service.ts` | 文件预览：产物文件内联预览 |
+| `git-diff-service.ts` | Git Diff：差异展示服务 |
+| `screenshot-service.ts` | 截图服务：屏幕截图能力 |
 
 #### 系统服务
 
@@ -208,6 +225,14 @@ bun run generate:icons    # 生成应用图标
 | `config-paths.ts` | 配置路径管理：`~/.mapro/` 目录结构 |
 | `user-profile-service.ts` | 用户档案持久化 |
 | `settings-service.ts` | 应用设置持久化（主题等） |
+| `voice-dictation-window.ts` / `doubao-asr-service.ts` | 语音听写：豆包 ASR 集成、独立听写窗口 |
+| `quick-task-window.ts` | 快速任务窗口：全局快捷键唤起的轻量任务面板 |
+| `global-shortcut-service.ts` | 全局快捷键：注册与管理 |
+| `text-insertion-service.ts` / `text-output-service.ts` | 文本插入/输出：跨应用文本输入支持 |
+| `migration-service.ts` | 迁移服务：旧版本数据迁移 |
+| `tray-menu-model.ts` / `dock-badge-service.ts` | 系统托盘 + Dock 角标 |
+| `installer-downloader.ts` / `installer-manifest.ts` | 安装包下载：在线更新安装包 |
+| `local-file-protocol.ts` | 本地文件协议：`app://` 自定义协议 |
 | `updater/` | 自动更新：Electron Updater 集成 |
 
 ### AI Provider 适配器（`packages/core/src/providers/`）
@@ -243,6 +268,11 @@ bun run generate:icons    # 生成应用图标
 |-----------|-----------|
 | `chat-atoms.ts` | 对话列表、当前消息、流式状态（Map 结构支持多对话并行）、模型选择、上下文设置、并排模式、思考模式、待上传附件 |
 | `agent-atoms.ts` | Agent 会话列表、当前会话、流式状态（`AgentStreamState`）、工作区选择、渠道选择、权限/AskUser 请求队列（按 sessionId Map） |
+| `campaign-atoms.ts` | Campaign 列表、当前 Campaign ID、创建弹窗开关、Chat 会话↔Campaign / Agent 会话↔Campaign 双向映射 |
+| `dingtalk-atoms.ts` / `wechat-atoms.ts` | 钉钉 / 微信桥接状态 |
+| `preview-atoms.ts` | 文件预览状态（路径、开关） |
+| `tab-atoms.ts` / `sidebar-atoms.ts` | 标签页 + 侧边栏状态 |
+| `migration-atoms.ts` | 数据迁移状态 |
 | `active-view.ts` | 主面板视图切换（'conversations' / 'settings'） |
 | `app-mode.ts` | 应用模式（Chat / Agent） |
 | `settings-tab.ts` | 设置面板当前标签页 |
@@ -252,11 +282,20 @@ bun run generate:icons    # 生成应用图标
 
 ### 渲染进程组件架构（`renderer/components/`）
 
-- **`app-shell/`**：三面板布局（LeftSidebar | NavigatorPanel | MainContentPanel），侧边栏含模式切换、置顶对话、日期分组列表、流式指示器
+- **`app-shell/`**：三面板布局（LeftSidebar | NavigatorPanel | MainContentPanel），侧边栏含模式切换、置顶对话、日期分组列表、Campaign 列表、流式指示器
 - **`chat/`**：聊天核心 — ChatView（消息加载/流式订阅）、ChatHeader（模型选择/上下文设置）、ChatInput（Tiptap 富文本编辑器）、ChatMessages（消息列表/自动滚动）、ParallelChatMessages（并排模式）
-- **`agent/`**：Agent 模式 — AgentView（纯展示 + 交互，IPC 监听已提升到全局）、AgentHeader（渠道/模型选择）、AgentMessages（消息列表 + 工具活动）、ToolActivityItem（工具调用展示）、WorkspaceSelector（工作区切换）、PermissionBanner/AskUserBanner（权限/问答请求 UI）
+- **`agent/`**：Agent 模式 — AgentView（纯展示 + 交互，IPC 监听已提升到全局）、AgentHeader（渠道/模型选择）、AgentMessages（消息列表 + 工具活动）、ToolActivityItem（工具调用展示）、WorkspaceSelector（工作区切换）、PermissionBanner/AskUserBanner（权限/问答请求 UI）；**Campaign 子模块**：CampaignList、CampaignDetail（基本信息 + 三阶段 + 候选池）、CampaignWorkflowSteps（9 步工作流执行/校验/重置）、CampaignCreateDialog、CampaignKOLImportDialog、CampaignBriefDialog、ContentAuditDialog、FilePreviewDialog
 - **`settings/`**：设置面板 — GeneralSettings（用户档案）、AppearanceSettings（主题）、ChannelSettings（渠道管理）、ChannelForm（Provider 配置）、AgentSettings（Agent 渠道/工作区/MCP）、McpServerForm（MCP 服务器配置）、AboutSettings（版本/更新）、FeishuSettings（飞书集成）；含 `primitives/` 可复用表单组件
 - **`file-browser/`**：文件浏览器 — FileBrowser（工作区文件树浏览）
+- **`diff/`**：Git Diff 展示
+- **`voice-dictation/`**：语音听写窗口
+- **`quick-task/`**：快速任务窗口
+- **`tabs/`**：多标签页（TabContent / MainArea）
+- **`onboarding/`** / **`welcome/`** / **`tutorial/`**：引导、欢迎、教程
+- **`shortcuts/`**：快捷键管理
+- **`scratch-pad/`**：草稿本
+- **`environment/`**：环境检查
+- **`migration/`**：数据迁移
 - **`ai-elements/`**：AI 展示组件 — Markdown 渲染、代码块、Mermaid 图、推理折叠、上下文分割线、富文本输入
 - **`ui/`**：Radix UI 组件（现代化设计，CSS 变量主题）
 
@@ -293,6 +332,8 @@ bun run generate:icons    # 生成应用图标
 │       ├── workspace-files/# 工作区持久文件
 │       ├── mcp.json        # MCP Server 配置
 │       └── skills/         # Skills 配置目录
+├── campaign-database.sqlite # Campaign 项目数据库（Campaign / KOL 候选池 / Brief / 内容审核）
+├── kol-database.sqlite      # KOL 主数据库（含 fan/engagement/content/overall_score 评分系统）
 ├── attachments/            # 附件文件
 │   └── {conversationId}/
 │       └── {uuid}.ext
@@ -303,13 +344,14 @@ bun run generate:icons    # 生成应用图标
 ```
 
 **关键设计**：
-- JSON 配置 + JSONL 追加日志，无本地数据库，文件可移植
-- Agent 工作区按 slug 隔离，每个会话独立目录
+- JSON 配置 + JSONL 追加日志为默认存储方案，文件可移植
+- Campaign / KOL 等需要关系查询的业务数据使用 SQLite，双引擎适配（Bun 环境用 `bun:sqlite`，Electron 环境用 `better-sqlite3`，见 `campaign-manager.ts:loadEngine`）
+- Agent 工作区按 slug 隔离，每个会话独立目录；Campaign 工作区 slug 形如 `campaign-{id}`，内含 9 步工作流标准产物目录
 - MCP 配置和 Skills 按工作区管理
 
 ## 构建工具
 
-- **主进程/Preload**：esbuild (`--bundle --platform=node --format=cjs --external:electron --external:@anthropic-ai/Codex-agent-sdk`)
+- **主进程/Preload**：esbuild (`--bundle --platform=node --format=cjs --external:electron --external:@anthropic-ai/claude-agent-sdk`)
 - **渲染进程**：Vite + React 插件 + Tailwind CSS + HMR
 - **开发热重载**：渲染进程 Vite HMR 即时生效；主进程/Preload 通过 electronmon 监听 dist 文件变化自动重启
 - **打包分发**：electron-builder（配置见 `electron-builder.yml`）
@@ -317,22 +359,22 @@ bun run generate:icons    # 生成应用图标
 ### 重要：打包配置注意事项
 
 **Agent SDK 打包要求（必须遵守）：**
-- `@anthropic-ai/Codex-agent-sdk` 必须使用 `--external` 参数排除在 esbuild 打包之外
-- **0.2.113+ 架构变化**：SDK 主包已不再携带 JS CLI 入口（`cli.js`）和 `vendor/ripgrep/`，改为按平台分发 native binary（`Codex` / `Codex.exe`，单文件 214-252 MB），通过 `optionalDependencies` 安装到 `@anthropic-ai/Codex-agent-sdk-{platform}-{arch}/` 子包
+- `@anthropic-ai/claude-agent-sdk` 必须使用 `--external` 参数排除在 esbuild 打包之外
+- **0.2.113+ 架构变化**：SDK 主包已不再携带 JS CLI 入口（`cli.js`）和 `vendor/ripgrep/`，改为按平台分发 native binary（`claude` / `claude.exe`，单文件 214-252 MB），通过 `optionalDependencies` 安装到 `@anthropic-ai/claude-agent-sdk-{platform}-{arch}/` 子包
 - `apps/electron/package.json` 必须显式声明当前 CI 矩阵覆盖的平台子包为 `optionalDependencies`（darwin-arm64 / darwin-x64 / win32-x64），否则 bun workspace 不会把它们链接到 `apps/electron/node_modules/`
 - `electron-builder.yml` 的 `files` 配置要同时包含主包和所有平台子包：
   ```yaml
   files:
     - dist/**/*
     - package.json
-    - node_modules/@anthropic-ai/Codex-agent-sdk/**/*
-    - node_modules/@anthropic-ai/Codex-agent-sdk-darwin-arm64/**/*
-    - node_modules/@anthropic-ai/Codex-agent-sdk-darwin-x64/**/*
-    - node_modules/@anthropic-ai/Codex-agent-sdk-win32-x64/**/*
+    - node_modules/@anthropic-ai/claude-agent-sdk/**/*
+    - node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/**/*
+    - node_modules/@anthropic-ai/claude-agent-sdk-darwin-x64/**/*
+    - node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/**/*
     - "!node_modules/@ma-proma/**"
   ```
 - SDK 主包和同级平台子包会被复制到 `app/node_modules/@anthropic-ai/`，Node.js 的模块解析能从 `app/dist/main.cjs` 找到
-- `agent-orchestrator.ts` 中 `resolveSDKCliPath()` 解析到 SDK 主包入口后，沿 `..` 到 `@anthropic-ai/` 同级目录，再拼 `Codex-agent-sdk-${platform}-${arch}/{Codex|Codex.exe}` 得到 binary 路径
+- `agent-orchestrator.ts` 中 `resolveSDKCliPath()` 解析到 SDK 主包入口后，沿 `..` 到 `@anthropic-ai/` 同级目录，再拼 `claude-agent-sdk-${platform}-${arch}/{claude|claude.exe}` 得到 binary 路径
 
 **跨平台打包限制：**
 - optionalDependencies 的平台子包由包管理器按 `os`/`cpu` 字段筛选：Apple Silicon runner 只会装 darwin-arm64，不会装 darwin-x64（cpu 不匹配）
@@ -348,13 +390,13 @@ bun run generate:icons    # 生成应用图标
 1. ✅ 确认 SDK 在 esbuild 中使用 `--external` 参数
 2. ✅ 确认 SDK 主包 + 所有目标平台子包都在 `files` 配置中
 3. ✅ 确认 `apps/electron/package.json` 的 `optionalDependencies` 列出了所有目标平台子包
-4. ✅ `bun install` 后验证 `apps/electron/node_modules/@anthropic-ai/Codex-agent-sdk-{platform}-{arch}/` symlink 存在且 binary 可执行
+4. ✅ `bun install` 后验证 `apps/electron/node_modules/@anthropic-ai/claude-agent-sdk-{platform}-{arch}/` symlink 存在且 binary 可执行
 5. ✅ 本地测试打包后的应用 Agent 功能（`CSC_IDENTITY_AUTO_DISCOVERY=false bun run dist:fast`）
 
 **其他依赖的打包策略：**
-- **原则**：只有 `electron` 和 `@anthropic-ai/Codex-agent-sdk` 需要标记为 `--external`
+- **原则**：只有 `electron` 和 `@anthropic-ai/claude-agent-sdk` 需要标记为 `--external`
 - `electron`：由 Electron 运行时提供，必须 external
-- `@anthropic-ai/Codex-agent-sdk`：有特殊打包要求（含 214 MB native binary），必须 external + 在 files 中包含主包和平台子包
+- `@anthropic-ai/claude-agent-sdk`：有特殊打包要求（含 214 MB native binary），必须 external + 在 files 中包含主包和平台子包
 - **所有其他依赖**（如 `electron-updater`、`undici`、`chokidar` 等）：应该让 esbuild 打包进 `main.cjs`
   - ✅ 优点：避免遗漏子依赖，简化 electron-builder 配置
   - ❌ 如果标记为 external：必须在 `electron-builder.yml` 的 `files` 中手动列出所有子依赖
@@ -390,7 +432,7 @@ bun run generate:icons    # 生成应用图标
 
 ## Agent SDK 集成架构
 
-基于 `@anthropic-ai/Codex-agent-sdk@0.2.120` 实现 Agent 模式，与 Chat 模式并行。
+基于 `@anthropic-ai/claude-agent-sdk@0.3.143` 实现 Agent 模式，与 Chat 模式并行。
 
 ### 核心流程
 
@@ -440,7 +482,7 @@ React UI 更新
 
 ### SDK 版本升级注意事项
 
-**`@anthropic-ai/Codex-agent-sdk` 0.2.113+ `options.env` 语义为"替换"**
+**`@anthropic-ai/claude-agent-sdk` 0.2.113+ `options.env` 语义为"替换"**
 
 - SDK 将 `options.env` **替换** 传递给子进程（0.2.111/0.2.112 短暂改为叠加，0.2.113 恢复替换）
 - 如果传 `env` 时只给 `ANTHROPIC_*` 相关变量，子进程会丢失 `PATH` / `HOME` / `SHELL` 等关键变量，导致 SDK 调用 `npx` / `git` 等命令失败
@@ -456,9 +498,15 @@ React UI 更新
 - `0.2.111`: `options.env` 从"替换"变为"叠加"
 - `0.2.113`:
   - `options.env` 回退为"替换"
-  - **SDK 包结构重构**：删除 `cli.js`，改为平台 native binary（通过 `@anthropic-ai/Codex-agent-sdk-{platform}-{arch}` optionalDependency 分发），ripgrep 编译进 binary
+  - **SDK 包结构重构**：删除 `cli.js`，改为平台 native binary（通过 `@anthropic-ai/claude-agent-sdk-{platform}-{arch}` optionalDependency 分发），ripgrep 编译进 binary
   - 详见上方"打包配置注意事项"段落
 - `0.2.120`: `query()` 省略 `settingSources` 时默认加载所有来源（MAPro 已显式传 `['user', 'project']`，不受影响）
+- `0.2.121`: `updatedMCPToolOutput` 废弃，改用 `PostToolUseHookSpecificOutput.updatedToolOutput`（适用于所有工具，不再只针对 MCP）— MAPro 未使用，不受影响
+- `0.2.133`: 废弃不稳定 V2 session API（`unstable_v2_createSession` / `unstable_v2_resumeSession` / `unstable_v2_prompt`），改用 `query()`；废弃 `allowedTools` 中传 `'Skill'`，改用 `skills` 选项 — MAPro 均未使用
+- `0.2.136`: 废弃 `TodoWrite` 工具，后续版本改为 Task 工具（`TaskCreate` / `TaskGet` / `TaskUpdate` / `TaskList`）。MAPro 已在 `agent-orchestrator.ts` 的 `PLAN_MODE_ALLOWED_TOOLS` 中同时声明 `TodoWrite` 与 `TaskCreate/TaskUpdate/TaskList/TaskGet`，做过渡兼容
+- `0.2.141`: `@anthropic-ai/sdk` 依赖对齐到 `^0.93.0`；Task 工具类型（`TaskCreateInput/Output` 等）从 `@anthropic-ai/claude-agent-sdk/sdk-tools` 导出 — MAPro 已对齐 `^0.93.0`
+- `0.3.143`（当前版本）: `@anthropic-ai/sdk` 与 `@modelcontextprotocol/sdk` 从 `dependencies` 改为 `peerDependencies`（运行时不受影响，二者已被打包；yarn classic 用户需显式安装）— MAPro 用 bun workspace，`optionalDependencies`/`dependencies` 自动安装，不受影响
+- **0.3.x 系列说明**：0.3.x 未走 GitHub releases 发布（仅在 npm 发布），无独立 CHANGELOG 文件；上述 0.2.121–0.2.141 的 deprecation 在 0.3.x 中正式生效。升级 0.3.x 前应确认未使用已废弃 API
 
 ### 共享类型（`@ma-proma/shared`）
 
@@ -468,6 +516,79 @@ React UI 更新
 - `AgentSendInput`：发送请求输入
 - `AGENT_IPC_CHANNELS`：Agent 相关 IPC 通道常量
 - `WorkspaceCapabilities`：工作区能力（MCP Server 列表 + Skills 列表）
+- `Campaign` / `CampaignWorkflow` / `CampaignWorkflowStep` / `CampaignKOLPoolItem` / `CampaignBrief` / `ContentAudit`：Campaign 业务类型（`types/campaign.ts`）
+- `CAMPAIGN_IPC_CHANNELS` / `CONTENT_AUDIT_IPC_CHANNELS` / `KOL_DATA_IPC_CHANNELS`：Campaign 相关 IPC 通道常量
+
+## Campaign 功能架构（fork 后新增）
+
+Campaign 是在 Agent 模式之上构建的 **KOL 投放项目管理**高层抽象，把"品牌营销投放"这类多步骤、需产物沉淀的工作流包装成可复用项目。这是当前开发主线。
+
+### 核心数据模型（`packages/shared/src/types/campaign.ts`）
+
+| 实体 | 职责 |
+|------|------|
+| `Campaign` | 项目主体：品牌、平台（小红书/抖音/双平台）、预算、周期、目标城市/人群、3 阶段 `phasePlans`、创意策略 `creativePlan`、状态机（draft→strategy→kol_selection→negotiation→content_production→live→review→completed） |
+| `CampaignKOLPoolItem` | KOL 候选池：每 Campaign 独立，状态流转 candidate→shortlisted→contacted→confirmed/rejected |
+| `CampaignBrief` | 每个 KOL 一份 Markdown 合作 Brief，支持 AI 生成标记 |
+| `CampaignWorkflow` | 9 步标准工作流：每步含 `agentPrompt` / `toolName` / `artifactRequirements`（语义锚点）/ `minArtifactLength` |
+| `ContentAudit` | 内容审核：AI 审核 + 人工复核，4 维度评分（合规/品牌契合/质量/综合） |
+
+### 存储架构
+
+- `~/.mapro/campaign-database.sqlite`：Campaign + KOL 候选池 + Brief + 内容审核 4 张表
+- `~/.mapro/kol-database.sqlite`：KOL 主数据库（含 fan/engagement/content/overall_score 评分系统）
+- **双引擎适配**：Bun 环境用 `bun:sqlite`，Electron 环境用 `better-sqlite3`（`campaign-manager.ts:loadEngine` 自动选择，二者 API 对齐）
+- 每步**产物文件**存到 `~/.mapro/agent-workspaces/campaign-{id}/` 下标准目录：`brand-dna/`、`ta-portrait/`、`creative-concept/`、`platform-matrix/`、`kol-pyramid/`、`kol-search/`、`briefs/`、`ab-test/`、`.context/`（含 `todo.md` / `campaign.md` / `history.md`）
+
+### 9 步标准工作流（`campaign-workflow-service.ts`）
+
+```
+1. 提取品牌 DNA        → ma-brand-dna
+2. 构建 TA 画像         → ma-ta-portrait
+3. 生成 Big Idea        → ma-creative-concept
+4. 设计平台矩阵         → ma-platform-role-mapper
+5. 设计 KOL 金字塔      → ma-kol-pyramid
+6. 筛选候选达人         → kol-data/search_kols
+7. 加入候选池           → ma-campaign-agent (ma_campaign_kol_add)
+8. 生成达人 Brief       → ma-creative-pilot
+9. 设计 A/B 测试        → ma-campaign-tester
+```
+
+每步带：模板化 `agentPrompt`（`{brand}`/`{budget}` 等变量替换）、`artifactRequirements`（语义锚点 + 最低字数 300）、产物校验、兜底落盘（Agent 只在对话输出未写文件时自动保存为 `agent-output.md`）。
+
+### 工作流执行闭环
+
+```
+用户点"执行此步骤"
+  → CampaignWorkflowSteps 标记 in_progress + 模板替换 prompt
+  → onSendToAssistant 发到内嵌 Agent 面板
+  → Agent 调用 ma-tool / default-skill 执行，产物写入标准目录
+  → 主进程 completeStepWithValidation：
+      ① 兜底落盘 materializeAssistantOutputIfNeeded
+      ② 产物校验 validateStepArtifacts（目录/文件/字数/语义锚点）
+      ③ 通过 → completed + appendHistory；失败 → failed
+  → 渲染层 2 秒轮询刷新 workflow
+  → 全部完成 → 可生成"整合方案"
+```
+
+### IPC 全链路
+
+- **通道常量**：`CAMPAIGN_IPC_CHANNELS`（14 个）+ `CONTENT_AUDIT_IPC_CHANNELS`（4 个）+ `KOL_DATA_IPC_CHANNELS`（4 个）
+- **主进程**：`ipc.ts` → `campaign-manager.ts`（CRUD/候选池/Brief/审核）+ `campaign-workflow-service.ts`（工作流状态机/产物校验）
+- **Preload**：`window.electronAPI.listCampaigns` / `getCampaignWorkflow` / `advanceCampaignPhase` / `listContentAudits` 等
+- **渲染层**：`campaign-atoms.ts` + `CampaignDetail` / `CampaignList` / `CampaignWorkflowSteps` / `CampaignKOLImportDialog` / `CampaignBriefDialog` / `ContentAuditDialog` / `FilePreviewDialog`
+
+### ma-tools 营销工具集（`main/lib/ma-tools/`，17 个工具）
+
+为 Chat 模式提供营销能力，通过 `ChatToolMeta` + `ToolDefinition` 注册：
+
+- **策略类**：strategy-iq、creative-pilot、script-studio
+- **KOL 类**：match-ai、connect-bot、kol-search、kol-crm、kol-portal、kol-data-mcp
+- **Campaign 类**：campaign-agent（8 个子工具：get/update/brief_get/brief_update/kol_list/kol_add/kol_status/audit）、campaign-optimizer、campaign-tester
+- **内容类**：content-audit
+- **基础**：llm-service、kol-data-service
+
+配套 `default-skills/` 下 12 个 `ma-*` Skill（brand-dna、creative-concept、kol-pyramid、ta-portrait、platform-role-mapper、campaign-tester、content-audit、competitor-analyzer、content-calendar、kol-portal、marketing、ugc-campaign 等）。
 
 ## 创作参考
 
@@ -475,7 +596,7 @@ React UI 更新
 
 - **会话管理**：收件箱/归档工作流
 - **权限模式**：safe / ask / allow-all
-- **Agent SDK**：@anthropic-ai/Codex-agent-sdk（[v1 文档](https://platform.Codex.com/docs/en/agent-sdk/typescript)、[v2 文档](https://platform.Codex.com/docs/en/agent-sdk/typescript-v2-preview)）
+- **Agent SDK**：@anthropic-ai/claude-agent-sdk（[v1 文档](https://platform.claude.com/docs/en/agent-sdk/typescript)、[v2 文档](https://platform.claude.com/docs/en/agent-sdk/typescript-v2-preview)）
 - **MCP 集成**：Model Context Protocol 用于外部数据源
 - **凭证存储**：AES-256-GCM 加密
 - **配置位置**：`~/.mapro/`（类似 `~/.craft-agent/`）
@@ -485,8 +606,12 @@ React UI 更新
 ### 已实现功能
 
 - ✅ **多 Provider 支持**：Anthropic、OpenAI、DeepSeek、Kimi、智谱、MiniMax、豆包、通义千问、Google、自定义端点
-- ✅ **Agent SDK 集成**：基于 Codex Agent SDK 的完整 Agent 模式
+- ✅ **Agent SDK 集成**：基于 Claude Agent SDK 的完整 Agent 模式
+- ✅ **Campaign 项目管理**：KOL 投放项目、9 步标准工作流、产物校验、KOL 候选池、Brief 生成、内容审核（fork 后新增，详见 Campaign 功能架构段落）
+- ✅ **MA 营销工具集**：17 个 ma-tools Chat Tool + 12 个 `ma-*` default Skills，覆盖品牌 DNA、TA 画像、创意概念、KOL 匹配/建联/搜索/CRM、脚本工坊、内容审核等
 - ✅ **飞书集成**：消息同步、任务通知、OAuth 认证（68KB 核心服务）
+- ✅ **钉钉 / 微信桥接**：机器人消息桥接入口
+- ✅ **语音听写**：豆包 ASR 集成、独立听写窗口
 - ✅ **工作区管理**：多工作区隔离、MCP Server 配置、Skills 管理
 - ✅ **权限系统**：工具权限检查、用户确认流程
 - ✅ **记忆系统**：跨会话记忆存储与检索
@@ -495,6 +620,8 @@ React UI 更新
 - ✅ **文档解析**：PDF、Office、文本文件提取
 - ✅ **多模态支持**：图片、文档附件
 - ✅ **Chat 工具**：内置工具系统 + 动态加载
+- ✅ **多标签页 + 快速任务窗口**：多会话并行、全局快捷键唤起
+- ✅ **数据迁移**：旧版本数据迁移支持
 
 ### 架构亮点
 
