@@ -7,8 +7,10 @@
 
 import type { InstallerManifest, InstallerSource } from '@ma-proma/shared'
 
-const MAPRO_API_BASE = 'https://api.proma.cool'
-const MANIFEST_URL = `${MAPRO_API_BASE}/api/v1/installers/manifest`
+// 商业版 API 已下线，直接走内置 fallback 清单
+// const MAPRO_API_BASE = 'https://api.proma.cool'
+// const MANIFEST_URL = `${MAPRO_API_BASE}/api/v1/installers/manifest`
+const MANIFEST_URL = '' // 置空后 fetch 会直接走 catch → BUILTIN_FALLBACK
 const CACHE_TTL_MS = 5 * 60 * 1000
 
 interface ManifestCache {

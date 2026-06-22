@@ -6,7 +6,7 @@ It is not just another chat box. MAPro is meant to become a long-lived Agent wor
 
 ![MAPro Poster](https://img.erlich.fun/personal-blog/uPic/pb.png)
 
-[中文 README](./README.md) | [Beginner Tutorial](./tutorial/tutorial.md) | [Open-Source Release](https://github.com/andrewchay/mapro/releases) | [Commercial Version](https://proma.cool/download)
+[中文 README](./README.md) | [Beginner Tutorial](./tutorial/tutorial.md) | [Open-Source Release](https://github.com/andrewchay/mapro/releases)
 
 ## What MAPro Can Do
 
@@ -24,8 +24,6 @@ It is not just another chat box. MAPro is meant to become a long-lived Agent wor
 ### Download
 
 Download the open-source version from [GitHub Releases](https://github.com/andrewchay/mapro/releases). The current version is `v0.1.9`, with builds for macOS Apple Silicon, macOS Intel, and Windows.
-
-If you want fewer API setup steps, you can also use the [MAPro commercial version](https://proma.cool/download). The commercial and open-source versions run in parallel; the commercial version mainly adds built-in model channels and subscription options.
 
 ### First Setup
 

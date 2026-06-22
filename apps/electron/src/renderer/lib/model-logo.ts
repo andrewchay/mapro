@@ -249,7 +249,8 @@ const PROVIDER_LOGO_MAP: Record<ProviderType, string> = {
  * 优先级高于 ProviderType，用于识别用户通过兼容格式接入的实际供应商。
  */
 const URL_LOGO_MAP: Array<[RegExp, string]> = [
-  [/proma\.cool/i, MAProLogo],
+  // 商业版域名已下线，不再匹配
+  // [/proma\.cool/i, MAProLogo],
   [/moonshot\.cn|kimi/i, KimiLogo],
   [/bigmodel\.cn|zhipuai/i, ZhipuLogo],
   [/minimax/i, MiniMaxLogo],

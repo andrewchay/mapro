@@ -1097,7 +1097,7 @@ export class AgentOrchestrator {
               key: 'd',
               label: '下载最新安装包',
               action: 'open_external',
-              payload: 'https://proma.cool/download',
+              payload: 'https://github.com/andrewchay/mapro/releases',
             },
             {
               key: 'i',
