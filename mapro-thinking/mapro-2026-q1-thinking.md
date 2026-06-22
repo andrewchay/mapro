@@ -1,6 +1,6 @@
-# Proma 2026 Q1 想法开源：没有大跃进，一切皆可能
+# MAPro 2026 Q1 想法开源：没有大跃进，一切皆可能
 
-> [Proma 开源版](https://github.com/ErlichLiu/Proma)本目前已经更新到了 v0.4.18 版本，已经做完最基础的版本了，非常感谢大家的贡献和参与。
+> [MAPro 开源版](https://github.com/andrewchay/mapro)目前已经更新到了 v0.1.9 版本，已经做完最基础的版本了，非常感谢大家的贡献和参与。
 >
 >  
 >

@@ -107,7 +107,7 @@ import StepDarkLogo from '@/assets/models/step_dark.png'
 import MiniMaxLogo from '@/assets/models/minimax.png'
 
 // MAPro
-import MAProLogo from '@/assets/models/proma.png'
+import MAProLogo from '@/assets/models/mapro.png'
 
 // Cohere
 import CohereLogo from '@/assets/models/cohere.png'

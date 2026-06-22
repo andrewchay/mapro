@@ -1,7 +1,7 @@
 # electron-builder 配置
 # 文档: https://www.electron.build/configuration/configuration
 
-appId: com.proma.app
+appId: com.mapro.app
 productName: MAPro
 copyright: Copyright © 2024-2025 MAPro
 
@@ -61,8 +61,8 @@ extraResources:
   - from: ../../tutorial/tutorial.md
     to: tutorial.md
   # MAPro 品牌 Logo 素材（品牌素材下载功能使用）
-  - from: resources/proma-logos
-    to: proma-logos
+  - from: resources/mapro-logos
+    to: mapro-logos
     filter:
       - "**/*"
 
@@ -79,11 +79,18 @@ mac:
   extendInfo:
     NSMicrophoneUsageDescription: "MAPro 需要访问麦克风，用于将你的语音实时转写为文本。"
   fileAssociations:
-    - ext: proma-backup
+    - ext: mapro-backup
       name: MAPro Personal Backup
       role: Editor
-    - ext: proma-share
+    - ext: mapro-share
       name: MAPro Share Package
+      role: Editor
+    # 兼容旧版 .proma-backup / .proma-share 扩展名
+    - ext: proma-backup
+      name: MAPro Personal Backup (Legacy)
+      role: Editor
+    - ext: proma-share
+      name: MAPro Share Package (Legacy)
       role: Editor
   # 架构由 CLI 参数控制（CI 矩阵分别传 --arm64 / --x64），
   # 每个 runner 只构建其宿主架构对应的产物，与 bun 按 os/cpu 装好的
@@ -111,11 +118,18 @@ dmg:
 win:
   icon: resources/icon.ico
   fileAssociations:
-    - ext: proma-backup
+    - ext: mapro-backup
       name: MAPro Personal Backup
       icon: resources/icon.ico
-    - ext: proma-share
+    - ext: mapro-share
       name: MAPro Share Package
+      icon: resources/icon.ico
+    # 兼容旧版 .proma-backup / .proma-share 扩展名
+    - ext: proma-backup
+      name: MAPro Personal Backup (Legacy)
+      icon: resources/icon.ico
+    - ext: proma-share
+      name: MAPro Share Package (Legacy)
       icon: resources/icon.ico
   target:
     - target: nsis
@@ -136,5 +150,5 @@ nsis:
 # ============================================
 publish:
   provider: github
-  owner: ErlichLiu
-  repo: Proma
+  owner: andrewchay
+  repo: mapro

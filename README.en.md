@@ -60,25 +60,25 @@ In short: **use Chat when you need an answer; use Agent when you need work to be
 
 Use Chat for lightweight but practical analysis: compare audience needs, generate a table, and shape first-screen README copy quickly.
 
-![MAPro Chat analysis](./docs/assets/screenshots/proma-chat-demo.png)
+![MAPro Chat analysis](./docs/assets/screenshots/mapro-chat-demo.png)
 
 ### Agent Workbench
 
 Agent works inside a workspace, reads project files, progresses through tasks, outputs structured findings, and keeps reusable files visible in the right-side workspace panel.
 
-![MAPro Agent workbench](./docs/assets/screenshots/proma-agent-demo.png)
+![MAPro Agent workbench](./docs/assets/screenshots/mapro-agent-demo.png)
 
 ### Skills
 
 Each workspace can keep its own reusable Skills. The `feedback-synthesis` Skill shown here turns scattered feedback, interviews, and issues into themes, evidence, and priority suggestions.
 
-![MAPro workspace Skills](./docs/assets/screenshots/proma-skills-demo.png)
+![MAPro workspace Skills](./docs/assets/screenshots/mapro-skills-demo.png)
 
 ### Skills & MCP
 
 The same workspace can manage stdio and HTTP MCP servers, enabling or disabling external context per project.
 
-![MAPro MCP settings](./docs/assets/screenshots/proma-mcp-demo.png)
+![MAPro MCP settings](./docs/assets/screenshots/mapro-mcp-demo.png)
 
 ### Streaming Voice Input
 
@@ -87,7 +87,7 @@ MAPro supports Doubao-powered streaming voice input, both inside MAPro and acros
 - Inside MAPro: press Ctrl + Backtick to start recognition, then press it again to finish and insert the transcript into the active MAPro input box.
 - Outside MAPro: press Ctrl + Backtick to start recognition, then press it again to finish and insert the transcript at the current cursor position. If there is no active cursor, MAPro writes the transcript to the clipboard.
 
-![MAPro voice input](./docs/assets/screenshots/proma-typeless-input.png)
+![MAPro voice input](./docs/assets/screenshots/mapro-typeless-input.png)
 
 ## Supported Providers
 
@@ -138,7 +138,7 @@ API keys are encrypted through Electron `safeStorage` before being written to `c
 MAPro is a Bun workspace monorepo.
 
 ```text
-proma-v2/
+mapro-v2/
 ├── packages/
 │   ├── shared/     # shared types, IPC constants, config, utilities
 │   ├── core/       # Provider Adapters, SSE, code highlighting
@@ -151,8 +151,8 @@ Current package versions:
 
 | Package | Version | Responsibility |
 | --- | --- | --- |
-| `@ma-proma/electron` | `0.9.12` | Electron desktop app |
-| `@ma-proma/shared` | `0.1.17` | shared types, IPC constants, config, utilities |
+| `@ma-proma/electron` | `0.1.9` | Electron desktop app |
+| `@ma-proma/shared` | `0.1.23` | shared types, IPC constants, config, utilities |
 | `@ma-proma/core` | `0.2.9` | Provider Adapters, SSE, Shiki highlighting |
 | `@ma-proma/ui` | `0.1.3` | shared React UI components |
 

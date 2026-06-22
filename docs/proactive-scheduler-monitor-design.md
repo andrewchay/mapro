@@ -115,11 +115,11 @@ MAPro 继续沿用本地 JSON/JSONL 风格。调度配置、运行记录、审�
 
 示例：
 
-- `proma-memory:memory-daily`
-- `proma-memory:memory-init`
-- `proma-memory:weekly-review`
-- `proma-release:release-monitor`
-- `proma-workspace:stale-wip-review`
+- `mapro-memory:memory-daily`
+- `mapro-memory:memory-init`
+- `mapro-memory:weekly-review`
+- `mapro-release:release-monitor`
+- `mapro-workspace:stale-wip-review`
 
 ### 4.4 TaskRun
 
@@ -329,7 +329,7 @@ Memory Daily 2026-05-17   成功   新增 3 条记忆，1 个 SOP 候选
 
 名称：每日记忆整理
 时间：每天 23:30
-Routine：proma-memory:memory-daily
+Routine：mapro-memory:memory-daily
 Workspace：Memory
 
 会读取：
@@ -585,7 +585,7 @@ interface Recommendation {
 
 第一阶段先用 deterministic rules，不依赖模型：
 
-- Memory candidates 出现且未开启 `proma-memory:memory-daily`：推荐 Daily Memory。
+- Memory candidates 出现且未开启 `mapro-memory:memory-daily`：推荐 Daily Memory。
 - release / tag / workflow / CI 信号达到阈值且未创建 release monitor：推荐 Release Monitor。
 - SOP candidates 积累到阈值且未开启 SOP review：推荐 Weekly SOP Review。
 - pending approvals 积压到阈值且未开启审批摘要：推荐 Approval Digest。
@@ -598,7 +598,7 @@ interface Recommendation {
 
 - 每天或每 N 次会话后运行一次。
 - 输入经过截断和脱敏的 session / memory / run 摘要。
-- 输出 `proma-proactive-recommendations` fenced JSON。
+- 输出 `mapro-proactive-recommendations` fenced JSON。
 - 主进程只接受 schema 校验通过、权限可解释、duplicateKey 合法的推荐。
 - Agent 不能直接创建 Schedule / Monitor，只能提出候选。
 
@@ -608,13 +608,13 @@ interface Recommendation {
 
 Daily Memory 不能只依赖 Agent 在 SDK project 目录里写 Markdown 文件。MAPro 主应用需要同时支持两条路径：
 
-1. Agent 最终回答里的结构化 `proma-memory-items` fenced JSON block。
-2. Claude Agent SDK project memory 目录里的 Markdown 文件：`~/.proma[-dev]/sdk-config/projects/*/memory/*.md`。
+1. Agent 最终回答里的结构化 `mapro-memory-items` fenced JSON block。
+2. Claude Agent SDK project memory 目录里的 Markdown 文件：`~/.mapro[-dev]/sdk-config/projects/*/memory/*.md`。
 
 结构化 block 是即时摄取路径。每次主动任务运行时，主进程从 assistant messages 中解析：
 
 ````markdown
-```proma-memory-items
+```mapro-memory-items
 [
   {
     "title": "Agent model preference",
@@ -626,7 +626,7 @@ Daily Memory 不能只依赖 Agent 在 SDK project 目录里写 Markdown 文件�
 ```
 ````
 
-如果 Agent 或 SDK 额外写入 Markdown 文件，也必须在最终回答中输出同样的 `proma-memory-items`。这样用户可以立刻在看板中看到候选，不会被“已写入文件但 UI 看不到”的状态卡住。
+如果 Agent 或 SDK 额外写入 Markdown 文件，也必须在最终回答中输出同样的 `mapro-memory-items`。这样用户可以立刻在看板中看到候选，不会被“已写入文件但 UI 看不到”的状态卡住。
 
 Markdown 文件是兼容导入路径。Proactive Memory Service 在读取 snapshot 前同步 `sdk-config/projects/*/memory/*.md`：
 
@@ -676,7 +676,7 @@ Markdown 文件是兼容导入路径。Proactive Memory Service 在读取 snapsh
 
 ```json
 {
-  "id": "proma-memory",
+  "id": "mapro-memory",
   "name": "MAPro Memory",
   "version": "0.1.0",
   "description": "Long-term memory and proactive reflection routines for MAPro.",
@@ -723,7 +723,7 @@ Markdown 文件是兼容导入路径。Proactive Memory Service 在读取 snapsh
     }
   ],
   "data": {
-    "root": "plugins/proma-memory/data",
+    "root": "plugins/mapro-memory/data",
     "schemaVersion": 1
   }
 }
@@ -739,7 +739,7 @@ sequenceDiagram
   participant P as MAPro Memory Plugin
   participant U as User
 
-  S->>R: enqueue routine proma-memory:memory-daily
+  S->>R: enqueue routine mapro-memory:memory-daily
   R->>A: create headless Agent session
   A->>P: call memory gather/analyze tools
   P-->>A: memory candidates and summary
@@ -865,7 +865,7 @@ interface TaskRun {
   trigger: 'scheduled' | 'external_event' | 'manual' | 'recommendation'
   startedAt?: number
   endedAt?: number
-  promaSessionId?: string
+  maproSessionId?: string
   sdkSessionId?: string
   outputSummary?: string
   error?: string
@@ -922,7 +922,7 @@ interface Recommendation {
       {runId}.json
       {runId}.jsonl
     plugins/
-      proma-memory/
+      mapro-memory/
         manifest.json
         data/
           profile.md
@@ -965,20 +965,20 @@ MAPro 应通过 `createSdkMcpServer` 暴露自身能力。
 建议工具：
 
 ```text
-proma_scheduler.create_schedule
-proma_scheduler.list_schedules
-proma_scheduler.update_schedule
-proma_scheduler.delete_schedule
-proma_scheduler.run_now
+mapro_scheduler.create_schedule
+mapro_scheduler.list_schedules
+mapro_scheduler.update_schedule
+mapro_scheduler.delete_schedule
+mapro_scheduler.run_now
 
-proma_monitor.create_monitor
-proma_monitor.list_monitors
-proma_monitor.update_monitor
-proma_monitor.delete_monitor
+mapro_monitor.create_monitor
+mapro_monitor.list_monitors
+mapro_monitor.update_monitor
+mapro_monitor.delete_monitor
 
-proma_memory.search
-proma_memory.propose_edit
-proma_memory.list_pending_changes
+mapro_memory.search
+mapro_memory.propose_edit
+mapro_memory.list_pending_changes
 ```
 
 只读工具设置 `readOnlyHint: true`。创建、删除、写入类工具走审批。
@@ -1054,8 +1054,8 @@ interface PermissionProfile {
 5. MAPro 展示确认卡：时间、读取范围、写入范围、审批策略。
 6. 用户确认。
 7. SchedulerService 创建 schedule。
-8. 到点运行 `proma-memory:memory-daily`。
-9. 运行完成后生成 summary、pending approvals 和 `proma-memory-items`。
+8. 到点运行 `mapro-memory:memory-daily`。
+9. 运行完成后生成 summary、pending approvals 和 `mapro-memory-items`。
 10. Proactive Memory Service 同步 SDK memory Markdown 文件，并把可编辑记忆显示在 Memory 看板。
 
 ### 12.2 创建 Release Monitor
@@ -1138,7 +1138,7 @@ Scenario: Import SDK memory markdown into the Memory board
 Scenario: Require structured memory items from Daily Memory output
   Given a proactive Daily Memory run found long-term memory candidates
   When the Agent returns the final answer
-  Then the answer includes a "proma-memory-items" fenced JSON block
+  Then the answer includes a "mapro-memory-items" fenced JSON block
   And MAPro parses the block into editable candidate memories
 ```
 
@@ -1169,7 +1169,7 @@ Scenario: Run daily memory schedule
   And there are active Chat and Agent sessions today
   When the schedule becomes due
   Then MAPro starts a headless Agent run
-  And the run uses the proma-memory:memory-daily routine
+  And the run uses the mapro-memory:memory-daily routine
   And the run creates a visible TaskRun record
 
 Scenario: Require approval for memory write
@@ -1220,7 +1220,7 @@ Scenario: Stop a runaway proactive run
 
 范围：
 
-- 将 `MAPro_Proactive` 改造成 `proma-memory` 插件。
+- 将 `MAPro_Proactive` 改造成 `mapro-memory` 插件。
 - 注册 `memory-daily` routine。
 - 接入 `memory-daily` schedule。
 - Daily run 输出 summary 和 pending approvals。

@@ -2,7 +2,7 @@
   "name": "@ma-proma/core",
   "version": "0.2.9",
   "license": "Apache-2.0",
-  "description": "proma core types,storage and core logic with agents",
+  "description": "MAPro core types, storage and core logic with agents",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

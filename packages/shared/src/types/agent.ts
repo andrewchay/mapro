@@ -522,7 +522,7 @@ export type MAProEvent =
 /** IPC 传输的统一 payload（替代 AgentEvent） */
 export type AgentStreamPayload =
   | { kind: 'sdk_message'; message: SDKMessage }
-  | { kind: 'proma_event'; event: MAProEvent }
+  | { kind: 'mapro_event'; event: MAProEvent }
 
 // ===== Agent 会话管理 =====
 

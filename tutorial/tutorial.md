@@ -378,8 +378,8 @@ MAPro 提供了丰富的数据能力：
 
 ## 常见问题
 
-**Q: MAPro 和 Proma 有什么区别？**
-A: MAPro 是基于 Proma 开源项目 fork 的社交营销专用版本，保留了 Proma 的核心 Agent 能力，但将所有功能、UI、Skills 重新设计为营销场景服务。
+**Q: MAPro 是什么？**
+A: MAPro 是一个本地优先的 AI 桌面应用，把多模型 Chat、通用 Agent、工作区、Skills、MCP、远程机器人和记忆能力放在同一个开源客户端里，支持 KOL 投放项目管理（Campaign）等营销场景工作流。
 
 **Q: 我需要编程基础吗？**
 A: 不需要。MAPro 的所有配置和操作都通过自然语言对话完成。Windows 用户只需按引导安装 Git Bash 即可。

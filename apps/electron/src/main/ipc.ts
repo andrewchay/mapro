@@ -302,7 +302,7 @@ function realpathOrResolve(path: string): string {
 function getAuthorizedRoots(options?: FileAccessOptions): string[] {
   const roots: string[] = [
     getAgentWorkspacesDir(),
-    join(tmpdir(), 'proma-preview'),
+    join(tmpdir(), 'mapro-preview'),
   ]
 
   const workspaceSlugs = new Set<string>()
@@ -397,7 +397,7 @@ export function resolveAppIconPath(variantId: string): string | null {
   if (!variantId || variantId === 'default') {
     return join(resourcesDir, 'icon.png')
   }
-  return join(resourcesDir, 'proma-logos', `proma-${variantId}.png`)
+  return join(resourcesDir, 'mapro-logos', `mapro-${variantId}.png`)
 }
 
 export function registerIpcHandlers(): void {
@@ -1669,7 +1669,7 @@ export function registerIpcHandlers(): void {
       if (sessionId) {
         event.sender.send(AGENT_IPC_CHANNELS.STREAM_EVENT, {
           sessionId,
-          payload: { kind: 'proma_event', event: { type: 'permission_resolved', requestId, behavior } },
+          payload: { kind: 'mapro_event', event: { type: 'permission_resolved', requestId, behavior } },
         })
       }
     }
@@ -1745,7 +1745,7 @@ export function registerIpcHandlers(): void {
       try {
         const { searchMemory } = await import('./lib/memos-client')
         const result = await searchMemory(
-          { apiKey: config.apiKey, userId: config.userId?.trim() || 'proma-user', baseUrl: config.baseUrl },
+          { apiKey: config.apiKey, userId: config.userId?.trim() || 'mapro-user', baseUrl: config.baseUrl },
           'test connection',
           1,
         )
@@ -1820,7 +1820,7 @@ export function registerIpcHandlers(): void {
         try {
           const { searchMemory } = await import('./lib/memos-client')
           const result = await searchMemory(
-            { apiKey: config.apiKey, userId: config.userId?.trim() || 'proma-user', baseUrl: config.baseUrl },
+            { apiKey: config.apiKey, userId: config.userId?.trim() || 'mapro-user', baseUrl: config.baseUrl },
             'test connection',
             1,
           )
@@ -1903,7 +1903,7 @@ export function registerIpcHandlers(): void {
       if (sessionId) {
         event.sender.send(AGENT_IPC_CHANNELS.STREAM_EVENT, {
           sessionId,
-          payload: { kind: 'proma_event', event: { type: 'ask_user_resolved', requestId } },
+          payload: { kind: 'mapro_event', event: { type: 'ask_user_resolved', requestId } },
         })
       }
     }
@@ -1923,7 +1923,7 @@ export function registerIpcHandlers(): void {
         // 通知渲染进程请求已处理
         event.sender.send(AGENT_IPC_CHANNELS.STREAM_EVENT, {
           sessionId,
-          payload: { kind: 'proma_event', event: { type: 'exit_plan_mode_resolved', requestId: response.requestId } },
+          payload: { kind: 'mapro_event', event: { type: 'exit_plan_mode_resolved', requestId: response.requestId } },
         })
 
         // 如果用户选择了新的权限模式，通知渲染进程更新 UI
@@ -1939,7 +1939,7 @@ export function registerIpcHandlers(): void {
           }
           event.sender.send(AGENT_IPC_CHANNELS.STREAM_EVENT, {
             sessionId,
-            payload: { kind: 'proma_event', event: { type: 'permission_mode_changed', mode: targetMode } },
+            payload: { kind: 'mapro_event', event: { type: 'permission_mode_changed', mode: targetMode } },
           })
           console.log(`[IPC] ExitPlanMode 权限模式切换: ${targetMode}`)
         }
@@ -2268,7 +2268,7 @@ export function registerIpcHandlers(): void {
       const { existsSync, mkdirSync } = await import('node:fs')
       const { writeFile } = await import('node:fs/promises')
 
-      const tmpDir = join(tmpdir(), 'proma-preview')
+      const tmpDir = join(tmpdir(), 'mapro-preview')
       if (!existsSync(tmpDir)) {
         mkdirSync(tmpDir, { recursive: true })
       }
@@ -3315,7 +3315,7 @@ export function registerIpcHandlers(): void {
 
   // 迁移取消时清理临时解压目录
   ipcMain.handle('migration:cancelImport', async (_, tempDir: string) => {
-    if (tempDir && existsSync(tempDir) && tempDir.includes('proma-import-')) {
+    if (tempDir && existsSync(tempDir) && tempDir.includes('mapro-import-')) {
       rmSync(tempDir, { recursive: true, force: true })
       console.log(`[迁移] 已清理临时目录: ${tempDir}`)
     }

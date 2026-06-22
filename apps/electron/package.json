@@ -4,8 +4,8 @@
   "description": "MAPro next gen ai software with general agents - Electron App",
   "main": "dist/main.cjs",
   "author": {
-    "name": "ErlichLiu",
-    "email": "erlichliu@gmail.com"
+    "name": "andrewchay",
+    "email": "andrewchay@users.noreply.github.com"
   },
   "private": true,
   "type": "module",
@@ -155,5 +155,5 @@
   "build": {
     "extends": "electron-builder.yml"
   },
-  "proma": {}
+  "mapro": {}
 }

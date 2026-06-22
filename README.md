@@ -64,32 +64,32 @@ MAPro 是一个本地优先的 AI 桌面应用，把多模型 Chat、通用 Agen
 
 用 Chat 处理轻量但真实的分析任务：整理读者关注点、生成对比表，并把首屏文案快速定稿。
 
-![MAPro Chat 快速分析](./docs/assets/screenshots/proma-chat-demo.png)
+![MAPro Chat 快速分析](./docs/assets/screenshots/mapro-chat-demo.png)
 
 ### Agent 工作台
 
 Agent 在工作区里读取文件、推进任务、输出表格化结论，并把可复用文件保留在右侧工作区面板中。
 
-![MAPro Agent 工作台](./docs/assets/screenshots/proma-agent-demo.png)
+![MAPro Agent 工作台](./docs/assets/screenshots/mapro-agent-demo.png)
 
 ### Skills
 
 每个工作区都可以沉淀专属 Skills。截图中的 `feedback-synthesis` 用于把用户反馈、访谈记录和 issue 聚合成主题、证据与优先级建议。
 
-![MAPro 工作区 Skills](./docs/assets/screenshots/proma-skills-demo.png)
+![MAPro 工作区 Skills](./docs/assets/screenshots/mapro-skills-demo.png)
 
 ### Skills & MCP
 
 同一个工作区可以管理 stdio / HTTP MCP Server，按需启用或关闭，让 Agent 在不同项目里获得不同的外部上下文。
 
-![MAPro MCP 配置](./docs/assets/screenshots/proma-mcp-demo.png)
+![MAPro MCP 配置](./docs/assets/screenshots/mapro-mcp-demo.png)
 
 ### 流式语音输入(支持全局输入)
 MAPro 支持豆包的流式语音输入功能，并且支持在 MAPro 内使用和 MAPro 外部使用：
 - MAPro 内部使用：Ctrl + ` 触发识别，再次按下结束自动输入到 MAPro 内对应的输入框
 - MAPro 外部使用：Ctrl + ` 触发识别，再次按下结束自动输入到当前的光标所在处，如无光标则默认写入到剪贴板
 - 
-![MAPro 语音输入](./docs/assets/screenshots/proma-typeless-input.png)
+![MAPro 语音输入](./docs/assets/screenshots/mapro-typeless-input.png)
 
 ## 支持的模型渠道
 
@@ -140,7 +140,7 @@ API Key 会通过 Electron `safeStorage` 加密后写入 `channels.json`。MAPro
 MAPro 是 Bun workspace monorepo。
 
 ```text
-proma-v2/
+mapro-v2/
 ├── packages/
 │   ├── shared/     # 共享类型、IPC 常量、配置、工具函数
 │   ├── core/       # Provider Adapter、SSE、代码高亮
@@ -153,8 +153,8 @@ proma-v2/
 
 | 包 | 版本 | 职责 |
 | --- | --- | --- |
-| `@ma-proma/electron` | `0.9.12` | Electron 桌面应用 |
-| `@ma-proma/shared` | `0.1.17` | 共享类型、IPC 常量、配置和工具 |
+| `@ma-proma/electron` | `0.1.9` | Electron 桌面应用 |
+| `@ma-proma/shared` | `0.1.23` | 共享类型、IPC 常量、配置和工具 |
 | `@ma-proma/core` | `0.2.9` | Provider Adapter、SSE、Shiki 高亮 |
 | `@ma-proma/ui` | `0.1.3` | 共享 React UI 组件 |
 

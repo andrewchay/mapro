@@ -8,8 +8,8 @@
       // 主题初始化脚本（在 React 加载前执行，避免闪烁）
       // 从 localStorage 缓存读取主题模式和特殊风格，立即应用类名
       ;(function() {
-        var mode = localStorage.getItem('proma-theme-mode') || 'dark'
-        var style = localStorage.getItem('proma-theme-style')
+        var mode = localStorage.getItem('mapro-theme-mode') || localStorage.getItem('proma-theme-mode') || 'dark'
+        var style = localStorage.getItem('mapro-theme-style') || localStorage.getItem('proma-theme-style')
         var html = document.documentElement
 
         if (mode === 'special' && style && style !== 'default') {

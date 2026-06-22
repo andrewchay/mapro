@@ -1,7 +1,7 @@
 {
   "name": "ma-proma",
   "version": "0.1.0",
-  "description": "MAPro - forked from Proma, the marketing AI agent platform for social media campaigns",
+  "description": "MAPro - local-first AI desktop app with multi-model Chat, general-purpose Agent, workspaces, Skills, MCP, and remote bots",
   "type": "module",
   "private": true,
   "workspaces": [

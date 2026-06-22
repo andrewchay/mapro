@@ -1690,8 +1690,8 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
     const handler = (): void => {
       if (streaming) handleStop()
     }
-    window.addEventListener('proma:stop-generation', handler)
-    return () => window.removeEventListener('proma:stop-generation', handler)
+    window.addEventListener('mapro:stop-generation', handler)
+    return () => window.removeEventListener('mapro:stop-generation', handler)
   }, [streaming, handleStop])
 
   // 监听快捷键系统分发的 focus-input 事件（Cmd+L）
@@ -1700,8 +1700,8 @@ export function AgentView({ sessionId }: { sessionId: string }): React.ReactElem
       const proseMirror = document.querySelector('[data-input-mode="agent"] .ProseMirror') as HTMLElement | null
       proseMirror?.focus()
     }
-    window.addEventListener('proma:focus-input', handler)
-    return () => window.removeEventListener('proma:focus-input', handler)
+    window.addEventListener('mapro:focus-input', handler)
+    return () => window.removeEventListener('mapro:focus-input', handler)
   }, [])
 
   const allAskUserRequests = useAtomValue(allPendingAskUserRequestsAtom)

@@ -459,7 +459,7 @@ export function ensurePluginManifest(workspaceSlug: string, workspaceName: strin
   }
 
   const manifest = {
-    name: `proma-workspace-${workspaceSlug}`,
+    name: `mapro-workspace-${workspaceSlug}`,
     version: '1.0.0',
   }
 
