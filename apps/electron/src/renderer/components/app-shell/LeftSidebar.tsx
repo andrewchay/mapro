@@ -70,7 +70,8 @@ import { useOpenSession } from '@/hooks/useOpenSession'
 import { useSyncActiveTabSideEffects } from '@/hooks/useSyncActiveTabSideEffects'
 import { WorkspaceSelector } from '@/components/agent/WorkspaceSelector'
 import { MoveSessionDialog } from '@/components/agent/MoveSessionDialog'
-import { campaignsAtom, currentCampaignIdAtom } from '@/atoms/campaign-atoms'
+import { CampaignCreateDialog } from '@/components/agent/CampaignCreateDialog'
+import { campaignsAtom, currentCampaignIdAtom, campaignCreateDialogOpenAtom } from '@/atoms/campaign-atoms'
 import { detectIsMac } from '@/lib/platform'
 import {
   AlertDialog,
@@ -2097,49 +2098,75 @@ const CAMPAIGN_STATUS_LABEL: Record<string, string> = {
 
 function CampaignSidebarList(): React.ReactElement {
   const campaigns = useAtomValue(campaignsAtom)
+  const setCampaigns = useSetAtom(campaignsAtom)
   const currentCampaignId = useAtomValue(currentCampaignIdAtom)
   const setCurrentCampaignId = useSetAtom(currentCampaignIdAtom)
+  const [createDialogOpen, setCreateDialogOpen] = useAtom(campaignCreateDialogOpenAtom)
 
   return (
-    <div className="px-3 pt-2 flex-1 min-h-0 overflow-y-auto">
-      <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2 px-1">
-        Campaign 项目
+    <>
+      {/* 新建 Campaign 按钮（固定在顶部，不随列表滚动） */}
+      <div className="px-3 pt-2">
+        <button
+          onClick={() => setCreateDialogOpen(true)}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-[13px] font-medium text-foreground/70 bg-primary/5 hover:bg-primary/10 transition-colors duration-100 titlebar-no-drag border border-dashed border-[hsl(var(--dashed-border))] hover:border-[hsl(var(--dashed-border-hover))]"
+        >
+          <Plus size={14} />
+          <span>新建 Campaign</span>
+        </button>
       </div>
-      <div className="flex flex-col gap-1">
-        {campaigns.map((campaign) => (
-          <button
-            key={campaign.id}
-            type="button"
-            onClick={() => setCurrentCampaignId(campaign.id)}
-            className={cn(
-              'w-full text-left px-2.5 py-2 rounded-xl border transition-all',
-              currentCampaignId === campaign.id
-                ? 'border-primary/30 bg-primary/5'
-                : 'border-border/40 bg-background hover:bg-muted/50'
-            )}
-          >
-            <div className="flex items-center justify-between gap-1.5">
-              <span className="text-[13px] font-medium truncate">{campaign.name}</span>
-              <span className={cn(
-                'text-[9px] px-1 py-0.5 rounded font-medium flex-shrink-0',
-                campaign.status === 'completed' ? 'bg-emerald-500/10 text-emerald-600' :
-                campaign.status === 'live' ? 'bg-blue-500/10 text-blue-600' :
-                'bg-muted text-muted-foreground'
-              )}>
-                {CAMPAIGN_STATUS_LABEL[campaign.status] ?? campaign.status}
-              </span>
+
+      {/* Campaign 列表（可滚动） */}
+      <div className="px-3 pt-2 flex-1 min-h-0 overflow-y-auto">
+        <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2 px-1">
+          Campaign 项目
+        </div>
+        <div className="flex flex-col gap-1">
+          {campaigns.map((campaign) => (
+            <button
+              key={campaign.id}
+              type="button"
+              onClick={() => setCurrentCampaignId(campaign.id)}
+              className={cn(
+                'w-full text-left px-2.5 py-2 rounded-xl border transition-all',
+                currentCampaignId === campaign.id
+                  ? 'border-primary/30 bg-primary/5'
+                  : 'border-border/40 bg-background hover:bg-muted/50'
+              )}
+            >
+              <div className="flex items-center justify-between gap-1.5">
+                <span className="text-[13px] font-medium truncate">{campaign.name}</span>
+                <span className={cn(
+                  'text-[9px] px-1 py-0.5 rounded font-medium flex-shrink-0',
+                  campaign.status === 'completed' ? 'bg-emerald-500/10 text-emerald-600' :
+                  campaign.status === 'live' ? 'bg-blue-500/10 text-blue-600' :
+                  'bg-muted text-muted-foreground'
+                )}>
+                  {CAMPAIGN_STATUS_LABEL[campaign.status] ?? campaign.status}
+                </span>
+              </div>
+              <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                {campaign.brand} · {campaign.platform}
+              </div>
+            </button>
+          ))}
+          {campaigns.length === 0 && (
+            <div className="text-center text-xs text-muted-foreground py-4">
+              暂无 Campaign 项目
             </div>
-            <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-              {campaign.brand} · {campaign.platform}
-            </div>
-          </button>
-        ))}
-        {campaigns.length === 0 && (
-          <div className="text-center text-xs text-muted-foreground py-4">
-            暂无 Campaign 项目
-          </div>
-        )}
+          )}
+        </div>
       </div>
-    </div>
+
+      {/* 创建 Campaign 弹窗 */}
+      <CampaignCreateDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        onCreated={(campaign) => {
+          setCampaigns((prev) => [campaign, ...prev])
+          setCurrentCampaignId(campaign.id)
+        }}
+      />
+    </>
   )
 }
