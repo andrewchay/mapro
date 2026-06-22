@@ -39,5 +39,8 @@ craft-agents-oss
 # ignore what_are_humans_thinking folder
 what_are_humans_thinking
 
+# 软著申请材料（行政文档，含 .docx 二进制，不入库）
+软著申请/
+
 # vendor binaries
 vendor

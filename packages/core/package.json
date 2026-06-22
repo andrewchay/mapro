@@ -1,7 +1,7 @@
 {
   "name": "@ma-proma/core",
   "version": "0.2.9",
-  "license": "Apache-2.0",
+  "license": "UNLICENSED",
   "description": "MAPro core types, storage and core logic with agents",
   "type": "module",
   "main": "./src/index.ts",

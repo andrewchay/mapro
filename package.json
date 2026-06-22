@@ -4,6 +4,7 @@
   "description": "MAPro - local-first AI desktop app with multi-model Chat, general-purpose Agent, workspaces, Skills, MCP, and remote bots",
   "type": "module",
   "private": true,
+  "license": "UNLICENSED",
   "workspaces": [
     "packages/*",
     "apps/*"

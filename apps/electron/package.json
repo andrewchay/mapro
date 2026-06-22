@@ -1,6 +1,6 @@
 {
   "name": "@ma-proma/electron",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "MAPro next gen ai software with general agents - Electron App",
   "main": "dist/main.cjs",
   "author": {
@@ -8,6 +8,7 @@
     "email": "andrewchay@users.noreply.github.com"
   },
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n vite,electron -c blue,green \"bun run dev:vite\" \"bun run dev:electron\"",

@@ -1,7 +1,7 @@
 {
   "name": "@ma-proma/shared",
   "version": "0.1.23",
-  "license": "Apache-2.0",
+  "license": "UNLICENSED",
   "description": "Shared types, configs and utilities for MAPro",
   "type": "module",
   "main": "./src/index.ts",

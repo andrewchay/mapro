@@ -1,0 +1,99 @@
+THIRD-PARTY NOTICES
+====================
+
+MAPro (https://github.com/andrewchay/mapro)
+Copyright (c) 2026 MAPro Authors
+
+This software contains code derived from and/or incorporates third-party
+open-source software. The following notices are provided in compliance with
+the license requirements of the respective projects.
+
+---
+
+1. ORIGINAL PROJECT — Proma
+   ---------------------------
+   MAPro is a derivative work based on the open-source project "Proma".
+
+   Original Project:  Proma
+   Original Author:   Proma Authors
+   Source:            (original Proma repository, forked 2026-05-22)
+   License at Fork:  Apache-2.0 / MIT dual license
+   License Change:    On 2026-05-25, Proma switched to AGPL-3.0 with
+                      commercial dual-license (commit b428fd52).
+
+   IMPORTANT: MAPro was forked from Proma on 2026-05-22, prior to the
+   AGPL-3.0 license change. The MAPro codebase therefore continues to be
+   based on the Apache-2.0/MIT licensed version of Proma. All subsequent
+   modifications and additions in MAPro are proprietary and copyright
+   (c) 2026 MAPro Authors.
+
+   The Apache License 2.0 requires the following notice:
+
+     Copyright (c) Proma Authors
+     Licensed under the Apache License, Version 2.0 (the "License");
+     you may not use the original Proma files except in compliance with
+     the License. You may obtain a copy of the License at
+
+         http://www.apache.org/licenses/LICENSE-2.0
+
+     Unless required by applicable law or agreed to in writing, software
+     distributed under the License is distributed on an "AS IS" BASIS,
+     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+     See the License for the specific language governing permissions and
+     limitations under the License.
+
+   The MIT License requires the following notice:
+
+     Copyright (c) Proma Authors
+     Permission is hereby granted, free of charge, to any person obtaining a copy
+     of this software and associated documentation files (the "Software"), to deal
+     in the Software without restriction, including without limitation the rights
+     to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+     copies of the Software, and to permit persons to whom the Software is
+     furnished to do so, subject to the following conditions:
+
+     The above copyright notice and this permission notice shall be included in all
+     copies or substantial portions of the Software.
+
+     THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+     IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+     FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+     AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+     LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+     SOFTWARE.
+
+---
+
+2. OTHER THIRD-PARTY COMPONENTS
+   --------------------------------
+   MAPro incorporates numerous third-party libraries and frameworks,
+   including but not limited to:
+
+   - Electron (MIT)           - https://github.com/electron/electron
+   - React (MIT)              - https://github.com/facebook/react
+   - Bun (MIT)                - https://github.com/oven-sh/bun
+   - Tailwind CSS (MIT)       - https://github.com/tailwindlabs/tailwindcss
+   - TipTap (MIT)             - https://github.com/ueberdosis/tiptap
+   - Shiki (MIT)              - https://github.com/shikijs/shiki
+   - Radix UI (MIT)           - https://github.com/radix-ui/primitives
+   - Jotai (MIT)              - https://github.com/pmndrs/jotai
+   - Vite (MIT)               - https://github.com/vitejs/vite
+   - esbuild (MIT)            - https://github.com/evanw/esbuild
+   - KaTeX (MIT)              - https://github.com/KaTeX/KaTeX
+   - Anthropic SDK (MIT)      - https://github.com/anthropics/anthropic-sdk-typescript
+   - better-sqlite3 (MIT)     - https://github.com/WiseLibs/better-sqlite3
+
+   The complete list of dependencies and their respective licenses can be
+   found in the package-lock.json or bun.lock file, or by running:
+
+       bun list --all
+
+   All third-party components are used in accordance with their original
+   license terms. Nothing in the MAPro proprietary license shall be construed
+   as modifying or superseding those third-party licenses.
+
+---
+
+This file is provided for informational and compliance purposes. For questions
+regarding licensing, please contact the MAPro authors.

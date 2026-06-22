@@ -1,0 +1,52 @@
+MAPro Software License Agreement
+====================================
+
+Copyright (c) 2026 MAPro Authors. All rights reserved.
+
+IMPORTANT – READ CAREFULLY:
+This MAPro software and its associated documentation files (the "Software") are
+protected by copyright law and international treaties. Unauthorized
+reproduction, distribution, or use of this Software, in whole or in part, is
+strictly prohibited without express prior written permission from the copyright
+holder.
+
+1. NO LICENSE GRANTED
+   No license, express or implied, is granted to any person or entity to use,
+   reproduce, modify, distribute, display, or perform this Software, except
+   as expressly authorized in a separate written agreement signed by the
+copyright holder.
+
+2. ALL RIGHTS RESERVED
+   All rights not expressly granted herein are reserved. This includes, but is
+   not limited to, the rights to reproduce, prepare derivative works, distribute,
+   perform, and display the Software.
+
+3. THIRD-PARTY COMPONENTS
+   This Software contains or may incorporate third-party open-source components,
+   which are licensed under their own respective terms. See the
+   THIRD-PARTY-NOTICES file for details. The use of such third-party components
+   is governed solely by their original licenses, and nothing in this agreement
+   shall be construed as modifying or superseding those licenses.
+
+4. DISCLAIMER OF WARRANTY
+   THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+5. LIMITATION OF LIABILITY
+   IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY
+   CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+   OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+   USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+For licensing inquiries, please contact the author.
+
+---
+
+NOTICE: This Software is a derivative work based on the open-source project
+"Proma", originally distributed under the Apache-2.0/MIT dual license. The Proma
+project subsequently changed its license to AGPL-3.0 (with commercial dual-license)
+on 2026-05-25. The MAPro codebase was forked from Proma on 2026-05-22, prior to
+this license change, and therefore continues to be based on the Apache-2.0/MIT
+licensed version of Proma. All modifications, enhancements, and new features
+added after the fork are the exclusive copyright of the MAPro authors.
