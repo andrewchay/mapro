@@ -326,19 +326,11 @@ describe('Campaign 工作流测试', () => {
     const content = [
       '品牌历史：品牌创立于 2018 年，从社区水果店起步，发展至今已有六年历程，传承每日鲜果理念。',
       '产品服务：核心产品线包括鲜切水果盒、季节果篮，功能卖点为当日鲜切、冷链配送，价格带 29-99 元。',
-      '目标人群洞察：核心人群为都市年轻女性，TA 画像集中在一二线白领，痛点是没时间处理水果，需求是开盖即食。',
-      '竞品对标：直接竞品为百果园、鲜丰水果，竞争品牌同质化严重；对标 aspiration 品牌喜茶的生活方式调性。',
+      '品牌阶段：当前品牌处于成长期，已完成从单店到连锁的阶段定位，正向品牌化阶段过渡。',
+      '产品现状：产品力稳定，供应链诊断显示冷链成熟，价格带 29-99 元，SKU 约 30 个，产品诊断良好。',
+      '核心问题：当前首要解决的是认知问题，目标用户对品牌心智不足，定义为本阶段核心问题。',
+      '核心目标：基于成长期阶段和认知问题，首要目标是曝光和破圈拉新，目标优先级为声量优先。',
       '差异化优势：我们的差异化在于鲜切即食加场景化套餐，核心竞争力是供应链稳定，与竞品最核心的差异在场景绑定。',
-      '品牌核心价值：品牌以新鲜、可信赖和城市品质生活作为核心价值，强调每日鲜果带来的稳定幸福感。',
-      '价值主张：让忙碌都市用户用更低决策成本获得高品质鲜果体验，品牌定位是深耕线下的鲜果服务品牌。',
-      '使命：通过稳定供应链和精细化服务，让更多家庭和办公室用户持续获得安心的水果选择。',
-      '愿景：成为上海都市女性日常鲜果消费中的首选品牌，建立长期的生活方式心智。',
-      '视觉基因：整体视觉风格应保持清爽、自然、明亮，色彩以鲜果本身的高饱和色与干净留白组合。',
-      '色彩策略：使用绿色、橙色、红色作为内容中的味觉提示色，同时保留高级感背景色。',
-      '字体偏好：标题字体需要清晰、有亲和力，正文保持易读，避免过度装饰。',
-      '语言调性：语气真诚、轻松、可靠，语言表达强调鲜、甜、安心、即时满足。',
-      '用词风格：多使用生活化表达和场景化句子，例如下班路上、办公室下午茶、周末家庭补给。',
-      '禁忌词：避免夸张功效承诺、医疗化表达和过度焦虑营销，保持自然可信。',
     ].join('\n')
 
     const result = workflowService.completeStepWithValidation(
@@ -399,7 +391,7 @@ describe('Campaign 工作流测试', () => {
 
   it('Slice 7: 进度计算正确', () => {
     const progress = workflowService.getWorkflowProgress(testCampaignId)
-    // 9 步中：ab_test completed, add_to_pool completed (校验时写文件), generate_briefs failed
+    // 13 步中：ab_test completed, add_to_pool completed (校验时写文件), generate_briefs failed
     // 其余 pending
     expect(progress).toBeGreaterThanOrEqual(0)
     expect(progress).toBeLessThanOrEqual(100)
@@ -413,12 +405,54 @@ describe('Campaign 工作流测试', () => {
     expect(campaignAgentTool.isCampaignAgentToolCall('unknown_tool')).toBe(false)
   })
 
+  it('Slice 8b: 旧版 9 步工作流迁移时按步骤 ID 保留当前步骤', () => {
+    const legacyCampaignId = 'legacy-campaign-001'
+    const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${legacyCampaignId}`)
+    mkdirSync(workspaceDir, { recursive: true })
+
+    const legacySteps: import('@ma-proma/shared').CampaignWorkflowStep[] = [
+      'brand_dna',
+      'brand_concept',
+      'creative_concept',
+      'platform_matrix',
+      'kol_pyramid',
+      'search_kols',
+      'add_to_pool',
+      'generate_briefs',
+      'ab_test',
+    ].map((id, index) => ({
+      id: id as import('@ma-proma/shared').CampaignWorkflowStepId,
+      title: `旧步骤 ${index + 1}`,
+      description: '旧版工作流步骤',
+      status: id === 'kol_pyramid' ? 'in_progress' : index < 4 ? 'completed' : 'pending',
+      agentPrompt: '旧版提示词',
+      toolName: 'legacy-tool',
+    }))
+
+    const legacyWorkflow: import('@ma-proma/shared').CampaignWorkflow = {
+      campaignId: legacyCampaignId,
+      currentStepIndex: 4,
+      steps: legacySteps,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    writeFileSync(join(workspaceDir, 'campaign-workflow.json'), JSON.stringify(legacyWorkflow, null, 2), 'utf-8')
+
+    const migrated = workflowService.loadCampaignWorkflow(legacyCampaignId)
+
+    expect(migrated.steps).toHaveLength(13)
+    expect(migrated.steps[migrated.currentStepIndex]?.id).toBe('kol_pyramid')
+    expect(migrated.steps.find((step) => step.id === 'market_analysis')?.status).toBe('pending')
+
+    rmSync(workspaceDir, { recursive: true, force: true })
+  })
+
   // ===== Slice 9: 重置工作流 =====
 
   it('Slice 9: 重置工作流恢复初始状态', () => {
     const workflow = workflowService.resetWorkflow(testCampaignId)
 
-    expect(workflow.steps).toHaveLength(9)
+    expect(workflow.steps).toHaveLength(13)
     for (const step of workflow.steps) {
       expect(step.status).toBe('pending')
       expect(step.completedAt).toBeUndefined()

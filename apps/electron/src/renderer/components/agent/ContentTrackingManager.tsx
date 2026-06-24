@@ -578,20 +578,20 @@ function DataFormDialog({ open, onOpenChange, editingItem, campaignId, onSaved }
 
           {/* 数据 */}
           <div className="grid grid-cols-3 gap-3">
-            {[
+            {([
               { key: 'exposure', label: '曝光', icon: Eye },
               { key: 'views', label: '浏览', icon: BarChart3 },
               { key: 'likes', label: '点赞', icon: Heart },
               { key: 'saves', label: '收藏', icon: Bookmark },
               { key: 'comments', label: '评论', icon: MessageSquare },
               { key: 'shares', label: '转发', icon: Share2 },
-            ].map(({ key, label }) => (
+            ] as const).map(({ key, label }) => (
               <div key={key}>
                 <label className="text-sm font-medium mb-1.5 block">{label}</label>
                 <input
                   type="number"
                   min={0}
-                  value={form[key as keyof typeof form] ?? 0}
+                  value={form[key] ?? 0}
                   onChange={(e) => setForm((prev) => ({ ...prev, [key]: Number(e.target.value) || 0 }))}
                   className={inputClass}
                 />

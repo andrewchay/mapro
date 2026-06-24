@@ -1,7 +1,7 @@
 /**
  * Campaign 工作流状态服务
  *
- * 管理每个 Campaign 的 9 步标准工作流进度。
+ * 管理每个 Campaign 的 13 步标准工作流进度。
  * 存储位置：~/.mapro/agent-workspaces/campaign-{id}/
  *
  * 目录结构：
@@ -71,7 +71,7 @@ const STEP_DIR_MAP: Record<CampaignWorkflowStepId, string> = {
 }
 
 // =====================================================================
-// 默认 9 步工作流定义
+// 默认 13 步工作流定义
 // =====================================================================
 
 const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt'>[] = [
@@ -741,6 +741,7 @@ export function saveWorkflow(workflow: CampaignWorkflow): void {
 function migrateWorkflow(old: CampaignWorkflow, campaignId: string): CampaignWorkflow {
   const now = Date.now()
   const stepMap = new Map(old.steps.map((s) => [s.id, s]))
+  const oldCurrentStepId = old.currentStepIndex >= 0 ? old.steps[old.currentStepIndex]?.id : undefined
   const newSteps: CampaignWorkflowStep[] = DEFAULT_WORKFLOW_STEPS.map((defaultStep) => {
     const existing = stepMap.get(defaultStep.id)
     if (existing) {
@@ -755,16 +756,35 @@ function migrateWorkflow(old: CampaignWorkflow, campaignId: string): CampaignWor
     }
     return { ...defaultStep, status: 'pending' as const }
   })
+  const migratedCurrentIndex = resolveMigratedCurrentStepIndex(newSteps, oldCurrentStepId)
 
   const workflow: CampaignWorkflow = {
     campaignId,
-    currentStepIndex: old.currentStepIndex,
+    currentStepIndex: migratedCurrentIndex,
     steps: newSteps,
     createdAt: old.createdAt,
     updatedAt: now,
   }
   saveWorkflow(workflow)
   return workflow
+}
+
+function resolveMigratedCurrentStepIndex(
+  steps: CampaignWorkflowStep[],
+  oldCurrentStepId: CampaignWorkflowStepId | undefined,
+): number {
+  if (oldCurrentStepId) {
+    const sameStepIndex = steps.findIndex((step) => step.id === oldCurrentStepId)
+    if (sameStepIndex >= 0 && steps[sameStepIndex]?.status === 'in_progress') {
+      return sameStepIndex
+    }
+  }
+
+  const inProgressIndex = steps.findIndex((step) => step.status === 'in_progress')
+  if (inProgressIndex >= 0) return inProgressIndex
+
+  const nextPendingIndex = steps.findIndex((step) => step.status === 'pending' || step.status === 'failed')
+  return nextPendingIndex >= 0 ? nextPendingIndex : -1
 }
 
 // =====================================================================

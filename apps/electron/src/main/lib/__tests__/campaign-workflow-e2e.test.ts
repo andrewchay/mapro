@@ -1,7 +1,7 @@
 /**
  * Campaign 工作流全链路 E2E 测试
  *
- * 模拟一个真实 Campaign 从创建到 9 步全部完成的完整执行路径，验证步骤间状态机
+ * 模拟一个真实 Campaign 从创建到 13 步全部完成的完整执行路径，验证步骤间状态机
  * 推进、产物校验、历史记录同步、候选池导入等全链路环节的准确性。
  *
  * 覆盖的服务层链路：
@@ -125,16 +125,18 @@ const STEP_ARTIFACTS: Record<CampaignWorkflowStepId, { filename: string; content
 
 ## 市场规模
 测试鲜果所在鲜切水果赛道，大盘数据约 50 亿年增速 25%，渗透率一二线城市 15% 仍有提升空间。
-市场容量判断：赛道处于成长期，市场机会明确。
+市场容量判断：赛道处于成长期，市场机会明确。参考艾瑞咨询 2025 年生鲜报告，
+鲜切水果品类近三年复合增速保持 20% 以上，属于高增长细分赛道。
 
 ## 品类趋势
 当前品类处于上升周期，用户偏好从"整果购买"向"鲜切即食"转移。
-趋势机会点：健康轻食、办公室场景、即时消费。
+趋势机会点：健康轻食、办公室场景、即时消费。品类趋势显示年轻女性
+对"开盖即食"的便捷鲜果需求上升，预制化鲜切产品渗透率持续提升。
 
 ## 品类痛点
 用户当前未被满足的需求："想吃水果但没时间挑选处理"。
-行业普遍问题：传统水果店缺乏场景化解决方案。
-空白切入点：鲜切即食 + 场景化套餐。`,
+行业普遍问题：传统水果店缺乏场景化解决方案，鲜切产品标准化不足。
+空白切入点：鲜切即食 + 场景化套餐，针对办公室与通勤场景提供即时鲜果。`,
   },
   competitor_analysis: {
     filename: 'competitor-analysis.md',
@@ -142,21 +144,24 @@ const STEP_ARTIFACTS: Record<CampaignWorkflowStepId, { filename: string; content
 
 ## 竞品清单
 直接竞品：百果园、鲜丰水果。间接竞品：每日优鲜、叮咚买菜。
+对标品牌还包括鲜果时光等区域性鲜切品牌，竞争品牌主要集中在连锁水果零售赛道。
 
 ## 市场占比
 百果园市场份额约 30%，声量占比高；鲜丰水果约 15%。
 竞争格局：头部集中，中小品牌有机会通过差异化切入。
+市场份额数据显示头部两家合计约 45%，长尾品牌仍有较大空间。
 
 ## 营销动作
 百果园当前主打"新鲜"，小红书投放以水果测评为主。
-鲜丰水果侧重线下门店，线上内容较少。
+鲜丰水果侧重线下门店，线上内容较少。竞品营销动作整体偏功能性诉求。
 
 ## 核心卖点
 竞品主打差异化点：百果园"新鲜到家"，鲜丰"产地直采"。
+核心卖点集中在供应链与新鲜度，缺乏情感化与场景化表达。
 
 ## 空白机会
 竞品没做或没做好的地方：场景化鲜切、都市女性情感连接、办公场景渗透。
-差异化策略：抢占"通勤即时犒赏"场景。`,
+差异化策略：抢占"通勤即时犒赏"场景，建立情感心智。`,
   },
   user_analysis: {
     filename: 'ta-portrait.md',
@@ -164,17 +169,19 @@ const STEP_ARTIFACTS: Record<CampaignWorkflowStepId, { filename: string; content
 
 ## 人口统计画像
 年龄 25-35 岁，性别女性为主，收入 8K-20K，城市一二线城市，学历本科及以上，职业白领。
+人口统计显示该人群处于事业上升期，消费能力中等偏上，对品质生活有明确追求。
 
 ## 兴趣偏好
 兴趣标签：健康生活、美食探店、生活方式。消费观：品质优先，愿意为便捷付费。
+偏好特征：重视颜值与仪式感，习惯通过小红书获取种草信息，决策受内容驱动明显。
 
 ## 痛点与需求
 核心痛点："想吃水果但没时间挑选处理"。使用场景：通勤路上、办公室下午茶、加班夜宵。
-购买动机：即时满足、健康犒赏、社交分享。
+购买动机：即时满足、健康犒赏、社交分享。需求集中在便捷、新鲜、场景化解决方案。
 
 ## 搜索习惯
 搜索平台：小红书为主，抖音为辅。搜索场景：种草前搜索测评、决策中搜索对比。
-关键词：鲜切水果、办公室水果、健康零食、下午茶推荐。`,
+关键词：鲜切水果、办公室水果、健康零食、下午茶推荐。下拉词联想以场景化长尾词为主。`,
   },
   brand_dna: {
     filename: 'brand-dna.md',
@@ -188,14 +195,21 @@ const STEP_ARTIFACTS: Record<CampaignWorkflowStepId, { filename: string; content
 核心产品线包括鲜切水果盒、季节限定果篮、办公室下午茶套餐。
 功能卖点：当日鲜切、冷链配送、无添加；价格带覆盖 29-99 元，主打性价比。
 
-## 目标人群洞察
-核心人群为 25-35 岁都市女性客群，TA 画像集中在一二线城市白领。
-人群洞察：她们追求健康又怕麻烦，痛点是"想吃水果但没时间挑选处理"，
-需求是"开盖即食的高品质鲜果"。
+## 品牌阶段诊断
+当前品牌处于成长期，已完成从单店到连锁的阶段定位，正向品牌化阶段过渡。
+品牌阶段判断：成长期，需要通过品牌内容加速心智建立。
 
-## 竞品对标
-直接竞品为百果园、鲜丰水果，竞品传播主打"新鲜"但同质化严重。
-对标 aspiration 品牌喜茶的生活方式调性，竞争品牌缺乏情感连接。
+## 产品现状诊断
+产品力稳定，供应链诊断显示冷链成熟，价格带 29-99 元，SKU 约 30 个。
+产品现状良好，具备规模化扩张的产品基础。
+
+## 核心问题定义
+当前首要解决的是认知问题，目标用户对品牌心智不足，声量尚未破圈。
+核心问题定义为本阶段需建立品类认知。
+
+## 核心目标
+基于成长期阶段和认知问题，首要目标是曝光和破圈拉新。
+目标优先级：声量优先，其次为转化。
 
 ## 差异化优势
 我们的差异化在于"鲜切即食+场景化套餐"，核心竞争力是供应链稳定性
@@ -358,10 +372,12 @@ KOL 金字塔分三层：头部 1 位（粉丝 50W+），承担声量引爆与�
 ## 总目标
 本阶段核心问题：建立品类认知 + 验证内容模型。
 目标：让都市女性将"鲜切即食鲜果"与品牌形成心智关联。
+总目标围绕品类认知建立，通过内容模型验证找到可复制的爆文路径。
 
 ## 分层目标
 小红书测试期：找到 1 组可复制的爆文模型。
 抖音辅助期：完成品牌声量初始积累，播放量 1000 万+。
+分层目标按平台与阶段拆分，测试期聚焦模型验证，辅助期聚焦人群破圈。
 
 ## 量化指标
 KPI 必须可追踪、可复盘：
@@ -369,7 +385,8 @@ KPI 必须可追踪、可复盘：
 - CPE < 5 元
 - 爆文率 > 10%
 - 搜索量增长 200%
-- ROI > 1:3`,
+- ROI > 1:3
+量化指标全部可追踪，按周复盘确保 KPI 达成路径清晰。`,
   },
   ab_test: {
     filename: 'ab-test-plan.md',
@@ -495,24 +512,25 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     expect(step?.outputSummary).toBe(summary)
 
     // 5. 进度递增验证
-    const expectedProgress = Math.round(((stepIndex + 1) / 9) * 100)
+    const expectedProgress = Math.round(((stepIndex + 1) / 13) * 100)
     expect(workflowService.getWorkflowProgress(campaignId)).toBe(expectedProgress)
   }
 
   // ===== 前置：Campaign 创建 + 工作流初始化 =====
 
-  it('前置: Campaign 创建成功 + 工作流初始化为 9 步 pending', () => {
+  it('前置: Campaign 创建成功 + 工作流初始化为 13 步 pending', () => {
     const workflow = workflowService.loadCampaignWorkflow(campaignId)
 
     expect(workflow.campaignId).toBe(campaignId)
-    expect(workflow.steps).toHaveLength(9)
+    expect(workflow.steps).toHaveLength(13)
     expect(workflow.currentStepIndex).toBe(-1)
     expect(workflow.steps.every((s) => s.status === 'pending')).toBe(true)
     expect(workflowService.getWorkflowProgress(campaignId)).toBe(0)
 
     // 验证标准产物目录与上下文文件已初始化
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${campaignId}`)
-    for (const dir of ['brand-dna', 'brand-concept', 'creative-concept', 'platform-matrix',
+    for (const dir of ['market-analysis', 'competitor-analysis', 'user-analysis', 'brand-dna',
+      'brand-concept', 'goal-setting', 'creative-concept', 'platform-matrix',
       'kol-pyramid', 'kol-search', 'briefs', 'ab-test', '.context']) {
       expect(existsSync(join(workspaceDir, dir))).toBe(true)
     }
@@ -615,14 +633,14 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     expect(workflow.steps.every((s) => s.outputSummary !== undefined)).toBe(true)
   })
 
-  it('终态: history.md 累积 9 条完成记录', () => {
+  it('终态: history.md 累积 13 条完成记录', () => {
     const historyPath = join(TEST_DIR, 'agent-workspaces', `campaign-${campaignId}`, '.context', 'history.md')
     expect(existsSync(historyPath)).toBe(true)
 
     const content = readFileSync(historyPath, 'utf-8')
     expect(content).toContain('Campaign 执行历史')
     const completedCount = (content.match(/✅ 完成/g) || []).length
-    expect(completedCount).toBe(9)
+    expect(completedCount).toBe(13)
     // 每步都应记录步骤 ID
     for (const stepId of Object.keys(STEP_ARTIFACTS) as CampaignWorkflowStepId[]) {
       expect(content).toContain(stepId)
@@ -637,9 +655,9 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     expect(content).not.toContain('## ⏳ 待完成')
     expect(content).not.toContain('## 🔵 当前步骤')
 
-    // 9 个步骤全部勾选
+    // 13 个步骤全部勾选
     const checkedCount = (content.match(/- \[x\]/g) || []).length
-    expect(checkedCount).toBe(9)
+    expect(checkedCount).toBe(13)
   })
 
   it('终态: 候选池保留 3 个 KOL 且状态为 candidate', () => {
@@ -656,10 +674,10 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
 
   // ===== 回归：重置工作流 =====
 
-  it('回归: 重置工作流恢复 9 步 pending 初始状态', () => {
+  it('回归: 重置工作流恢复 13 步 pending 初始状态', () => {
     const workflow = workflowService.resetWorkflow(campaignId)
 
-    expect(workflow.steps).toHaveLength(9)
+    expect(workflow.steps).toHaveLength(13)
     expect(workflow.steps.every((s) => s.status === 'pending')).toBe(true)
     expect(workflow.steps.every((s) => s.completedAt === undefined)).toBe(true)
     expect(workflow.currentStepIndex).toBe(-1)
