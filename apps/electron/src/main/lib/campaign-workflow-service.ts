@@ -745,13 +745,15 @@ function migrateWorkflow(old: CampaignWorkflow, campaignId: string): CampaignWor
   const newSteps: CampaignWorkflowStep[] = DEFAULT_WORKFLOW_STEPS.map((defaultStep) => {
     const existing = stepMap.get(defaultStep.id)
     if (existing) {
+      // 步骤定义（title/description/agentPrompt/artifactRequirements/toolName/minArtifactLength）
+      // 从代码更新，确保已有 Campaign 也能使用新的步骤定义
+      // 状态性字段（status/completedAt/outputSummary/notes）保留旧值
       return {
         ...defaultStep,
         status: existing.status,
         completedAt: existing.completedAt,
         outputSummary: existing.outputSummary,
         notes: existing.notes,
-        agentPrompt: existing.agentPrompt || defaultStep.agentPrompt,
       }
     }
     return { ...defaultStep, status: 'pending' as const }
