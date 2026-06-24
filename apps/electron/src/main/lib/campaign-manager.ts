@@ -261,7 +261,197 @@ export function getDb(): Database {
   dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_briefs_campaign ON campaign_briefs(campaign_id)`)
   dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_briefs_kol ON campaign_briefs(kol_id)`)
 
+  // 内容数据追踪表（新增）
+  dbInstance.run(`
+    CREATE TABLE IF NOT EXISTS kol_content_tracking (
+      id TEXT PRIMARY KEY,
+      campaign_id TEXT NOT NULL,
+      kol_id TEXT NOT NULL,
+      kol_name TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      content_url TEXT,
+      content_type TEXT DEFAULT 'organic',
+      publish_date TEXT,
+      exposure INTEGER DEFAULT 0,
+      views INTEGER DEFAULT 0,
+      likes INTEGER DEFAULT 0,
+      saves INTEGER DEFAULT 0,
+      comments INTEGER DEFAULT 0,
+      shares INTEGER DEFAULT 0,
+      completion_rate REAL,
+      cpm REAL,
+      cpe REAL,
+      ctr REAL,
+      engagement_rate REAL,
+      data_source TEXT DEFAULT 'manual',
+      collected_at INTEGER,
+      performance_grade TEXT DEFAULT 'pending',
+      benchmark_comparison TEXT,
+      ai_analysis TEXT,
+      recommendations TEXT,
+      paid_data TEXT,
+      paid_spend REAL DEFAULT 0,
+      paid_exposure INTEGER DEFAULT 0,
+      paid_views INTEGER DEFAULT 0,
+      paid_likes INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+      updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+    )
+  `)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_content_tracking_campaign ON kol_content_tracking(campaign_id)`)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_content_tracking_kol ON kol_content_tracking(kol_id)`)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_content_tracking_platform ON kol_content_tracking(platform)`)
+
+  // 扩展现有内容追踪表（阶段复盘相关字段）
+  const hasTrackingCol = (col: string): boolean => {
+    try {
+      const rows = dbInstance!.query(`PRAGMA table_info(kol_content_tracking)`).all() as Array<{ name: string }>
+      return rows.some((r) => r.name === col)
+    } catch {
+      return false
+    }
+  }
+  if (!hasTrackingCol('phase')) {
+    dbInstance.run(`ALTER TABLE kol_content_tracking ADD COLUMN phase INTEGER DEFAULT 1`)
+  }
+  if (!hasTrackingCol('test_group')) {
+    dbInstance.run(`ALTER TABLE kol_content_tracking ADD COLUMN test_group TEXT DEFAULT ''`)
+  }
+  if (!hasTrackingCol('note_type')) {
+    dbInstance.run(`ALTER TABLE kol_content_tracking ADD COLUMN note_type TEXT DEFAULT ''`)
+  }
+  if (!hasTrackingCol('cost')) {
+    dbInstance.run(`ALTER TABLE kol_content_tracking ADD COLUMN cost REAL DEFAULT 0`)
+  }
+  if (!hasTrackingCol('is_organic')) {
+    dbInstance.run(`ALTER TABLE kol_content_tracking ADD COLUMN is_organic INTEGER DEFAULT 1`)
+  }
+
+  // 阶段复盘报告表（新增）
+  dbInstance.run(`
+    CREATE TABLE IF NOT EXISTS campaign_phase_reports (
+      id TEXT PRIMARY KEY,
+      campaign_id TEXT NOT NULL,
+      phase INTEGER NOT NULL,
+      report_type TEXT NOT NULL DEFAULT 'phase',
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      total_kols INTEGER DEFAULT 0,
+      total_posts INTEGER DEFAULT 0,
+      total_cost REAL DEFAULT 0,
+      organic_cost REAL DEFAULT 0,
+      paid_cost REAL DEFAULT 0,
+      total_exposure INTEGER DEFAULT 0,
+      total_views INTEGER DEFAULT 0,
+      total_likes INTEGER DEFAULT 0,
+      total_saves INTEGER DEFAULT 0,
+      total_comments INTEGER DEFAULT 0,
+      total_shares INTEGER DEFAULT 0,
+      avg_cpm REAL DEFAULT 0,
+      avg_cpe REAL DEFAULT 0,
+      avg_ctr REAL DEFAULT 0,
+      avg_engagement_rate REAL DEFAULT 0,
+      roi_estimate REAL DEFAULT 0,
+      cpm_target REAL DEFAULT 0,
+      cpm_target_achieved INTEGER DEFAULT 0,
+      engagement_target REAL DEFAULT 0,
+      engagement_target_achieved INTEGER DEFAULT 0,
+      ai_summary TEXT,
+      ai_findings TEXT,
+      ai_recommendations TEXT,
+      ai_scale_advice TEXT,
+      status TEXT DEFAULT 'draft',
+      generated_by TEXT DEFAULT 'ai',
+      created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+      updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+    )
+  `)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_phase_reports_campaign ON campaign_phase_reports(campaign_id)`)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_phase_reports_phase ON campaign_phase_reports(phase)`)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_phase_reports_type ON campaign_phase_reports(report_type)`)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_phase_reports_status ON campaign_phase_reports(status)`)
+
+  // AB 测试表（新增 — Slice 3）
+  dbInstance.run(`
+    CREATE TABLE IF NOT EXISTS campaign_ab_tests (
+      id TEXT PRIMARY KEY,
+      campaign_id TEXT NOT NULL,
+      phase INTEGER DEFAULT 1,
+      test_name TEXT NOT NULL,
+      hypothesis TEXT NOT NULL,
+      variable_type TEXT NOT NULL,
+      variable_description TEXT,
+      control_group_definition TEXT,
+      test_group_definition TEXT,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      status TEXT DEFAULT 'running',
+      winner_group TEXT DEFAULT '',
+      winner_reason TEXT,
+      scale_recommendation TEXT,
+      created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+      updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+    )
+  `)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_ab_tests_campaign ON campaign_ab_tests(campaign_id)`)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_ab_tests_phase ON campaign_ab_tests(phase)`)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_ab_tests_status ON campaign_ab_tests(status)`)
+
+  // AB 测试分组结果表（新增 — Slice 3）
+  dbInstance.run(`
+    CREATE TABLE IF NOT EXISTS ab_test_results (
+      id TEXT PRIMARY KEY,
+      ab_test_id TEXT NOT NULL,
+      group_name TEXT NOT NULL,
+      kol_count INTEGER DEFAULT 0,
+      post_count INTEGER DEFAULT 0,
+      total_cost REAL DEFAULT 0,
+      total_exposure INTEGER DEFAULT 0,
+      total_views INTEGER DEFAULT 0,
+      total_likes INTEGER DEFAULT 0,
+      total_saves INTEGER DEFAULT 0,
+      total_comments INTEGER DEFAULT 0,
+      total_shares INTEGER DEFAULT 0,
+      avg_cpm REAL DEFAULT 0,
+      avg_cpe REAL DEFAULT 0,
+      avg_ctr REAL DEFAULT 0,
+      avg_engagement_rate REAL DEFAULT 0,
+      conversion_count INTEGER DEFAULT 0,
+      conversion_rate REAL DEFAULT 0,
+      significance_score REAL DEFAULT 0,
+      is_significant INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+      updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+    )
+  `)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_ab_results_test ON ab_test_results(ab_test_id)`)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_ab_results_group ON ab_test_results(group_name)`)
+
+  // 数据标准基准表（新增）
+  dbInstance.run(`
+    CREATE TABLE IF NOT EXISTS content_benchmarks (
+      id TEXT PRIMARY KEY,
+      platform TEXT NOT NULL,
+      price_tier TEXT NOT NULL,
+      followers_range TEXT NOT NULL,
+      metric_name TEXT NOT NULL,
+      excellent_threshold REAL DEFAULT 0,
+      good_threshold REAL DEFAULT 0,
+      normal_threshold REAL DEFAULT 0,
+      description TEXT,
+      created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+      updated_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+      UNIQUE(platform, price_tier, followers_range, metric_name)
+    )
+  `)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_benchmarks_platform ON content_benchmarks(platform)`)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_benchmarks_tier ON content_benchmarks(price_tier)`)
+
   console.log('[Campaign 服务] 数据库已初始化:', dbPath)
+
+  // 初始化数据标准基准
+  seedContentBenchmarks()
+
   return dbInstance
 }
 
@@ -367,6 +557,26 @@ function getKolDb(): Database {
   }
   if (!hasColumn('kols', 'overall_score')) {
     kolDbInstance.run(`ALTER TABLE kols ADD COLUMN overall_score REAL DEFAULT 0`)
+  }
+  // 扩展数据评分列
+  if (!hasColumn('kols', 'value_score')) {
+    kolDbInstance.run(`ALTER TABLE kols ADD COLUMN value_score REAL DEFAULT 0`)
+  }
+  if (!hasColumn('kols', 'ad_quality_score')) {
+    kolDbInstance.run(`ALTER TABLE kols ADD COLUMN ad_quality_score REAL DEFAULT 0`)
+  }
+  if (!hasColumn('kols', 'risk_score')) {
+    kolDbInstance.run(`ALTER TABLE kols ADD COLUMN risk_score REAL DEFAULT 0`)
+  }
+  if (!hasColumn('kols', 'extended_data')) {
+    kolDbInstance.run(`ALTER TABLE kols ADD COLUMN extended_data TEXT`)
+  }
+  // 标签列
+  if (!hasColumn('kols', 'value_tags')) {
+    kolDbInstance.run(`ALTER TABLE kols ADD COLUMN value_tags TEXT`)
+  }
+  if (!hasColumn('kols', 'risk_flags')) {
+    kolDbInstance.run(`ALTER TABLE kols ADD COLUMN risk_flags TEXT`)
   }
 
   // 确保索引存在
@@ -1311,25 +1521,44 @@ export function listAllKOLs(): KOLListItem[] {
     `SELECT * FROM kols ORDER BY overall_score DESC, updated_at DESC`
   ).all() as Record<string, unknown>[]
 
-  return rows.map((row) => ({
-    id: String(row.id),
-    name: String(row.name),
-    platform: String(row.platform),
-    followers: String(row.followers ?? ''),
-    engagement: String(row.engagement ?? ''),
-    category: String(row.category ?? ''),
-    price: String(row.price ?? ''),
-    city: String(row.city ?? ''),
-    avatar: String(row.avatar ?? ''),
-    source: String(row.source),
-    rawData: String(row.raw_data ?? ''),
-    baseScore: Number(row.fan_score ?? 0),
-    contentScore: Number(row.engagement_score ?? 0),
-    commercialScore: Number(row.content_score ?? 0),
-    overallScore: Number(row.overall_score ?? 0),
-    createdAt: Number(row.created_at) || Date.now(),
-    updatedAt: Number(row.updated_at) || Date.now(),
-  }))
+  return rows.map((row) => {
+    const extRaw = row.extended_data ? String(row.extended_data) : null
+    let extendedData: KOLListItem['extendedData'] = undefined
+    if (extRaw) {
+      try {
+        extendedData = JSON.parse(extRaw) as KOLListItem['extendedData']
+      } catch {
+        extendedData = undefined
+      }
+    }
+    return {
+      id: String(row.id),
+      name: String(row.name),
+      platform: String(row.platform),
+      followers: String(row.followers ?? ''),
+      engagement: String(row.engagement ?? ''),
+      category: String(row.category ?? ''),
+      price: String(row.price ?? ''),
+      city: String(row.city ?? ''),
+      avatar: String(row.avatar ?? ''),
+      source: String(row.source),
+      rawData: String(row.raw_data ?? ''),
+      baseScore: Number(row.fan_score ?? 0),
+      contentScore: Number(row.engagement_score ?? 0),
+      commercialScore: Number(row.content_score ?? 0),
+      overallScore: Number(row.overall_score ?? 0),
+      extendedData,
+      fanScore: row.fan_score != null ? Number(row.fan_score) : undefined,
+      engagementScore: row.engagement_score != null ? Number(row.engagement_score) : undefined,
+      valueScore: row.value_score != null ? Number(row.value_score) : undefined,
+      adQualityScore: row.ad_quality_score != null ? Number(row.ad_quality_score) : undefined,
+      riskScore: row.risk_score != null ? Number(row.risk_score) : undefined,
+      valueTags: row.value_tags ? String(row.value_tags).split(',').filter(Boolean) : undefined,
+      riskFlags: row.risk_flags ? String(row.risk_flags).split(',').filter(Boolean) : undefined,
+      createdAt: Number(row.created_at) || Date.now(),
+      updatedAt: Number(row.updated_at) || Date.now(),
+    }
+  })
 }
 
 /** 更新 KOL 信息 */
@@ -1349,11 +1578,19 @@ export function updateKOL(input: import('@ma-proma/shared').UpdateKOLInput): boo
     category: input.category,
     price: input.price,
     city: input.city,
+    extendedData: input.extendedData,
+    fanScore: input.fanScore ?? kol.fanScore,
+    engagementScore: input.engagementScore ?? kol.engagementScore,
+    valueScore: input.valueScore ?? kol.valueScore,
+    adQualityScore: input.adQualityScore ?? kol.adQualityScore,
+    riskScore: input.riskScore ?? kol.riskScore,
+    valueTags: input.extendedData?.valueTags ?? kol.valueTags,
+    riskFlags: input.extendedData?.riskFlags ?? kol.riskFlags,
   }
   const scores = computeKOLScores(updatedKol)
 
   const result = kolDb.run(
-    `UPDATE kols SET name = ?, platform = ?, followers = ?, engagement = ?, category = ?, price = ?, city = ?, fan_score = ?, engagement_score = ?, content_score = ?, overall_score = ?, updated_at = ? WHERE id = ?`,
+    `UPDATE kols SET name = ?, platform = ?, followers = ?, engagement = ?, category = ?, price = ?, city = ?, fan_score = ?, engagement_score = ?, content_score = ?, overall_score = ?, value_score = ?, ad_quality_score = ?, risk_score = ?, extended_data = ?, value_tags = ?, risk_flags = ?, updated_at = ? WHERE id = ?`,
     input.name,
     input.platform,
     input.followers,
@@ -1365,6 +1602,12 @@ export function updateKOL(input: import('@ma-proma/shared').UpdateKOLInput): boo
     scores.contentScore,
     scores.commercialScore,
     scores.overallScore,
+    updatedKol.valueScore ?? 0,
+    updatedKol.adQualityScore ?? 0,
+    updatedKol.riskScore ?? 0,
+    updatedKol.extendedData ? JSON.stringify(updatedKol.extendedData) : null,
+    updatedKol.valueTags ? updatedKol.valueTags.join(',') : null,
+    updatedKol.riskFlags ? updatedKol.riskFlags.join(',') : null,
     Date.now(),
     input.id,
   )
@@ -1550,4 +1793,1161 @@ export function updateContentAuditStatus(
     auditId,
   )
   return result.changes > 0
+}
+
+// =====================================================================
+// 内容数据追踪（新增）
+// =====================================================================
+
+/** 生成内容追踪 ID */
+function generateTrackingId(): string {
+  return `ct_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+}
+
+/** 生成基准 ID */
+function generateBenchmarkId(): string {
+  return `bm_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+}
+
+/** 初始化数据标准基准（内置默认值） */
+export function seedContentBenchmarks(): void {
+  const db = getDb()
+
+  // 检查是否已有数据
+  const countRow = db.query('SELECT COUNT(*) as total FROM content_benchmarks').get() as { total: number } | null
+  if ((countRow?.total ?? 0) > 0) return
+
+  const now = Date.now()
+  const benchmarks: Array<Omit<import('@ma-proma/shared').ContentBenchmark, 'id' | 'createdAt' | 'updatedAt'>> = [
+    // 小红书 - budget - 10k-100k
+    { platform: '小红书', priceTier: 'budget', followersRange: '10k-100k', metricName: 'ctr', excellentThreshold: 10, goodThreshold: 8, normalThreshold: 5, description: '点击率（浏览/曝光）' },
+    { platform: '小红书', priceTier: 'budget', followersRange: '10k-100k', metricName: 'engagement_rate', excellentThreshold: 8, goodThreshold: 5, normalThreshold: 3, description: '互动率（总互动/曝光）' },
+    { platform: '小红书', priceTier: 'budget', followersRange: '10k-100k', metricName: 'cpm', excellentThreshold: 50, goodThreshold: 100, normalThreshold: 200, description: '千次曝光成本（元），越低越好' },
+    { platform: '小红书', priceTier: 'budget', followersRange: '10k-100k', metricName: 'cpe', excellentThreshold: 5, goodThreshold: 10, normalThreshold: 20, description: '单次互动成本（元），越低越好' },
+    // 小红书 - mid - 100k-1m
+    { platform: '小红书', priceTier: 'mid', followersRange: '100k-1m', metricName: 'ctr', excellentThreshold: 12, goodThreshold: 9, normalThreshold: 6, description: '点击率（浏览/曝光）' },
+    { platform: '小红书', priceTier: 'mid', followersRange: '100k-1m', metricName: 'engagement_rate', excellentThreshold: 10, goodThreshold: 7, normalThreshold: 4, description: '互动率（总互动/曝光）' },
+    { platform: '小红书', priceTier: 'mid', followersRange: '100k-1m', metricName: 'cpm', excellentThreshold: 80, goodThreshold: 150, normalThreshold: 300, description: '千次曝光成本（元），越低越好' },
+    { platform: '小红书', priceTier: 'mid', followersRange: '100k-1m', metricName: 'cpe', excellentThreshold: 8, goodThreshold: 15, normalThreshold: 30, description: '单次互动成本（元），越低越好' },
+    // 小红书 - premium - 1m+
+    { platform: '小红书', priceTier: 'premium', followersRange: '1m+', metricName: 'ctr', excellentThreshold: 15, goodThreshold: 11, normalThreshold: 7, description: '点击率（浏览/曝光）' },
+    { platform: '小红书', priceTier: 'premium', followersRange: '1m+', metricName: 'engagement_rate', excellentThreshold: 12, goodThreshold: 8, normalThreshold: 5, description: '互动率（总互动/曝光）' },
+    { platform: '小红书', priceTier: 'premium', followersRange: '1m+', metricName: 'cpm', excellentThreshold: 120, goodThreshold: 200, normalThreshold: 400, description: '千次曝光成本（元），越低越好' },
+    { platform: '小红书', priceTier: 'premium', followersRange: '1m+', metricName: 'cpe', excellentThreshold: 12, goodThreshold: 20, normalThreshold: 40, description: '单次互动成本（元），越低越好' },
+    // 抖音 - budget - 10k-100k
+    { platform: '抖音', priceTier: 'budget', followersRange: '10k-100k', metricName: 'ctr', excellentThreshold: 8, goodThreshold: 6, normalThreshold: 4, description: '点击率（浏览/曝光）' },
+    { platform: '抖音', priceTier: 'budget', followersRange: '10k-100k', metricName: 'engagement_rate', excellentThreshold: 6, goodThreshold: 4, normalThreshold: 2, description: '互动率（总互动/曝光）' },
+    { platform: '抖音', priceTier: 'budget', followersRange: '10k-100k', metricName: 'cpm', excellentThreshold: 40, goodThreshold: 80, normalThreshold: 150, description: '千次曝光成本（元），越低越好' },
+    { platform: '抖音', priceTier: 'budget', followersRange: '10k-100k', metricName: 'cpe', excellentThreshold: 4, goodThreshold: 8, normalThreshold: 15, description: '单次互动成本（元），越低越好' },
+    // 抖音 - mid - 100k-1m
+    { platform: '抖音', priceTier: 'mid', followersRange: '100k-1m', metricName: 'ctr', excellentThreshold: 10, goodThreshold: 7, normalThreshold: 4, description: '点击率（浏览/曝光）' },
+    { platform: '抖音', priceTier: 'mid', followersRange: '100k-1m', metricName: 'engagement_rate', excellentThreshold: 8, goodThreshold: 5, normalThreshold: 3, description: '互动率（总互动/曝光）' },
+    { platform: '抖音', priceTier: 'mid', followersRange: '100k-1m', metricName: 'cpm', excellentThreshold: 60, goodThreshold: 120, normalThreshold: 250, description: '千次曝光成本（元），越低越好' },
+    { platform: '抖音', priceTier: 'mid', followersRange: '100k-1m', metricName: 'cpe', excellentThreshold: 6, goodThreshold: 12, normalThreshold: 25, description: '单次互动成本（元），越低越好' },
+    // 抖音 - premium - 1m+
+    { platform: '抖音', priceTier: 'premium', followersRange: '1m+', metricName: 'ctr', excellentThreshold: 12, goodThreshold: 9, normalThreshold: 6, description: '点击率（浏览/曝光）' },
+    { platform: '抖音', priceTier: 'premium', followersRange: '1m+', metricName: 'engagement_rate', excellentThreshold: 10, goodThreshold: 7, normalThreshold: 4, description: '互动率（总互动/曝光）' },
+    { platform: '抖音', priceTier: 'premium', followersRange: '1m+', metricName: 'cpm', excellentThreshold: 100, goodThreshold: 180, normalThreshold: 350, description: '千次曝光成本（元），越低越好' },
+    { platform: '抖音', priceTier: 'premium', followersRange: '1m+', metricName: 'cpe', excellentThreshold: 10, goodThreshold: 18, normalThreshold: 35, description: '单次互动成本（元），越低越好' },
+    // 微博 - budget - 10k-100k
+    { platform: '微博', priceTier: 'budget', followersRange: '10k-100k', metricName: 'ctr', excellentThreshold: 5, goodThreshold: 3, normalThreshold: 2, description: '点击率（浏览/曝光）' },
+    { platform: '微博', priceTier: 'budget', followersRange: '10k-100k', metricName: 'engagement_rate', excellentThreshold: 4, goodThreshold: 2.5, normalThreshold: 1.5, description: '互动率（总互动/曝光）' },
+    { platform: '微博', priceTier: 'budget', followersRange: '10k-100k', metricName: 'cpm', excellentThreshold: 30, goodThreshold: 60, normalThreshold: 120, description: '千次曝光成本（元），越低越好' },
+    { platform: '微博', priceTier: 'budget', followersRange: '10k-100k', metricName: 'cpe', excellentThreshold: 3, goodThreshold: 6, normalThreshold: 12, description: '单次互动成本（元），越低越好' },
+    // 微博 - mid - 100k-1m
+    { platform: '微博', priceTier: 'mid', followersRange: '100k-1m', metricName: 'ctr', excellentThreshold: 7, goodThreshold: 5, normalThreshold: 3, description: '点击率（浏览/曝光）' },
+    { platform: '微博', priceTier: 'mid', followersRange: '100k-1m', metricName: 'engagement_rate', excellentThreshold: 6, goodThreshold: 4, normalThreshold: 2, description: '互动率（总互动/曝光）' },
+    { platform: '微博', priceTier: 'mid', followersRange: '100k-1m', metricName: 'cpm', excellentThreshold: 50, goodThreshold: 100, normalThreshold: 200, description: '千次曝光成本（元），越低越好' },
+    { platform: '微博', priceTier: 'mid', followersRange: '100k-1m', metricName: 'cpe', excellentThreshold: 5, goodThreshold: 10, normalThreshold: 20, description: '单次互动成本（元），越低越好' },
+  ]
+
+  for (const bm of benchmarks) {
+    db.run(
+      `INSERT INTO content_benchmarks (id, platform, price_tier, followers_range, metric_name, excellent_threshold, good_threshold, normal_threshold, description, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      generateBenchmarkId(),
+      bm.platform,
+      bm.priceTier,
+      bm.followersRange,
+      bm.metricName,
+      bm.excellentThreshold,
+      bm.goodThreshold,
+      bm.normalThreshold,
+      bm.description,
+      now,
+      now,
+    )
+  }
+
+  console.log(`[Campaign 服务] 已初始化 ${benchmarks.length} 条数据标准基准`)
+}
+
+/** 行数据 → KOLContentTracking */
+function rowToContentTracking(row: Record<string, unknown>): import('@ma-proma/shared').KOLContentTracking {
+  return {
+    id: String(row.id),
+    campaignId: String(row.campaign_id),
+    kolId: String(row.kol_id),
+    kolName: String(row.kol_name),
+    platform: String(row.platform),
+    contentUrl: String(row.content_url ?? ''),
+    contentType: String(row.content_type ?? 'organic') as 'organic' | 'paid' | 'mixed',
+    publishDate: String(row.publish_date ?? ''),
+    exposure: Number(row.exposure ?? 0),
+    views: Number(row.views ?? 0),
+    likes: Number(row.likes ?? 0),
+    saves: Number(row.saves ?? 0),
+    comments: Number(row.comments ?? 0),
+    shares: Number(row.shares ?? 0),
+    completionRate: row.completion_rate != null ? Number(row.completion_rate) : undefined,
+    cpm: Number(row.cpm ?? 0),
+    cpe: Number(row.cpe ?? 0),
+    ctr: Number(row.ctr ?? 0),
+    engagementRate: Number(row.engagement_rate ?? 0),
+    dataSource: String(row.data_source ?? 'manual') as 'api' | 'manual' | 'screenshot' | 'estimated',
+    collectedAt: Number(row.collected_at ?? 0),
+    performanceGrade: String(row.performance_grade ?? 'pending') as 'excellent' | 'good' | 'normal' | 'poor' | 'pending',
+    benchmarkComparison: String(row.benchmark_comparison ?? ''),
+    aiAnalysis: String(row.ai_analysis ?? ''),
+    recommendations: String(row.recommendations ?? ''),
+    paidData: String(row.paid_data ?? ''),
+    paidSpend: Number(row.paid_spend ?? 0),
+    paidExposure: Number(row.paid_exposure ?? 0),
+    paidViews: Number(row.paid_views ?? 0),
+    paidLikes: Number(row.paid_likes ?? 0),
+    phase: Number(row.phase ?? 1),
+    testGroup: String(row.test_group ?? ''),
+    noteType: String(row.note_type ?? ''),
+    cost: Number(row.cost ?? 0),
+    isOrganic: Boolean(row.is_organic ?? 1),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  }
+}
+
+/** 计算内容数据指标 */
+function calculateMetrics(
+  exposure: number,
+  views: number,
+  likes: number,
+  saves: number,
+  comments: number,
+  shares: number,
+  estimatedPrice: number
+): { cpm: number; cpe: number; ctr: number; engagementRate: number } {
+  const safeExposure = Math.max(exposure, 1)
+  const safeEngagement = Math.max(likes + saves + comments + shares, 1)
+
+  const cpm = estimatedPrice > 0 ? (estimatedPrice / safeExposure) * 1000 : 0
+  const cpe = estimatedPrice > 0 ? estimatedPrice / safeEngagement : 0
+  const ctr = (views / safeExposure) * 100
+  const engagementRate = (safeEngagement / safeExposure) * 100
+
+  return { cpm, cpe, ctr, engagementRate }
+}
+
+/** 分析内容性能等级 */
+function analyzeContentPerformance(
+  platform: string,
+  priceTier: string,
+  followersRange: string,
+  ctr: number,
+  engagementRate: number,
+  cpm: number,
+  cpe: number
+): { grade: 'excellent' | 'good' | 'normal' | 'poor'; comparison: Record<string, unknown> } {
+  const db = getDb()
+
+  // 查询对应基准
+  const rows = db.query(
+    `SELECT metric_name, excellent_threshold, good_threshold, normal_threshold
+     FROM content_benchmarks
+     WHERE platform = ? AND price_tier = ? AND followers_range = ?`
+  ).all(platform, priceTier, followersRange) as Array<{
+    metric_name: string
+    excellent_threshold: number
+    good_threshold: number
+    normal_threshold: number
+  }>
+
+  if (rows.length === 0) {
+    return { grade: 'pending' as 'excellent' | 'good' | 'normal' | 'poor', comparison: { reason: '未找到对应基准数据' } }
+  }
+
+  const comparison: Record<string, unknown> = {}
+  let excellentCount = 0
+  let goodCount = 0
+  let poorCount = 0
+
+  for (const row of rows) {
+    const metricName = row.metric_name
+    const excellent = row.excellent_threshold
+    const good = row.good_threshold
+    const normal = row.normal_threshold
+
+    let value = 0
+    switch (metricName) {
+      case 'ctr': value = ctr; break
+      case 'engagement_rate': value = engagementRate; break
+      case 'cpm': value = cpm; break
+      case 'cpe': value = cpe; break
+      default: continue
+    }
+
+    // CPM 和 CPE 是越低越好，其他是越高越好
+    const isLowerBetter = metricName === 'cpm' || metricName === 'cpe'
+
+    let grade: string
+    if (isLowerBetter) {
+      if (value <= excellent) grade = 'excellent'
+      else if (value <= good) grade = 'good'
+      else if (value <= normal) grade = 'normal'
+      else grade = 'poor'
+    } else {
+      if (value >= excellent) grade = 'excellent'
+      else if (value >= good) grade = 'good'
+      else if (value >= normal) grade = 'normal'
+      else grade = 'poor'
+    }
+
+    comparison[metricName] = {
+      value: Number(value.toFixed(2)),
+      excellent: isLowerBetter ? `<= ${excellent}` : `>= ${excellent}`,
+      good: isLowerBetter ? `<= ${good}` : `>= ${good}`,
+      normal: isLowerBetter ? `<= ${normal}` : `>= ${normal}`,
+      grade,
+    }
+
+    if (grade === 'excellent') excellentCount++
+    if (grade === 'good') goodCount++
+    if (grade === 'poor') poorCount++
+  }
+
+  // 综合判定：excellent (>=2个优秀) / good (>=1个优秀或2个良好) / normal (全部合格) / poor (有不合格)
+  let finalGrade: 'excellent' | 'good' | 'normal' | 'poor'
+  if (excellentCount >= 2) {
+    finalGrade = 'excellent'
+  } else if (excellentCount >= 1 || goodCount >= 2) {
+    finalGrade = 'good'
+  } else if (poorCount > 0) {
+    finalGrade = 'poor'
+  } else {
+    finalGrade = 'normal'
+  }
+
+  return { grade: finalGrade, comparison }
+}
+
+/** 按 Campaign 列出内容追踪记录 */
+export function listContentTracking(campaignId: string): import('@ma-proma/shared').KOLContentTracking[] {
+  const db = getDb()
+  const rows = db.query(
+    `SELECT * FROM kol_content_tracking WHERE campaign_id = ? ORDER BY created_at DESC`
+  ).all(campaignId) as Record<string, unknown>[]
+  return rows.map(rowToContentTracking)
+}
+
+/** 获取单条内容追踪记录 */
+export function getContentTracking(id: string): import('@ma-proma/shared').KOLContentTracking | null {
+  const db = getDb()
+  const row = db.query('SELECT * FROM kol_content_tracking WHERE id = ?').get(id) as Record<string, unknown> | null
+  return row ? rowToContentTracking(row) : null
+}
+
+/** 创建内容追踪记录 */
+export function createContentTracking(
+  input: import('@ma-proma/shared').CreateContentTrackingInput
+): import('@ma-proma/shared').KOLContentTracking | null {
+  const db = getDb()
+  const now = Date.now()
+  const id = generateTrackingId()
+
+  // 获取 KOL 报价用于计算 CPM/CPE（如果可用）
+  let estimatedPrice = input.paidSpend ?? 0
+  if (estimatedPrice === 0) {
+    try {
+      const kolDb = getKolDb()
+      const kolRow = kolDb.query('SELECT price FROM kols WHERE id = ?').get(input.kolId) as { price: string } | null
+      if (kolRow?.price) {
+        // 解析报价字符串（如 "3万" → 30000）
+        const priceStr = kolRow.price.replace(/[万亿]/g, '')
+        const priceNum = parseFloat(priceStr)
+        if (!Number.isNaN(priceNum)) {
+          if (kolRow.price.includes('万')) estimatedPrice = priceNum * 10000
+          else if (kolRow.price.includes('亿')) estimatedPrice = priceNum * 100000000
+          else estimatedPrice = priceNum
+        }
+      }
+    } catch {
+      // KOL 数据库可能不存在，忽略错误
+    }
+  }
+
+  const metrics = calculateMetrics(
+    input.exposure,
+    input.views,
+    input.likes,
+    input.saves,
+    input.comments,
+    input.shares,
+    estimatedPrice
+  )
+
+  db.run(
+    `INSERT INTO kol_content_tracking (
+      id, campaign_id, kol_id, kol_name, platform, content_url, content_type, publish_date,
+      exposure, views, likes, saves, comments, shares, completion_rate,
+      cpm, cpe, ctr, engagement_rate, data_source, collected_at,
+      performance_grade, benchmark_comparison, paid_spend, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id,
+    input.campaignId,
+    input.kolId,
+    input.kolName,
+    input.platform,
+    input.contentUrl,
+    input.contentType,
+    input.publishDate,
+    input.exposure,
+    input.views,
+    input.likes,
+    input.saves,
+    input.comments,
+    input.shares,
+    input.completionRate ?? null,
+    metrics.cpm,
+    metrics.cpe,
+    metrics.ctr,
+    metrics.engagementRate,
+    input.dataSource,
+    now,
+    'pending',
+    '',
+    estimatedPrice,
+    now,
+    now,
+  )
+
+  return getContentTracking(id)
+}
+
+/** 更新内容数据（自动计算指标） */
+export function updateContentTrackingData(
+  input: import('@ma-proma/shared').UpdateContentTrackingDataInput
+): import('@ma-proma/shared').KOLContentTracking | null {
+  const db = getDb()
+  const existing = getContentTracking(input.id)
+  if (!existing) return null
+
+  // 重新计算指标（保留原有报价估算）
+  const estimatedPrice = existing.paidSpend > 0 ? existing.paidSpend : 0
+  const metrics = calculateMetrics(
+    input.exposure,
+    input.views,
+    input.likes,
+    input.saves,
+    input.comments,
+    input.shares,
+    estimatedPrice
+  )
+
+  const now = Date.now()
+
+  db.run(
+    `UPDATE kol_content_tracking SET
+      exposure = ?, views = ?, likes = ?, saves = ?, comments = ?, shares = ?,
+      completion_rate = ?, cpm = ?, cpe = ?, ctr = ?, engagement_rate = ?,
+      data_source = ?, collected_at = ?, updated_at = ?
+     WHERE id = ?`,
+    input.exposure,
+    input.views,
+    input.likes,
+    input.saves,
+    input.comments,
+    input.shares,
+    input.completionRate ?? null,
+    metrics.cpm,
+    metrics.cpe,
+    metrics.ctr,
+    metrics.engagementRate,
+    input.dataSource,
+    now,
+    now,
+    input.id,
+  )
+
+  return getContentTracking(input.id)
+}
+
+/** 添加投流数据 */
+export function addPaidData(
+  input: import('@ma-proma/shared').AddPaidDataInput
+): import('@ma-proma/shared').KOLContentTracking | null {
+  const db = getDb()
+  const now = Date.now()
+
+  db.run(
+    `UPDATE kol_content_tracking SET
+      paid_spend = ?, paid_exposure = ?, paid_views = ?, paid_likes = ?,
+      paid_data = ?, updated_at = ?
+     WHERE id = ?`,
+    input.paidSpend,
+    input.paidExposure,
+    input.paidViews,
+    input.paidLikes,
+    input.paidData,
+    now,
+    input.id,
+  )
+
+  return getContentTracking(input.id)
+}
+
+/** 更新分析结果 */
+export function updateContentTrackingAnalysis(
+  input: import('@ma-proma/shared').UpdateAnalysisInput
+): import('@ma-proma/shared').KOLContentTracking | null {
+  const db = getDb()
+  const now = Date.now()
+
+  db.run(
+    `UPDATE kol_content_tracking SET
+      performance_grade = ?, benchmark_comparison = ?, ai_analysis = ?,
+      recommendations = ?, updated_at = ?
+     WHERE id = ?`,
+    input.performanceGrade,
+    input.benchmarkComparison,
+    input.aiAnalysis,
+    input.recommendations,
+    now,
+    input.id,
+  )
+
+  return getContentTracking(input.id)
+}
+
+/** 删除内容追踪记录 */
+export function deleteContentTracking(id: string): boolean {
+  const db = getDb()
+  const result = db.run('DELETE FROM kol_content_tracking WHERE id = ?', id)
+  return result.changes > 0
+}
+
+/** 执行 AI 内容性能分析（供 Chat Tool 调用） */
+export async function analyzeContentPerformanceAI(
+  contentId: string,
+  platform: string,
+  priceTier: string,
+  followersRange: string
+): Promise<{ success: boolean; result?: import('@ma-proma/shared').KOLContentTracking; error?: string }> {
+  try {
+    const tracking = getContentTracking(contentId)
+    if (!tracking) return { success: false, error: '内容追踪记录不存在' }
+
+    const { grade, comparison } = analyzeContentPerformance(
+      platform,
+      priceTier,
+      followersRange,
+      tracking.ctr,
+      tracking.engagementRate,
+      tracking.cpm,
+      tracking.cpe
+    )
+
+    const benchmarkComparison = JSON.stringify(comparison, null, 2)
+
+    // AI 分析提示词
+    const systemPrompt = `你是一位资深社交媒体投放分析师，擅长根据数据判断内容表现并给出优化建议。`
+
+    const userPrompt = `请分析以下内容的投放表现并给出建议：
+
+平台：${platform}
+KOL：${tracking.kolName}
+曝光量：${tracking.exposure.toLocaleString()}
+浏览量：${tracking.views.toLocaleString()}
+点赞：${tracking.likes.toLocaleString()}
+收藏：${tracking.saves.toLocaleString()}
+评论：${tracking.comments.toLocaleString()}
+转发：${tracking.shares.toLocaleString()}
+
+核心指标：
+- CTR：${tracking.ctr.toFixed(2)}%
+- 互动率：${tracking.engagementRate.toFixed(2)}%
+- CPM：${tracking.cpm.toFixed(2)} 元
+- CPE：${tracking.cpe.toFixed(2)} 元
+
+基准对比：${benchmarkComparison}
+
+请给出：
+1. 数据表现总结（100字以内）
+2. 是否建议投流加热及具体策略（薯条/评论区维护/DOU+）
+3. 下一步优化建议`
+
+    const { completePrompt } = await import('./ma-tools/llm-service')
+    const llmResult = await completePrompt(userPrompt, systemPrompt, {
+      temperature: 0.7,
+      maxTokens: 3000,
+    })
+
+    if (!llmResult.success) {
+      return { success: false, error: llmResult.error }
+    }
+
+    // 更新分析结果
+    const updated = updateContentTrackingAnalysis({
+      id: contentId,
+      performanceGrade: grade,
+      benchmarkComparison,
+      aiAnalysis: llmResult.text,
+      recommendations: grade === 'excellent' || grade === 'good'
+        ? '表现良好，建议继续自然传播观察；如需扩大声量可考虑适度加热。'
+        : '表现未达预期，建议优化内容形式或调整投放策略。',
+    })
+
+    return { success: true, result: updated ?? undefined }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    return { success: false, error: msg }
+  }
+}
+
+// =====================================================================
+// 阶段复盘报告（Slice 1）
+// =====================================================================
+
+/** 行数据 → CampaignPhaseReport */
+function rowToPhaseReport(row: Record<string, unknown>): import('@ma-proma/shared').CampaignPhaseReport {
+  return {
+    id: String(row.id),
+    campaignId: String(row.campaign_id),
+    phase: Number(row.phase ?? 1),
+    reportType: String(row.report_type ?? 'phase') as 'phase' | 'weekly' | 'ab_test',
+    startDate: String(row.start_date ?? ''),
+    endDate: String(row.end_date ?? ''),
+    totalKols: Number(row.total_kols ?? 0),
+    totalPosts: Number(row.total_posts ?? 0),
+    totalCost: Number(row.total_cost ?? 0),
+    organicCost: Number(row.organic_cost ?? 0),
+    paidCost: Number(row.paid_cost ?? 0),
+    totalExposure: Number(row.total_exposure ?? 0),
+    totalViews: Number(row.total_views ?? 0),
+    totalLikes: Number(row.total_likes ?? 0),
+    totalSaves: Number(row.total_saves ?? 0),
+    totalComments: Number(row.total_comments ?? 0),
+    totalShares: Number(row.total_shares ?? 0),
+    avgCpm: Number(row.avg_cpm ?? 0),
+    avgCpe: Number(row.avg_cpe ?? 0),
+    avgCtr: Number(row.avg_ctr ?? 0),
+    avgEngagementRate: Number(row.avg_engagement_rate ?? 0),
+    roiEstimate: Number(row.roi_estimate ?? 0),
+    cpmTarget: Number(row.cpm_target ?? 0),
+    cpmTargetAchieved: Boolean(row.cpm_target_achieved),
+    engagementTarget: Number(row.engagement_target ?? 0),
+    engagementTargetAchieved: Boolean(row.engagement_target_achieved),
+    aiSummary: String(row.ai_summary ?? ''),
+    aiFindings: row.ai_findings ? JSON.parse(String(row.ai_findings)) : [],
+    aiRecommendations: row.ai_recommendations ? JSON.parse(String(row.ai_recommendations)) : [],
+    aiScaleAdvice: String(row.ai_scale_advice ?? ''),
+    status: String(row.status ?? 'draft') as 'draft' | 'generated' | 'finalized',
+    generatedBy: String(row.generated_by ?? 'ai') as 'ai' | 'manual',
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  }
+}
+
+/** 生成阶段复盘报告（自动汇总数据 + AI 分析） */
+export async function generatePhaseReport(
+  input: import('@ma-proma/shared').GeneratePhaseReportInput
+): Promise<import('@ma-proma/shared').CampaignPhaseReport> {
+  const db = getDb()
+  const now = Date.now()
+  const id = `report_${now}_${Math.random().toString(36).slice(2, 9)}`
+
+  // 1. 拉取该阶段所有内容数据
+  const rows = db.query(
+    `SELECT * FROM kol_content_tracking
+     WHERE campaign_id = ? AND (phase = ? OR phase = 0)
+     ORDER BY publish_date ASC`
+  ).all(input.campaignId, input.phase) as Record<string, unknown>[]
+
+  // 2. 计算汇总指标
+  let totalExposure = 0, totalViews = 0, totalLikes = 0, totalSaves = 0
+  let totalComments = 0, totalShares = 0, totalCost = 0, paidCost = 0
+  const kolSet = new Set<string>()
+  const postCount = rows.length
+
+  for (const row of rows) {
+    totalExposure += Number(row.exposure ?? 0)
+    totalViews += Number(row.views ?? 0)
+    totalLikes += Number(row.likes ?? 0)
+    totalSaves += Number(row.saves ?? 0)
+    totalComments += Number(row.comments ?? 0)
+    totalShares += Number(row.shares ?? 0)
+    totalCost += Number(row.cost ?? 0) + Number(row.paid_spend ?? 0)
+    paidCost += Number(row.paid_spend ?? 0)
+    kolSet.add(String(row.kol_id ?? ''))
+  }
+
+  const safeExposure = Math.max(totalExposure, 1)
+  const safeEngagement = Math.max(totalLikes + totalSaves + totalComments + totalShares, 1)
+  const avgCpm = totalCost > 0 ? (totalCost / safeExposure) * 1000 : 0
+  const avgCpe = totalCost > 0 ? totalCost / safeEngagement : 0
+  const avgCtr = totalViews > 0 ? (totalViews / safeExposure) * 100 : 0
+  const avgEngagementRate = (safeEngagement / safeExposure) * 100
+
+  const cpmTarget = input.cpmTarget ?? 0
+  const engagementTarget = input.engagementTarget ?? 0
+
+  // 3. AI 分析（Slice 2）
+  let aiSummary = ''
+  let aiFindings: string[] = []
+  let aiRecommendations: string[] = []
+  let aiScaleAdvice = ''
+
+  if (postCount > 0) {
+    try {
+      const { completePrompt, extractJSON } = await import('./ma-tools/llm-service')
+
+      const systemPrompt = `你是一位资深社交媒体投放复盘专家，曾为多个品牌管理过百万级预算的 KOL 投放项目。
+
+请基于投放数据生成结构化复盘分析，输出严格 JSON 格式：
+{
+  "summary": "整体表现总结（100字以内）",
+  "findings": ["发现1", "发现2", "发现3"],
+  "recommendations": ["建议1", "建议2", "建议3"],
+  "scaleAdvice": "放量建议（200字以内，包含具体预算分配和达人组合建议）"
+}
+
+分析维度：
+1. 数据表现与行业基准对比（CPM/CPE/互动率是否达标）
+2. 自然流 vs 投流效果对比
+3. 内容形式和内容类型的表现差异
+4. 达人层级/平台的表现差异
+5. 下阶段优化方向和具体策略
+6. 放量建议（预算分配、达人组合、内容策略）`
+
+      const userPrompt = `请分析以下第 ${input.phase} 阶段投放数据：
+
+时间范围：${input.startDate} ~ ${input.endDate}
+参与 KOL：${kolSet.size} 位
+发布内容：${postCount} 篇
+
+核心指标：
+- 总曝光：${totalExposure.toLocaleString()}
+- 总浏览：${totalViews.toLocaleString()}
+- 总点赞：${totalLikes.toLocaleString()}
+- 总收藏：${totalSaves.toLocaleString()}
+- 总评论：${totalComments.toLocaleString()}
+- 总转发：${totalShares.toLocaleString()}
+- 平均 CPM：¥${avgCpm.toFixed(2)}
+- 平均 CPE：¥${avgCpe.toFixed(2)}
+- 平均 CTR：${avgCtr.toFixed(2)}%
+- 平均互动率：${avgEngagementRate.toFixed(2)}%
+- 总花费：¥${totalCost.toLocaleString()}
+- 投流花费：¥${paidCost.toLocaleString()}
+${cpmTarget > 0 ? `- CPM 目标：¥${cpmTarget}（${avgCpm <= cpmTarget ? '已达成' : '未达成'}）` : ''}
+${engagementTarget > 0 ? `- 互动率目标：${engagementTarget}%（${avgEngagementRate >= engagementTarget ? '已达成' : '未达成'}）` : ''}
+
+${rows.length > 0 ? `内容明细（前10条）：
+${rows.slice(0, 10).map((row) => {
+  const name = String(row.kol_name ?? '')
+  const platform = String(row.platform ?? '')
+  const exp = Number(row.exposure ?? 0)
+  const likes = Number(row.likes ?? 0)
+  const er = Number(row.engagement_rate ?? 0)
+  const grade = String(row.performance_grade ?? 'pending')
+  return `- ${name} (${platform}): 曝光 ${exp.toLocaleString()}, 点赞 ${likes.toLocaleString()}, 互动率 ${er.toFixed(2)}%, 等级 ${grade}`
+}).join('\n')}` : ''}
+
+请生成结构化复盘分析。`
+
+      const llmResult = await completePrompt(userPrompt, systemPrompt, {
+        jsonMode: true,
+        temperature: 0.5,
+        maxTokens: 6000,
+      })
+
+      if (llmResult.success) {
+        try {
+          const parsed = extractJSON(llmResult.text) as Record<string, unknown>
+          aiSummary = String(parsed.summary ?? '')
+          aiFindings = Array.isArray(parsed.findings) ? parsed.findings.map(String) : []
+          aiRecommendations = Array.isArray(parsed.recommendations) ? parsed.recommendations.map(String) : []
+          aiScaleAdvice = String(parsed.scaleAdvice ?? '')
+        } catch {
+          aiSummary = llmResult.text.slice(0, 500)
+        }
+      }
+    } catch (error) {
+      console.error('[阶段复盘] AI 分析失败:', error)
+      aiSummary = 'AI 分析服务暂时不可用，请稍后重试。'
+    }
+  } else {
+    aiSummary = '暂无内容数据，请先添加内容数据后再生成复盘报告。'
+  }
+
+  // 4. 插入报告
+  db.run(
+    `INSERT INTO campaign_phase_reports (
+      id, campaign_id, phase, report_type, start_date, end_date,
+      total_kols, total_posts, total_cost, organic_cost, paid_cost,
+      total_exposure, total_views, total_likes, total_saves, total_comments, total_shares,
+      avg_cpm, avg_cpe, avg_ctr, avg_engagement_rate, roi_estimate,
+      cpm_target, cpm_target_achieved, engagement_target, engagement_target_achieved,
+      ai_summary, ai_findings, ai_recommendations, ai_scale_advice,
+      status, generated_by, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id,
+    input.campaignId,
+    input.phase,
+    input.reportType,
+    input.startDate,
+    input.endDate,
+    kolSet.size,
+    postCount,
+    totalCost,
+    totalCost - paidCost,
+    paidCost,
+    totalExposure,
+    totalViews,
+    totalLikes,
+    totalSaves,
+    totalComments,
+    totalShares,
+    avgCpm,
+    avgCpe,
+    avgCtr,
+    avgEngagementRate,
+    0, // roiEstimate
+    cpmTarget,
+    cpmTarget > 0 && avgCpm <= cpmTarget ? 1 : 0,
+    engagementTarget,
+    engagementTarget > 0 && avgEngagementRate >= engagementTarget ? 1 : 0,
+    aiSummary,
+    JSON.stringify(aiFindings),
+    JSON.stringify(aiRecommendations),
+    aiScaleAdvice,
+    'generated',
+    'ai',
+    now,
+    now,
+  )
+
+  return getPhaseReport(id)!
+}
+
+/** 按 Campaign 列出复盘报告 */
+export function listPhaseReports(campaignId: string): import('@ma-proma/shared').CampaignPhaseReport[] {
+  const db = getDb()
+  const rows = db.query(
+    `SELECT * FROM campaign_phase_reports WHERE campaign_id = ? ORDER BY created_at DESC`
+  ).all(campaignId) as Record<string, unknown>[]
+  return rows.map(rowToPhaseReport)
+}
+
+/** 获取单份复盘报告 */
+export function getPhaseReport(id: string): import('@ma-proma/shared').CampaignPhaseReport | null {
+  const db = getDb()
+  const row = db.query('SELECT * FROM campaign_phase_reports WHERE id = ?').get(id) as Record<string, unknown> | null
+  return row ? rowToPhaseReport(row) : null
+}
+
+/** 更新复盘报告（人工编辑） */
+export function updatePhaseReport(
+  id: string,
+  updates: Partial<Pick<import('@ma-proma/shared').CampaignPhaseReport, 'aiSummary' | 'aiFindings' | 'aiRecommendations' | 'aiScaleAdvice' | 'status'>>
+): import('@ma-proma/shared').CampaignPhaseReport | null {
+  const db = getDb()
+  const report = getPhaseReport(id)
+  if (!report) return null
+
+  const fields: string[] = []
+  const values: unknown[] = []
+
+  if (updates.aiSummary !== undefined) { fields.push('ai_summary = ?'); values.push(updates.aiSummary) }
+  if (updates.aiFindings !== undefined) { fields.push('ai_findings = ?'); values.push(JSON.stringify(updates.aiFindings)) }
+  if (updates.aiRecommendations !== undefined) { fields.push('ai_recommendations = ?'); values.push(JSON.stringify(updates.aiRecommendations)) }
+  if (updates.aiScaleAdvice !== undefined) { fields.push('ai_scale_advice = ?'); values.push(updates.aiScaleAdvice) }
+  if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status) }
+
+  if (fields.length === 0) return report
+
+  fields.push('updated_at = ?')
+  values.push(Date.now())
+  values.push(id)
+
+  db.run(`UPDATE campaign_phase_reports SET ${fields.join(', ')} WHERE id = ?`, ...values)
+  return getPhaseReport(id)
+}
+
+/** 定稿复盘报告 */
+export function finalizePhaseReport(id: string): import('@ma-proma/shared').CampaignPhaseReport | null {
+  return updatePhaseReport(id, { status: 'finalized' })
+}
+
+/** 删除复盘报告 */
+export function deletePhaseReport(id: string): boolean {
+  const db = getDb()
+  const result = db.run('DELETE FROM campaign_phase_reports WHERE id = ?', id)
+  return result.changes > 0
+}
+
+// =====================================================================
+// AB 测试服务（Slice 3）
+// =====================================================================
+
+/** 生成 AB 测试 ID */
+function generateABTestId(): string {
+  return `ab_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+}
+
+/** 行数据 → CampaignABTest */
+function rowToABTest(row: Record<string, unknown>): import('@ma-proma/shared').CampaignABTest {
+  return {
+    id: String(row.id),
+    campaignId: String(row.campaign_id),
+    phase: Number(row.phase ?? 1),
+    testName: String(row.test_name ?? ''),
+    hypothesis: String(row.hypothesis ?? ''),
+    variableType: String(row.variable_type ?? 'content') as import('@ma-proma/shared').ABTestVariableType,
+    variableDescription: String(row.variable_description ?? ''),
+    controlGroupDefinition: String(row.control_group_definition ?? ''),
+    testGroupDefinition: String(row.test_group_definition ?? ''),
+    startDate: String(row.start_date ?? ''),
+    endDate: String(row.end_date ?? ''),
+    status: String(row.status ?? 'running') as 'running' | 'completed' | 'cancelled',
+    winnerGroup: String(row.winner_group ?? ''),
+    winnerReason: String(row.winner_reason ?? ''),
+    scaleRecommendation: String(row.scale_recommendation ?? ''),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  }
+}
+
+/** 行数据 → ABTestResult */
+function rowToABTestResult(row: Record<string, unknown>): import('@ma-proma/shared').ABTestResult {
+  return {
+    id: String(row.id),
+    abTestId: String(row.ab_test_id),
+    groupName: String(row.group_name ?? ''),
+    kolCount: Number(row.kol_count ?? 0),
+    postCount: Number(row.post_count ?? 0),
+    totalCost: Number(row.total_cost ?? 0),
+    totalExposure: Number(row.total_exposure ?? 0),
+    totalViews: Number(row.total_views ?? 0),
+    totalLikes: Number(row.total_likes ?? 0),
+    totalSaves: Number(row.total_saves ?? 0),
+    totalComments: Number(row.total_comments ?? 0),
+    totalShares: Number(row.total_shares ?? 0),
+    avgCpm: Number(row.avg_cpm ?? 0),
+    avgCpe: Number(row.avg_cpe ?? 0),
+    avgCtr: Number(row.avg_ctr ?? 0),
+    avgEngagementRate: Number(row.avg_engagement_rate ?? 0),
+    conversionCount: Number(row.conversion_count ?? 0),
+    conversionRate: Number(row.conversion_rate ?? 0),
+    significanceScore: Number(row.significance_score ?? 0),
+    isSignificant: Boolean(row.is_significant ?? 0),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  }
+}
+
+/** 创建 AB 测试 */
+export function createABTest(
+  input: import('@ma-proma/shared').CreateABTestInput
+): import('@ma-proma/shared').CampaignABTest {
+  const db = getDb()
+  const now = Date.now()
+  const id = generateABTestId()
+
+  db.run(
+    `INSERT INTO campaign_ab_tests (
+      id, campaign_id, phase, test_name, hypothesis, variable_type, variable_description,
+      control_group_definition, test_group_definition, start_date, end_date,
+      status, winner_group, winner_reason, scale_recommendation, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id,
+    input.campaignId,
+    input.phase,
+    input.testName,
+    input.hypothesis,
+    input.variableType,
+    input.variableDescription,
+    input.controlGroupDefinition,
+    input.testGroupDefinition,
+    input.startDate,
+    input.endDate,
+    'running',
+    '',
+    '',
+    '',
+    now,
+    now,
+  )
+
+  return getABTest(id)!
+}
+
+/** 按 Campaign 列出 AB 测试 */
+export function listABTests(campaignId: string): import('@ma-proma/shared').CampaignABTest[] {
+  const db = getDb()
+  const rows = db.query(
+    `SELECT * FROM campaign_ab_tests WHERE campaign_id = ? ORDER BY created_at DESC`
+  ).all(campaignId) as Record<string, unknown>[]
+  return rows.map(rowToABTest)
+}
+
+/** 获取单个 AB 测试 */
+export function getABTest(id: string): import('@ma-proma/shared').CampaignABTest | null {
+  const db = getDb()
+  const row = db.query('SELECT * FROM campaign_ab_tests WHERE id = ?').get(id) as Record<string, unknown> | null
+  return row ? rowToABTest(row) : null
+}
+
+/** 更新 AB 测试 */
+export function updateABTest(
+  id: string,
+  updates: Partial<Pick<import('@ma-proma/shared').CampaignABTest, 'testName' | 'hypothesis' | 'variableType' | 'variableDescription' | 'controlGroupDefinition' | 'testGroupDefinition' | 'startDate' | 'endDate' | 'status' | 'winnerGroup' | 'winnerReason' | 'scaleRecommendation'>>
+): import('@ma-proma/shared').CampaignABTest | null {
+  const db = getDb()
+  const test = getABTest(id)
+  if (!test) return null
+
+  const fields: string[] = []
+  const values: unknown[] = []
+
+  if (updates.testName !== undefined) { fields.push('test_name = ?'); values.push(updates.testName) }
+  if (updates.hypothesis !== undefined) { fields.push('hypothesis = ?'); values.push(updates.hypothesis) }
+  if (updates.variableType !== undefined) { fields.push('variable_type = ?'); values.push(updates.variableType) }
+  if (updates.variableDescription !== undefined) { fields.push('variable_description = ?'); values.push(updates.variableDescription) }
+  if (updates.controlGroupDefinition !== undefined) { fields.push('control_group_definition = ?'); values.push(updates.controlGroupDefinition) }
+  if (updates.testGroupDefinition !== undefined) { fields.push('test_group_definition = ?'); values.push(updates.testGroupDefinition) }
+  if (updates.startDate !== undefined) { fields.push('start_date = ?'); values.push(updates.startDate) }
+  if (updates.endDate !== undefined) { fields.push('end_date = ?'); values.push(updates.endDate) }
+  if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status) }
+  if (updates.winnerGroup !== undefined) { fields.push('winner_group = ?'); values.push(updates.winnerGroup) }
+  if (updates.winnerReason !== undefined) { fields.push('winner_reason = ?'); values.push(updates.winnerReason) }
+  if (updates.scaleRecommendation !== undefined) { fields.push('scale_recommendation = ?'); values.push(updates.scaleRecommendation) }
+
+  if (fields.length === 0) return test
+
+  fields.push('updated_at = ?')
+  values.push(Date.now())
+  values.push(id)
+
+  db.run(`UPDATE campaign_ab_tests SET ${fields.join(', ')} WHERE id = ?`, ...values)
+  return getABTest(id)
+}
+
+/** 完成 AB 测试 */
+export function completeABTest(
+  id: string,
+  winnerGroup: string,
+  winnerReason: string,
+  scaleRecommendation: string
+): import('@ma-proma/shared').CampaignABTest | null {
+  return updateABTest(id, { status: 'completed', winnerGroup, winnerReason, scaleRecommendation })
+}
+
+/** 删除 AB 测试 */
+export function deleteABTest(id: string): boolean {
+  const db = getDb()
+  // 先删除关联结果
+  db.run('DELETE FROM ab_test_results WHERE ab_test_id = ?', id)
+  const result = db.run('DELETE FROM campaign_ab_tests WHERE id = ?', id)
+  return result.changes > 0
+}
+
+/** 获取 AB 测试结果 */
+export function getABTestResults(abTestId: string): import('@ma-proma/shared').ABTestResult[] {
+  const db = getDb()
+  const rows = db.query(
+    `SELECT * FROM ab_test_results WHERE ab_test_id = ? ORDER BY group_name ASC`
+  ).all(abTestId) as Record<string, unknown>[]
+  return rows.map(rowToABTestResult)
+}
+
+/** 更新 AB 测试分组结果（存在则更新，不存在则插入） */
+export function updateABTestResult(
+  input: import('@ma-proma/shared').UpdateABTestResultInput
+): import('@ma-proma/shared').ABTestResult {
+  const db = getDb()
+  const now = Date.now()
+
+  // 检查是否已存在
+  const existing = db.query(
+    'SELECT id FROM ab_test_results WHERE ab_test_id = ? AND group_name = ?'
+  ).get(input.abTestId, input.groupName) as { id: string } | null
+
+  const safeExposure = Math.max(input.totalExposure, 1)
+  const safeEngagement = Math.max(input.totalLikes + input.totalSaves + input.totalComments + input.totalShares, 1)
+  const avgCpm = input.totalCost > 0 ? (input.totalCost / safeExposure) * 1000 : 0
+  const avgCpe = input.totalCost > 0 ? input.totalCost / safeEngagement : 0
+  const avgCtr = input.totalViews > 0 ? (input.totalViews / safeExposure) * 100 : 0
+  const avgEngagementRate = (safeEngagement / safeExposure) * 100
+
+  if (existing) {
+    db.run(
+      `UPDATE ab_test_results SET
+        kol_count = ?, post_count = ?, total_cost = ?,
+        total_exposure = ?, total_views = ?, total_likes = ?, total_saves = ?, total_comments = ?, total_shares = ?,
+        avg_cpm = ?, avg_cpe = ?, avg_ctr = ?, avg_engagement_rate = ?,
+        conversion_count = ?, conversion_rate = ?, updated_at = ?
+       WHERE id = ?`,
+      input.kolCount, input.postCount, input.totalCost,
+      input.totalExposure, input.totalViews, input.totalLikes, input.totalSaves, input.totalComments, input.totalShares,
+      avgCpm, avgCpe, avgCtr, avgEngagementRate,
+      input.conversionCount, input.conversionRate,
+      now, existing.id,
+    )
+    return getABTestResultById(existing.id)!
+  }
+
+  const id = `abr_${now}_${Math.random().toString(36).slice(2, 9)}`
+  db.run(
+    `INSERT INTO ab_test_results (
+      id, ab_test_id, group_name, kol_count, post_count, total_cost,
+      total_exposure, total_views, total_likes, total_saves, total_comments, total_shares,
+      avg_cpm, avg_cpe, avg_ctr, avg_engagement_rate, conversion_count, conversion_rate,
+      significance_score, is_significant, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id, input.abTestId, input.groupName, input.kolCount, input.postCount, input.totalCost,
+    input.totalExposure, input.totalViews, input.totalLikes, input.totalSaves, input.totalComments, input.totalShares,
+    avgCpm, avgCpe, avgCtr, avgEngagementRate, input.conversionCount, input.conversionRate,
+    0, 0, now, now,
+  )
+  return getABTestResultById(id)!
+}
+
+/** 通过 ID 获取单条结果 */
+function getABTestResultById(id: string): import('@ma-proma/shared').ABTestResult | null {
+  const db = getDb()
+  const row = db.query('SELECT * FROM ab_test_results WHERE id = ?').get(id) as Record<string, unknown> | null
+  return row ? rowToABTestResult(row) : null
+}
+
+/** 计算并更新统计显著性（简化版：组间差异 / 标准差） */
+export function calculateABTestSignificance(abTestId: string): void {
+  const db = getDb()
+  const results = getABTestResults(abTestId)
+  if (results.length < 2) return
+
+  const engagementRates = results.map((r) => r.avgEngagementRate)
+  const mean = engagementRates.reduce((a, b) => a + b, 0) / engagementRates.length
+  const variance = engagementRates.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / engagementRates.length
+  const stdDev = Math.sqrt(variance) || 1
+
+  const maxRate = Math.max(...engagementRates)
+  const minRate = Math.min(...engagementRates)
+  const diff = maxRate - minRate
+  const significanceScore = Math.min(diff / stdDev, 1) // 0-1
+  const isSignificant = significanceScore > 0.5 ? 1 : 0
+
+  for (const result of results) {
+    db.run(
+      'UPDATE ab_test_results SET significance_score = ?, is_significant = ? WHERE id = ?',
+      significanceScore,
+      isSignificant,
+      result.id,
+    )
+  }
+}
+
+/** AI 分析 AB 测试 */
+export async function analyzeABTest(
+  abTestId: string
+): Promise<{ success: boolean; result?: import('@ma-proma/shared').CampaignABTest; error?: string }> {
+  try {
+    const test = getABTest(abTestId)
+    if (!test) return { success: false, error: 'AB 测试不存在' }
+
+    const results = getABTestResults(abTestId)
+    if (results.length < 2) return { success: false, error: '需要至少 2 组数据才能分析' }
+
+    // 计算统计显著性
+    calculateABTestSignificance(abTestId)
+    const updatedResults = getABTestResults(abTestId)
+
+    // 找出胜出组
+    const winner = updatedResults.reduce((best, current) =>
+      current.avgEngagementRate > best.avgEngagementRate ? current : best
+    )
+
+    const { completePrompt, extractJSON } = await import('./ma-tools/llm-service')
+
+    const systemPrompt = `你是一位资深社交媒体投放测试分析师，擅长 A/B 测试数据分析和放量决策。
+
+请基于 AB 测试数据生成结构化分析，输出严格 JSON 格式：
+{
+  "winner_reason": "胜出原因（200字以内）",
+  "scale_recommendation": "放量建议（300字以内，包含具体预算分配和达人组合建议）"
+}
+
+分析维度：
+1. 各组数据表现对比（曝光、互动率、CPM、CPE）
+2. 统计显著性评估
+3. 胜出组优势分析
+4. 下阶段放量建议（预算分配、达人组合、内容策略）`
+
+    const userPrompt = `请分析以下 AB 测试数据：
+
+测试名称：${test.testName}
+假设：${test.hypothesis}
+变量类型：${test.variableType}
+
+分组数据：
+${updatedResults.map((r) => `
+组名：${r.groupName}
+- KOL 数量：${r.kolCount}
+- 内容数：${r.postCount}
+- 总成本：¥${r.totalCost.toLocaleString()}
+- 总曝光：${r.totalExposure.toLocaleString()}
+- 总浏览：${r.totalViews.toLocaleString()}
+- 总点赞：${r.totalLikes.toLocaleString()}
+- 总收藏：${r.totalSaves.toLocaleString()}
+- 总评论：${r.totalComments.toLocaleString()}
+- 总转发：${r.totalShares.toLocaleString()}
+- 平均 CPM：¥${r.avgCpm.toFixed(2)}
+- 平均 CPE：¥${r.avgCpe.toFixed(2)}
+- 平均 CTR：${r.avgCtr.toFixed(2)}%
+- 平均互动率：${r.avgEngagementRate.toFixed(2)}%
+- 转化率：${r.conversionRate.toFixed(2)}%
+`).join('\n')}
+
+统计显著性：${(updatedResults[0]?.significanceScore ?? 0 * 100).toFixed(0)}%
+胜出组：${winner.groupName}
+
+请生成结构化分析。`
+
+    const llmResult = await completePrompt(userPrompt, systemPrompt, {
+      jsonMode: true,
+      temperature: 0.5,
+      maxTokens: 6000,
+    })
+
+    let winnerReason = `${winner.groupName} 组互动率最高（${winner.avgEngagementRate.toFixed(2)}%），建议作为胜出组。`
+    let scaleRecommendation = '建议扩大 ${winner.groupName} 组的投放规模，逐步减少其他组预算。'
+
+    if (llmResult.success) {
+      try {
+        const parsed = extractJSON(llmResult.text) as Record<string, unknown>
+        winnerReason = String(parsed.winner_reason ?? winnerReason)
+        scaleRecommendation = String(parsed.scale_recommendation ?? scaleRecommendation)
+      } catch {
+        // 使用默认值
+      }
+    }
+
+    const updated = updateABTest(abTestId, {
+      status: 'completed',
+      winnerGroup: winner.groupName,
+      winnerReason,
+      scaleRecommendation,
+    })
+
+    return { success: true, result: updated ?? undefined }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    return { success: false, error: msg }
+  }
 }

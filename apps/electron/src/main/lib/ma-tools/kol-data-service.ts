@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, cpSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { getConfigDir } from '../config-paths'
+import type { KOLExtendedData } from '@ma-proma/shared'
 
 // =====================================================================
 // SQLite 运行时适配层
@@ -119,6 +120,13 @@ export interface KOLRecord {
   overallScore: number
   createdAt: number
   updatedAt: number
+  // 扩展数据字段
+  extendedData?: KOLExtendedData
+  valueScore?: number
+  adQualityScore?: number
+  riskScore?: number
+  valueTags?: string[]
+  riskFlags?: string[]
 }
 
 export interface KOLSearchFilters {
@@ -148,7 +156,7 @@ export interface KOLCollectorReport {
   message?: string
 }
 
-type KOLScoreFields = Pick<KOLRecord, 'fanScore' | 'engagementScore' | 'contentScore' | 'overallScore'>
+type KOLScoreFields = Pick<KOLRecord, 'fanScore' | 'engagementScore' | 'contentScore' | 'overallScore' | 'valueScore' | 'adQualityScore' | 'riskScore'>
 type KOLUpsertInput = Omit<KOLRecord, 'createdAt' | 'updatedAt' | keyof KOLScoreFields> &
   Partial<KOLScoreFields> & {
     createdAt?: number
@@ -187,7 +195,7 @@ function getDb(): Database {
 
   dbInstance = new Database(dbPath)
 
-  // 创建表（如果表不存在则创建，包含评分字段）
+  // 创建表（如果表不存在则创建，包含评分字段和扩展数据列）
   dbInstance.run(`
     CREATE TABLE IF NOT EXISTS kols (
       id TEXT PRIMARY KEY,
@@ -205,6 +213,12 @@ function getDb(): Database {
       engagement_score REAL DEFAULT 0,
       content_score REAL DEFAULT 0,
       overall_score REAL DEFAULT 0,
+      value_score REAL DEFAULT 0,
+      ad_quality_score REAL DEFAULT 0,
+      risk_score REAL DEFAULT 0,
+      extended_data TEXT,
+      value_tags TEXT,
+      risk_flags TEXT,
       created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
       updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
     )
@@ -230,6 +244,25 @@ function getDb(): Database {
   }
   if (!hasColumn('kols', 'overall_score')) {
     dbInstance.run(`ALTER TABLE kols ADD COLUMN overall_score REAL DEFAULT 0`)
+  }
+  // 扩展数据评分列
+  if (!hasColumn('kols', 'value_score')) {
+    dbInstance.run(`ALTER TABLE kols ADD COLUMN value_score REAL DEFAULT 0`)
+  }
+  if (!hasColumn('kols', 'ad_quality_score')) {
+    dbInstance.run(`ALTER TABLE kols ADD COLUMN ad_quality_score REAL DEFAULT 0`)
+  }
+  if (!hasColumn('kols', 'risk_score')) {
+    dbInstance.run(`ALTER TABLE kols ADD COLUMN risk_score REAL DEFAULT 0`)
+  }
+  if (!hasColumn('kols', 'extended_data')) {
+    dbInstance.run(`ALTER TABLE kols ADD COLUMN extended_data TEXT`)
+  }
+  if (!hasColumn('kols', 'value_tags')) {
+    dbInstance.run(`ALTER TABLE kols ADD COLUMN value_tags TEXT`)
+  }
+  if (!hasColumn('kols', 'risk_flags')) {
+    dbInstance.run(`ALTER TABLE kols ADD COLUMN risk_flags TEXT`)
   }
 
   // 达人CRM表
@@ -314,6 +347,8 @@ function getDb(): Database {
   dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_kols_name ON kols(name)`)
   dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_kols_source ON kols(source)`)
   dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_kols_overall_score ON kols(overall_score DESC)`)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_kols_value_score ON kols(value_score DESC)`)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_kols_ad_quality_score ON kols(ad_quality_score DESC)`)
   dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_kol_crm_status ON kol_crm(onboarding_status)`)
   dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_kol_crm_loyalty ON kol_crm(loyalty_tier)`)
   dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_campaign_tests_status ON campaign_tests(status)`)
@@ -350,8 +385,8 @@ export function upsertKOL(kol: KOLUpsertInput): void {
 
   db.run(
     `
-    INSERT INTO kols (id, name, platform, followers, engagement, category, price, city, avatar, source, raw_data, fan_score, engagement_score, content_score, overall_score, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO kols (id, name, platform, followers, engagement, category, price, city, avatar, source, raw_data, fan_score, engagement_score, content_score, overall_score, value_score, ad_quality_score, risk_score, extended_data, value_tags, risk_flags, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       platform = excluded.platform,
@@ -367,6 +402,12 @@ export function upsertKOL(kol: KOLUpsertInput): void {
       engagement_score = excluded.engagement_score,
       content_score = excluded.content_score,
       overall_score = excluded.overall_score,
+      value_score = excluded.value_score,
+      ad_quality_score = excluded.ad_quality_score,
+      risk_score = excluded.risk_score,
+      extended_data = excluded.extended_data,
+      value_tags = excluded.value_tags,
+      risk_flags = excluded.risk_flags,
       updated_at = excluded.updated_at
     `,
     [
@@ -385,6 +426,12 @@ export function upsertKOL(kol: KOLUpsertInput): void {
       scores.contentScore,
       scores.commercialScore,
       scores.overallScore,
+      scores.valueScore,
+      scores.adQualityScore,
+      scores.riskScore,
+      kol.extendedData ? JSON.stringify(kol.extendedData) : null,
+      kol.valueTags ? kol.valueTags.join(',') : null,
+      kol.riskFlags ? kol.riskFlags.join(',') : null,
       kol.createdAt ?? now,
       kol.updatedAt ?? now,
     ],
@@ -512,6 +559,15 @@ export function getKOLStats(): { total: number; byPlatform: Record<string, numbe
 // =====================================================================
 
 function rowToKOL(row: Record<string, unknown>): KOLRecord {
+  const extRaw = row.extended_data ? String(row.extended_data) : null
+  let extendedData: KOLRecord['extendedData'] = undefined
+  if (extRaw) {
+    try {
+      extendedData = JSON.parse(extRaw) as KOLRecord['extendedData']
+    } catch {
+      extendedData = undefined
+    }
+  }
   return {
     id: String(row.id),
     name: String(row.name),
@@ -530,6 +586,12 @@ function rowToKOL(row: Record<string, unknown>): KOLRecord {
     overallScore: Number(row.overall_score ?? 0),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
+    extendedData,
+    valueScore: row.value_score != null ? Number(row.value_score) : undefined,
+    adQualityScore: row.ad_quality_score != null ? Number(row.ad_quality_score) : undefined,
+    riskScore: row.risk_score != null ? Number(row.risk_score) : undefined,
+    valueTags: row.value_tags ? String(row.value_tags).split(',').filter(Boolean) : undefined,
+    riskFlags: row.risk_flags ? String(row.risk_flags).split(',').filter(Boolean) : undefined,
   }
 }
 
@@ -551,7 +613,116 @@ const SAMPLE_KOLS: Omit<KOLRecord, 'createdAt' | 'updatedAt'>[] = [
     { id: 'mock_微博_时尚icon', name: '@时尚icon', platform: '微博', followers: '800万', engagement: '3.5%', category: '时尚', price: '50万', city: '北京', avatar: '', source: 'mock', rawData: '{}' },
     { id: 'mock_微博_美妆教主', name: '@美妆教主', platform: '微博', followers: '600万', engagement: '4.2%', category: '美妆', price: '40万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
     { id: 'mock_B站_测评实验室', name: '@测评实验室', platform: 'B站', followers: '150万', engagement: '12.5%', category: '3C', price: '12万', city: '上海', avatar: '', source: 'mock', rawData: '{}' },
-  ].map((kol) => ({ ...kol, fanScore: 0, engagementScore: 0, contentScore: 0, overallScore: 0 })),
+  ].map((kol) => ({
+    ...kol,
+    fanScore: 0,
+    engagementScore: 0,
+    contentScore: 0,
+    overallScore: 0,
+    valueScore: 0,
+    adQualityScore: 0,
+    riskScore: 0,
+  })),
+  // 带扩展数据的示例 KOL（用于展示扩展评分维度）
+  {
+    id: 'mock_xhs_扩展数据示例_美妆达人',
+    name: '@扩展数据示例-美妆达人',
+    platform: '小红书',
+    followers: '100万',
+    engagement: '12%',
+    category: '美妆',
+    price: '5万',
+    city: '上海',
+    avatar: '',
+    source: 'mock',
+    rawData: '{}',
+    fanScore: 0,
+    engagementScore: 0,
+    contentScore: 0,
+    overallScore: 0,
+    valueScore: 0,
+    adQualityScore: 0,
+    riskScore: 0,
+    extendedData: {
+      likes: 5000,
+      saves: 3000,
+      likesToSavesRatio: 1.67,
+      femaleRatio: 82,
+      maleRatio: 18,
+      age18to35Ratio: 55,
+      minLikes3m: 2000,
+      maxLikes3m: 15000,
+      avgLikes3m: 6000,
+      monthlyPostCount: 8,
+      postsLast30d: 7,
+      viralRate30d: 12,
+      viralNotesCount: 3,
+      negativeCommentRatio: 3,
+      cpe: 8,
+      cpm: 60,
+      estimatedPrice: 100000,
+      priceReasonableness: 'normal',
+      adNoteRatio: 15,
+      organicNoteRatio: 75,
+      adNotesLast30d: 3,
+      totalNotesLast30d: 20,
+      recentNotesTrend: [
+        { date: '2024-01-15', title: '新年妆容分享', exposure: 50000, views: 30000, likes: 5000, comments: 200, saves: 1500, isAd: false },
+        { date: '2024-01-10', title: 'XX口红试色', exposure: 80000, views: 50000, likes: 8000, comments: 300, saves: 2500, isAd: true },
+      ],
+      recentAdNotes: [
+        { date: '2024-01-10', title: 'XX口红试色', exposure: 80000, views: 50000, completionRate: 0.6, likes: 8000, comments: 300, saves: 2500, shares: 150, commentProductRatio: 45, vsOrganic: { exposureDiff: 30000, engagementDiff: 2000 } },
+      ],
+      valueTags: ['女粉精准', '性价比高', '爆文率高'],
+      riskFlags: [],
+    },
+  },
+  {
+    id: 'mock_xhs_扩展数据示例_生活方式',
+    name: '@扩展数据示例-生活方式',
+    platform: '小红书',
+    followers: '60万',
+    engagement: '7%',
+    category: '生活方式',
+    price: '3.5万',
+    city: '杭州',
+    avatar: '',
+    source: 'mock',
+    rawData: '{}',
+    fanScore: 0,
+    engagementScore: 0,
+    contentScore: 0,
+    overallScore: 0,
+    valueScore: 0,
+    adQualityScore: 0,
+    riskScore: 0,
+    extendedData: {
+      likes: 3000,
+      saves: 2000,
+      likesToSavesRatio: 1.5,
+      femaleRatio: 75,
+      maleRatio: 25,
+      age18to35Ratio: 48,
+      minLikes3m: 1500,
+      maxLikes3m: 8000,
+      avgLikes3m: 3500,
+      monthlyPostCount: 6,
+      postsLast30d: 5,
+      viralRate30d: 8,
+      viralNotesCount: 2,
+      negativeCommentRatio: 5,
+      cpe: 12,
+      cpm: 80,
+      estimatedPrice: 60000,
+      priceReasonableness: 'normal',
+      adNoteRatio: 25,
+      organicNoteRatio: 65,
+      adNotesLast30d: 4,
+      totalNotesLast30d: 16,
+      valueTags: ['更新稳定'],
+      riskFlags: ['CPE偏高', '广告占比上升'],
+    },
+  },
 ]
 
 /**
@@ -661,6 +832,9 @@ function normalizeJustOneItem(item: unknown, platform: string): KOLRecord {
     engagementScore: 0,
     contentScore: 0,
     overallScore: 0,
+    valueScore: 0,
+    adQualityScore: 0,
+    riskScore: 0,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   }
@@ -723,6 +897,9 @@ export async function searchNewrank(
         engagementScore: 0,
         contentScore: 0,
         overallScore: 0,
+        valueScore: 0,
+        adQualityScore: 0,
+        riskScore: 0,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       }
@@ -963,14 +1140,137 @@ function computeAudienceScore(kolCity: string, targetCities?: string[]): number 
   return 40
 }
 
-function computeRiskScore(platform: string, followersStr: string, engagementStr: string): number {
+function computeRiskScore(platform: string, followersStr: string, engagementStr: string, extendedData?: KOLExtendedData): number {
   const followers = parseFollowersNum(followersStr)
   const engagement = parseEngagementNum(engagementStr)
   const interactionRatio = followers > 0 ? (engagement / followers * 100) : 0
-  if (interactionRatio > 10) return 30
-  if (interactionRatio < 0.05) return 40
-  if (platform === '抖音' && engagement > 50) return 50
-  return 90
+  let score = 90
+
+  // 基础风险评估（互动率异常）
+  if (interactionRatio > 10) score -= 30
+  if (interactionRatio < 0.05) score -= 20
+  if (platform === '抖音' && engagement > 50) score -= 20
+
+  // 基于扩展数据的风险评估
+  if (extendedData) {
+    // 负面评论占比（<10%合格，0%优秀）
+    if (extendedData.negativeCommentRatio != null) {
+      if (extendedData.negativeCommentRatio > 20) score -= 30
+      else if (extendedData.negativeCommentRatio > 10) score -= 15
+      else if (extendedData.negativeCommentRatio === 0) score += 5
+    }
+
+    // 更新频率（月更4条合格，8-10条优秀）
+    if (extendedData.monthlyPostCount != null) {
+      if (extendedData.monthlyPostCount < 2) score -= 20  // 更新不稳定
+      else if (extendedData.monthlyPostCount > 15) score -= 10  // 更新过于频繁可能质量下降
+    }
+
+    // 爆文率异常（5%合格，10%优秀）
+    if (extendedData.viralRate30d != null) {
+      if (extendedData.viralRate30d > 30) score -= 15  // 爆文率过高可能刷量
+    }
+  }
+
+  return Math.max(0, Math.min(100, score))
+}
+
+/**
+ * 计算性价比评分（基于 CPE、CPM、报价合理性）
+ * 5-10元性价比高，10-20元常态，>20元需谨慎
+ */
+function computeValueScore(priceStr: string, followersStr: string, extendedData?: KOLExtendedData): number {
+  let score = 50
+
+  // 解析报价
+  const priceMatch = priceStr.match(/(\d+(?:\.\d+)?)\s*万?/)
+  const price = priceMatch ? parseFloat(priceMatch[1]!) * (priceStr.includes('万') ? 10000 : 1) : 0
+  const followers = parseFollowersNum(followersStr)
+
+  if (extendedData) {
+    // CPE 评估（单次互动成本）
+    if (extendedData.cpe != null) {
+      if (extendedData.cpe <= 5) score += 25
+      else if (extendedData.cpe <= 10) score += 15
+      else if (extendedData.cpe <= 20) score += 0
+      else score -= 20
+    }
+
+    // CPM 评估（千次曝光成本）
+    if (extendedData.cpm != null) {
+      if (extendedData.cpm <= 50) score += 15
+      else if (extendedData.cpm <= 100) score += 5
+      else if (extendedData.cpm <= 200) score += 0
+      else score -= 10
+    }
+
+    // 报价合理性（预估报价 vs 实际报价）
+    if (extendedData.estimatedPrice != null && price > 0) {
+      const ratio = price / extendedData.estimatedPrice
+      if (ratio >= 0.8 && ratio <= 1.2) score += 10
+      else if (ratio >= 0.5 && ratio <= 1.5) score += 5
+      else if (ratio > 2) score -= 15
+    }
+  } else if (followers > 0 && price > 0) {
+    // 无扩展数据时，基于粉丝量估算
+    const estimatedPrice = followers * 0.1
+    const ratio = price / estimatedPrice
+    if (ratio >= 0.8 && ratio <= 1.2) score += 10
+    else if (ratio >= 0.5 && ratio <= 1.5) score += 5
+    else if (ratio > 2) score -= 15
+  }
+
+  return Math.max(0, Math.min(100, score))
+}
+
+/**
+ * 计算广告质量评分（基于广告笔记占比、广告数据表现）
+ * 广告笔记占比30%合格，10%优秀
+ */
+function computeAdQualityScore(extendedData?: KOLExtendedData): number {
+  if (!extendedData) return 50
+
+  let score = 50
+
+  // 广告笔记占比评估
+  if (extendedData.adNoteRatio != null) {
+    if (extendedData.adNoteRatio <= 10) score += 20
+    else if (extendedData.adNoteRatio <= 20) score += 10
+    else if (extendedData.adNoteRatio <= 30) score += 0
+    else if (extendedData.adNoteRatio <= 50) score -= 10
+    else score -= 25
+  }
+
+  // 日常笔记占比评估（60%合格，70%优秀）
+  if (extendedData.organicNoteRatio != null) {
+    if (extendedData.organicNoteRatio >= 70) score += 10
+    else if (extendedData.organicNoteRatio >= 60) score += 5
+    else if (extendedData.organicNoteRatio < 40) score -= 10
+  }
+
+  // 近10条广告内容数据表现
+  if (extendedData.recentAdNotes && extendedData.recentAdNotes.length > 0) {
+    const avgEngagement = extendedData.recentAdNotes.reduce((sum, note) => sum + (note.likes + note.comments + note.saves), 0) / extendedData.recentAdNotes.length
+    const avgOrganic = extendedData.recentNotesTrend
+      ? extendedData.recentNotesTrend.filter(n => !n.isAd).reduce((sum, note) => sum + (note.likes + note.comments + note.saves), 0) / Math.max(1, extendedData.recentNotesTrend.filter(n => !n.isAd).length)
+      : 0
+
+    if (avgOrganic > 0) {
+      const ratio = avgEngagement / avgOrganic
+      if (ratio >= 0.8) score += 15
+      else if (ratio >= 0.5) score += 5
+      else if (ratio >= 0.3) score -= 5
+      else score -= 15
+    }
+
+    // 完播率评估
+    const avgCompletion = extendedData.recentAdNotes.reduce((sum, note) => sum + (note.completionRate ?? 0), 0) / extendedData.recentAdNotes.length
+    if (avgCompletion >= 0.5) score += 10
+    else if (avgCompletion >= 0.3) score += 5
+    else if (avgCompletion < 0.1) score -= 10
+  }
+
+  return Math.max(0, Math.min(100, score))
 }
 
 export function computeKOLScores(
@@ -983,6 +1283,8 @@ export function computeKOLScores(
   commercialScore: number
   audienceScore: number
   riskScore: number
+  valueScore: number
+  adQualityScore: number
   overallScore: number
 } {
   const weights = PLATFORM_WEIGHTS[kol.platform] ?? PLATFORM_WEIGHTS['小红书']!
@@ -990,15 +1292,21 @@ export function computeKOLScores(
   const contentScore = computeContentScore(kol.platform, kol.engagement)
   const commercialScore = computeCommercialScore(kol.category, brandCategory)
   const audienceScore = computeAudienceScore(kol.city, targetCities)
-  const riskScore = computeRiskScore(kol.platform, kol.followers, kol.engagement)
+  const riskScore = computeRiskScore(kol.platform, kol.followers, kol.engagement, kol.extendedData)
+  const valueScore = computeValueScore(kol.price, kol.followers, kol.extendedData)
+  const adQualityScore = computeAdQualityScore(kol.extendedData)
+
+  // 综合评分权重调整（纳入 valueScore 和 adQualityScore）
   const overallScore = Math.round(
-    baseScore * weights.base +
-    contentScore * weights.content +
-    commercialScore * weights.commercial +
-    audienceScore * weights.audience +
-    riskScore * weights.risk,
+    baseScore * weights.base * 0.7 +
+    contentScore * weights.content * 0.7 +
+    commercialScore * weights.commercial * 0.7 +
+    audienceScore * weights.audience * 0.7 +
+    riskScore * weights.risk * 0.7 +
+    valueScore * 0.15 +
+    adQualityScore * 0.15,
   )
-  return { baseScore, contentScore, commercialScore, audienceScore, riskScore, overallScore }
+  return { baseScore, contentScore, commercialScore, audienceScore, riskScore, valueScore, adQualityScore, overallScore }
 }
 
 export function recalculateAllScores(): { updated: number } {
@@ -1009,13 +1317,14 @@ export function recalculateAllScores(): { updated: number } {
     const kol = rowToKOL(row)
     const scores = computeKOLScores(kol)
     db.run(
-      `UPDATE kols SET fan_score = ?, engagement_score = ?, content_score = ?, overall_score = ?, updated_at = ? WHERE id = ?`,
+      `UPDATE kols SET fan_score = ?, engagement_score = ?, content_score = ?, overall_score = ?, value_score = ?, ad_quality_score = ?, risk_score = ?, updated_at = ? WHERE id = ?`,
       scores.baseScore, scores.contentScore, scores.commercialScore, scores.overallScore,
+      scores.valueScore, scores.adQualityScore, scores.riskScore,
       Date.now(), kol.id,
     )
     updated++
   }
-  console.log(`[KOL评分] 已重新计算 ${updated} 个 KOL（VONBON 5维度）`)
+  console.log(`[KOL评分] 已重新计算 ${updated} 个 KOL（VONBON 5维度 + 扩展评分）`)
   return { updated }
 }
 

@@ -157,3 +157,30 @@ export {
   isCampaignAgentToolCall,
   executeCampaignAgentTool,
 } from './campaign-agent'
+
+// BudgetForecast
+export {
+  BUDGET_FORECAST_TOOL_META,
+  BUDGET_FORECAST_TOOL_DEFINITIONS,
+  isBudgetForecastAvailable,
+  isBudgetForecastToolCall,
+  executeBudgetForecastTool,
+} from './budget-forecast'
+
+// ContentTracker (内容数据追踪)
+export {
+  CONTENT_TRACKER_TOOL_META,
+  CONTENT_TRACKER_TOOL_DEFINITIONS,
+  isContentTrackerAvailable,
+  isContentTrackerToolCall,
+  executeContentTrackerTool,
+} from './content-tracker'
+
+// PhaseReviewer (阶段复盘)
+export {
+  PHASE_REVIEWER_TOOL_META,
+  PHASE_REVIEWER_TOOL_DEFINITIONS,
+  isPhaseReviewerAvailable,
+  isPhaseReviewerToolCall,
+  executePhaseReviewerTool,
+} from './ma-phase-reviewer'

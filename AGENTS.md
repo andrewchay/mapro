@@ -165,6 +165,7 @@ bun run generate:icons    # 生成应用图标
 - `FEISHU_IPC_CHANNELS` - 飞书集成
 - `CAMPAIGN_IPC_CHANNELS` - Campaign 项目管理（Campaign / KOL 候选池 / Brief / 工作流）
 - `CONTENT_AUDIT_IPC_CHANNELS` - 内容审核
+- `CONTENT_TRACKING_IPC_CHANNELS` - 内容数据追踪（KOL 内容数据回收、投流分析、性能分级）
 - `KOL_DATA_IPC_CHANNELS` - KOL 数据管理
 - `GITHUB_RELEASE_IPC_CHANNELS` - GitHub 发布
 
@@ -208,7 +209,7 @@ bun run generate:icons    # 生成应用图标
 | 服务 | 职责 |
 |------|------|
 | `chat-tools/` | Chat 工具实现目录：内置工具函数 |
-| `ma-tools/` | MA 营销工具集：17 个营销相关 Chat Tool（见上方 Campaign 业务服务） |
+| `ma-tools/` | MA 营销工具集：19 个营销相关 Chat Tool（见上方 Campaign 业务服务） |
 | `workspace-watcher.ts` | 工作区文件监听：文件系统变化监控 |
 | `chat-tools-watcher.ts` | Chat 工具监听：工具配置变化监控 |
 | `attachment-service.ts` | 附件管理：存储/读取/删除、文件对话框 |
@@ -532,19 +533,20 @@ Campaign 是在 Agent 模式之上构建的 **KOL 投放项目管理**高层抽�
 | `CampaignBrief` | 每个 KOL 一份 Markdown 合作 Brief，支持 AI 生成标记 |
 | `CampaignWorkflow` | 9 步标准工作流：每步含 `agentPrompt` / `toolName` / `artifactRequirements`（语义锚点）/ `minArtifactLength` |
 | `ContentAudit` | 内容审核：AI 审核 + 人工复核，4 维度评分（合规/品牌契合/质量/综合） |
+| `ContentTracking` | 内容数据追踪：合作内容数据回收（曝光/浏览/点赞/收藏/评论/转发/CPM/CPE/CTR）、自然流性能判断（按价格带标准分级）、投流数据追踪与优化建议 |
 
 ### 存储架构
 
-- `~/.mapro/campaign-database.sqlite`：Campaign + KOL 候选池 + Brief + 内容审核 4 张表
-- `~/.mapro/kol-database.sqlite`：KOL 主数据库（含 fan/engagement/content/overall_score 评分系统）
+- `~/.mapro/campaign-database.sqlite`：Campaign + KOL 候选池 + Brief + 内容审核 + 内容数据追踪 + 数据标准基准 6 张表
+- `~/.mapro/kol-database.sqlite`：KOL 主数据库（含 fan/engagement/content/overall_score 评分系统 + extended_data 达人内容分析数据：粉丝画像、赞藏比、爆文率、CPE/CPM、广告笔记占比、近10条数据趋势等）
 - **双引擎适配**：Bun 环境用 `bun:sqlite`，Electron 环境用 `better-sqlite3`（`campaign-manager.ts:loadEngine` 自动选择，二者 API 对齐）
-- 每步**产物文件**存到 `~/.mapro/agent-workspaces/campaign-{id}/` 下标准目录：`brand-dna/`、`ta-portrait/`、`creative-concept/`、`platform-matrix/`、`kol-pyramid/`、`kol-search/`、`briefs/`、`ab-test/`、`.context/`（含 `todo.md` / `campaign.md` / `history.md`）
+- 每步**产物文件**存到 `~/.mapro/agent-workspaces/campaign-{id}/` 下标准目录：`brand-dna/`、`brand-concept/`、`creative-concept/`、`platform-matrix/`、`kol-pyramid/`、`kol-search/`、`briefs/`、`ab-test/`、`.context/`（含 `todo.md` / `campaign.md` / `history.md`）
 
 ### 9 步标准工作流（`campaign-workflow-service.ts`）
 
 ```
 1. 提取品牌 DNA        → ma-brand-dna
-2. 构建 TA 画像         → ma-ta-portrait
+2. Brand Concept 产出  → ma-brand-house
 3. 生成 Big Idea        → ma-creative-concept
 4. 设计平台矩阵         → ma-platform-role-mapper
 5. 设计 KOL 金字塔      → ma-kol-pyramid
@@ -573,22 +575,22 @@ Campaign 是在 Agent 模式之上构建的 **KOL 投放项目管理**高层抽�
 
 ### IPC 全链路
 
-- **通道常量**：`CAMPAIGN_IPC_CHANNELS`（14 个）+ `CONTENT_AUDIT_IPC_CHANNELS`（4 个）+ `KOL_DATA_IPC_CHANNELS`（4 个）
-- **主进程**：`ipc.ts` → `campaign-manager.ts`（CRUD/候选池/Brief/审核）+ `campaign-workflow-service.ts`（工作流状态机/产物校验）
-- **Preload**：`window.electronAPI.listCampaigns` / `getCampaignWorkflow` / `advanceCampaignPhase` / `listContentAudits` 等
+- **通道常量**：`CAMPAIGN_IPC_CHANNELS`（14 个）+ `CONTENT_AUDIT_IPC_CHANNELS`（4 个）+ `CONTENT_TRACKING_IPC_CHANNELS`（7 个）+ `KOL_DATA_IPC_CHANNELS`（4 个）
+- **主进程**：`ipc.ts` → `campaign-manager.ts`（CRUD/候选池/Brief/审核/内容数据追踪）+ `campaign-workflow-service.ts`（工作流状态机/产物校验）
+- **Preload**：`window.electronAPI.listCampaigns` / `getCampaignWorkflow` / `advanceCampaignPhase` / `listContentAudits` / `listContentTracking` / `addContentTracking` 等
 - **渲染层**：`campaign-atoms.ts` + `CampaignDetail` / `CampaignList` / `CampaignWorkflowSteps` / `CampaignKOLImportDialog` / `CampaignBriefDialog` / `ContentAuditDialog` / `FilePreviewDialog`
 
-### ma-tools 营销工具集（`main/lib/ma-tools/`，17 个工具）
+### ma-tools 营销工具集（`main/lib/ma-tools/`，19 个工具）
 
 为 Chat 模式提供营销能力，通过 `ChatToolMeta` + `ToolDefinition` 注册：
 
 - **策略类**：strategy-iq、creative-pilot、script-studio
 - **KOL 类**：match-ai、connect-bot、kol-search、kol-crm、kol-portal、kol-data-mcp
-- **Campaign 类**：campaign-agent（8 个子工具：get/update/brief_get/brief_update/kol_list/kol_add/kol_status/audit）、campaign-optimizer、campaign-tester
-- **内容类**：content-audit
+- **Campaign 类**：campaign-agent（8 个子工具）、campaign-optimizer、campaign-tester、budget-forecast
+- **内容类**：content-audit、content-tracker（内容数据回收与投流分析）
 - **基础**：llm-service、kol-data-service
 
-配套 `default-skills/` 下 12 个 `ma-*` Skill（brand-dna、creative-concept、kol-pyramid、ta-portrait、platform-role-mapper、campaign-tester、content-audit、competitor-analyzer、content-calendar、kol-portal、marketing、ugc-campaign 等）。
+配套 `default-skills/` 下 12 个 `ma-*` Skill（brand-dna、brand-house、creative-concept、kol-pyramid、platform-role-mapper、campaign-tester、content-audit、competitor-analyzer、content-calendar、kol-portal、marketing、ugc-campaign 等）。
 
 ## 创作参考
 
@@ -607,8 +609,8 @@ Campaign 是在 Agent 模式之上构建的 **KOL 投放项目管理**高层抽�
 
 - ✅ **多 Provider 支持**：Anthropic、OpenAI、DeepSeek、Kimi、智谱、MiniMax、豆包、通义千问、Google、自定义端点
 - ✅ **Agent SDK 集成**：基于 Claude Agent SDK 的完整 Agent 模式
-- ✅ **Campaign 项目管理**：KOL 投放项目、9 步标准工作流、产物校验、KOL 候选池、Brief 生成、内容审核（fork 后新增，详见 Campaign 功能架构段落）
-- ✅ **MA 营销工具集**：17 个 ma-tools Chat Tool + 12 个 `ma-*` default Skills，覆盖品牌 DNA、TA 画像、创意概念、KOL 匹配/建联/搜索/CRM、脚本工坊、内容审核等
+- ✅ **Campaign 项目管理**：KOL 投放项目、9 步标准工作流、产物校验、KOL 候选池、Brief 生成、内容审核、内容数据追踪（fork 后新增，详见 Campaign 功能架构段落）
+- ✅ **MA 营销工具集**：19 个 ma-tools Chat Tool + 12 个 `ma-*` default Skills，覆盖品牌 DNA、TA 画像、创意概念、KOL 匹配/建联/搜索/CRM、脚本工坊、内容审核、内容数据追踪等
 - ✅ **飞书集成**：消息同步、任务通知、OAuth 认证（68KB 核心服务）
 - ✅ **钉钉 / 微信桥接**：机器人消息桥接入口
 - ✅ **语音听写**：豆包 ASR 集成、独立听写窗口

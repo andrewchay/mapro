@@ -1,7 +1,7 @@
 ---
 name: ma-marketing
 description: Flow 复楼 —— 智能社交营销 AI 代理。整合策略生成、KOL 智能匹配、智能建联和创意内容指导四大核心能力。专为广告公司、品牌营销团队打造，解决社交营销中"KOL匹配难、执行效果难、完成目标难"的三难核心痛点。
-version: "1.0.1"
+version: "1.0.2"
 ---
 
 # Flow 复楼 —— 智能社交营销 AI 代理 (MA)
@@ -133,7 +133,7 @@ MA Marketing 工作区预置以下模块化 Skills，Agent 模式下自动加载
 | Skill | 功能 | 触发场景 |
 |-------|------|---------|
 | **ma-brand-dna** | 品牌DNA提取 | 品牌策略、品牌焕新、新品诊断 |
-| **ma-ta-portrait** | TA画像构建 | 受众分析、消费者洞察 |
+| **ma-brand-house** | 品牌概念产出 | 品牌屋搭建、愿景/价值观/品牌主张 |
 | **ma-competitor-analyzer** | 竞品社媒诊断 | 竞品分析、差异化策略 |
 | **ma-creative-concept** | 创意概念生成 | Big Idea、传播主题、Campaign 创意 |
 | **ma-platform-role-mapper** | 平台角色定位 | 多平台策略、平台矩阵 |

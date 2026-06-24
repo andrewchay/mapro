@@ -9,7 +9,7 @@ import { join, resolve, sep, dirname } from 'node:path'
 import { existsSync, realpathSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, CAMPAIGN_IPC_CHANNELS, KOL_DATA_IPC_CHANNELS, CONTENT_AUDIT_IPC_CHANNELS, isMAProPermissionMode } from '@ma-proma/shared'
+import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, CAMPAIGN_IPC_CHANNELS, KOL_DATA_IPC_CHANNELS, CONTENT_AUDIT_IPC_CHANNELS, CONTENT_TRACKING_IPC_CHANNELS, PHASE_REPORT_IPC_CHANNELS, AB_TEST_IPC_CHANNELS, isMAProPermissionMode } from '@ma-proma/shared'
 import { USER_PROFILE_IPC_CHANNELS, SETTINGS_IPC_CHANNELS, SCRATCH_PAD_IPC_CHANNELS, QUICK_TASK_IPC_CHANNELS, VOICE_DICTATION_IPC_CHANNELS, APP_ICON_IPC_CHANNELS, DOCK_BADGE_IPC_CHANNELS, STORAGE_IPC_CHANNELS } from '../types'
 import type {
   QuickTaskSubmitInput,
@@ -132,6 +132,28 @@ import {
   createContentAudit,
   updateContentAuditStatus,
   ensureCampaignWorkspace,
+  listContentTracking,
+  getContentTracking,
+  createContentTracking,
+  updateContentTrackingData,
+  updateContentTrackingAnalysis,
+  addPaidData,
+  deleteContentTracking,
+  generatePhaseReport,
+  listPhaseReports,
+  getPhaseReport,
+  updatePhaseReport,
+  finalizePhaseReport,
+  deletePhaseReport,
+  createABTest,
+  listABTests,
+  getABTest,
+  updateABTest,
+  deleteABTest,
+  getABTestResults,
+  updateABTestResult,
+  completeABTest,
+  analyzeABTest,
 } from './lib/campaign-manager'
 import {
   loadCampaignWorkflow,
@@ -3758,6 +3780,166 @@ export function registerIpcHandlers(): void {
     CONTENT_AUDIT_IPC_CHANNELS.UPDATE_STATUS,
     async (_, auditId: string, status: 'pending' | 'reviewing' | 'passed' | 'failed'): Promise<boolean> => {
       return updateContentAuditStatus(auditId, status)
+    }
+  )
+
+  // ===== 内容数据追踪 =====
+
+  ipcMain.handle(
+    CONTENT_TRACKING_IPC_CHANNELS.LIST,
+    async (_, campaignId: string): Promise<import('@ma-proma/shared').KOLContentTracking[]> => {
+      return listContentTracking(campaignId)
+    }
+  )
+
+  ipcMain.handle(
+    CONTENT_TRACKING_IPC_CHANNELS.GET,
+    async (_, id: string): Promise<import('@ma-proma/shared').KOLContentTracking | null> => {
+      return getContentTracking(id)
+    }
+  )
+
+  ipcMain.handle(
+    CONTENT_TRACKING_IPC_CHANNELS.CREATE,
+    async (_, input: import('@ma-proma/shared').CreateContentTrackingInput): Promise<import('@ma-proma/shared').KOLContentTracking | null> => {
+      return createContentTracking(input)
+    }
+  )
+
+  ipcMain.handle(
+    CONTENT_TRACKING_IPC_CHANNELS.UPDATE_DATA,
+    async (_, input: import('@ma-proma/shared').UpdateContentTrackingDataInput): Promise<import('@ma-proma/shared').KOLContentTracking | null> => {
+      return updateContentTrackingData(input)
+    }
+  )
+
+  ipcMain.handle(
+    CONTENT_TRACKING_IPC_CHANNELS.UPDATE_ANALYSIS,
+    async (_, input: import('@ma-proma/shared').UpdateAnalysisInput): Promise<import('@ma-proma/shared').KOLContentTracking | null> => {
+      return updateContentTrackingAnalysis(input)
+    }
+  )
+
+  ipcMain.handle(
+    CONTENT_TRACKING_IPC_CHANNELS.ADD_PAID_DATA,
+    async (_, input: import('@ma-proma/shared').AddPaidDataInput): Promise<import('@ma-proma/shared').KOLContentTracking | null> => {
+      return addPaidData(input)
+    }
+  )
+
+  ipcMain.handle(
+    CONTENT_TRACKING_IPC_CHANNELS.DELETE,
+    async (_, id: string): Promise<boolean> => {
+      return deleteContentTracking(id)
+    }
+  )
+
+  // ===== 阶段复盘报告 =====
+
+  ipcMain.handle(
+    PHASE_REPORT_IPC_CHANNELS.LIST,
+    async (_, campaignId: string): Promise<import('@ma-proma/shared').CampaignPhaseReport[]> => {
+      return listPhaseReports(campaignId)
+    }
+  )
+
+  ipcMain.handle(
+    PHASE_REPORT_IPC_CHANNELS.GET,
+    async (_, id: string): Promise<import('@ma-proma/shared').CampaignPhaseReport | null> => {
+      return getPhaseReport(id)
+    }
+  )
+
+  ipcMain.handle(
+    PHASE_REPORT_IPC_CHANNELS.GENERATE,
+    async (_, input: import('@ma-proma/shared').GeneratePhaseReportInput): Promise<import('@ma-proma/shared').CampaignPhaseReport> => {
+      return generatePhaseReport(input)
+    }
+  )
+
+  ipcMain.handle(
+    PHASE_REPORT_IPC_CHANNELS.UPDATE,
+    async (_, id: string, updates: Partial<Pick<import('@ma-proma/shared').CampaignPhaseReport, 'aiSummary' | 'aiFindings' | 'aiRecommendations' | 'aiScaleAdvice' | 'status'>>): Promise<import('@ma-proma/shared').CampaignPhaseReport | null> => {
+      return updatePhaseReport(id, updates)
+    }
+  )
+
+  ipcMain.handle(
+    PHASE_REPORT_IPC_CHANNELS.FINALIZE,
+    async (_, id: string): Promise<import('@ma-proma/shared').CampaignPhaseReport | null> => {
+      return finalizePhaseReport(id)
+    }
+  )
+
+  ipcMain.handle(
+    PHASE_REPORT_IPC_CHANNELS.DELETE,
+    async (_, id: string): Promise<boolean> => {
+      return deletePhaseReport(id)
+    }
+  )
+
+  // ===== AB 测试 =====
+
+  ipcMain.handle(
+    AB_TEST_IPC_CHANNELS.LIST,
+    async (_, campaignId: string): Promise<import('@ma-proma/shared').CampaignABTest[]> => {
+      return listABTests(campaignId)
+    }
+  )
+
+  ipcMain.handle(
+    AB_TEST_IPC_CHANNELS.GET,
+    async (_, id: string): Promise<import('@ma-proma/shared').CampaignABTest | null> => {
+      return getABTest(id)
+    }
+  )
+
+  ipcMain.handle(
+    AB_TEST_IPC_CHANNELS.CREATE,
+    async (_, input: import('@ma-proma/shared').CreateABTestInput): Promise<import('@ma-proma/shared').CampaignABTest> => {
+      return createABTest(input)
+    }
+  )
+
+  ipcMain.handle(
+    AB_TEST_IPC_CHANNELS.UPDATE,
+    async (_, id: string, updates: Partial<Pick<import('@ma-proma/shared').CampaignABTest, 'testName' | 'hypothesis' | 'variableType' | 'variableDescription' | 'controlGroupDefinition' | 'testGroupDefinition' | 'startDate' | 'endDate' | 'status' | 'winnerGroup' | 'winnerReason' | 'scaleRecommendation'>>): Promise<import('@ma-proma/shared').CampaignABTest | null> => {
+      return updateABTest(id, updates)
+    }
+  )
+
+  ipcMain.handle(
+    AB_TEST_IPC_CHANNELS.COMPLETE,
+    async (_, id: string, winnerGroup: string, winnerReason: string, scaleRecommendation: string): Promise<import('@ma-proma/shared').CampaignABTest | null> => {
+      return completeABTest(id, winnerGroup, winnerReason, scaleRecommendation)
+    }
+  )
+
+  ipcMain.handle(
+    AB_TEST_IPC_CHANNELS.DELETE,
+    async (_, id: string): Promise<boolean> => {
+      return deleteABTest(id)
+    }
+  )
+
+  ipcMain.handle(
+    AB_TEST_IPC_CHANNELS.GET_RESULTS,
+    async (_, abTestId: string): Promise<import('@ma-proma/shared').ABTestResult[]> => {
+      return getABTestResults(abTestId)
+    }
+  )
+
+  ipcMain.handle(
+    AB_TEST_IPC_CHANNELS.UPDATE_RESULT,
+    async (_, input: import('@ma-proma/shared').UpdateABTestResultInput): Promise<import('@ma-proma/shared').ABTestResult> => {
+      return updateABTestResult(input)
+    }
+  )
+
+  ipcMain.handle(
+    AB_TEST_IPC_CHANNELS.ANALYZE,
+    async (_, abTestId: string): Promise<{ success: boolean; result?: import('@ma-proma/shared').CampaignABTest; error?: string }> => {
+      return analyzeABTest(abTestId)
     }
   )
 }

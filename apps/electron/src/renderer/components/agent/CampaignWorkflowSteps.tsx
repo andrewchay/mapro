@@ -1,7 +1,8 @@
 /**
- * CampaignWorkflowSteps - Campaign 工作流步骤列表组件
+ * Campaign 工作流步骤列表组件
  *
- * 展示 9 步标准工作流进度，支持状态跟踪和 Agent 执行。
+ * 展示 13 步标准工作流进度，支持状态跟踪和 Agent 执行。
+ * 新策略顺序：市场分析→竞品分析→用户分析→品牌DNA+品牌诊断→品牌概念→目标设定→Big Idea→平台矩阵→KOL金字塔→搜索KOL→加入候选池→生成Briefs→A/B测试
  */
 import * as React from 'react'
 import {
@@ -19,8 +20,12 @@ import {
 } from 'lucide-react'
 
 const STEP_DIR_MAP: Record<string, string> = {
+  market_analysis: 'market-analysis',
+  competitor_analysis: 'competitor-analysis',
+  user_analysis: 'user-analysis',
   brand_dna: 'brand-dna',
-  ta_portrait: 'ta-portrait',
+  brand_concept: 'brand-concept',
+  goal_setting: 'goal-setting',
   creative_concept: 'creative-concept',
   platform_matrix: 'platform-matrix',
   kol_pyramid: 'kol-pyramid',

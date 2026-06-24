@@ -41,6 +41,12 @@ import {
   executeCampaignTesterTool,
   isCampaignAgentToolCall,
   executeCampaignAgentTool,
+  isBudgetForecastToolCall,
+  executeBudgetForecastTool,
+  isContentTrackerToolCall,
+  executeContentTrackerTool,
+  isPhaseReviewerToolCall,
+  executePhaseReviewerTool,
 } from './ma-tools'
 
 /** 工具执行上下文 */
@@ -113,6 +119,12 @@ export async function executeToolCalls(
       result = await executeCampaignTesterTool(tc)
     } else if (isCampaignAgentToolCall(tc.name)) {
       result = await executeCampaignAgentTool(tc)
+    } else if (isBudgetForecastToolCall(tc.name)) {
+      result = await executeBudgetForecastTool(tc)
+    } else if (isContentTrackerToolCall(tc.name)) {
+      result = await executeContentTrackerTool(tc)
+    } else if (isPhaseReviewerToolCall(tc.name)) {
+      result = await executePhaseReviewerTool(tc)
     } else if (isCustomHttpToolCall(tc.name)) {
       const config = getChatToolsConfig()
       const meta = config.customTools.find((t) => t.id === tc.name)

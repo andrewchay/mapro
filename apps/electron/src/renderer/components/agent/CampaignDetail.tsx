@@ -7,10 +7,19 @@
 
 import * as React from 'react'
 import { useSetAtom } from 'jotai'
-import { ArrowLeft, Calendar, MapPin, Users, DollarSign, Plus, UserCheck, FileText, Rocket, ShieldCheck } from 'lucide-react'
+import { ContentTrackingManager } from './ContentTrackingManager'
+import { PhaseReviewPanel } from './PhaseReviewPanel'
+import { ABTestPanel } from './ABTestPanel'
+import { ArrowLeft, Calendar, MapPin, Users, DollarSign, Plus, UserCheck, FileText, Rocket, ShieldCheck, BarChart3, TrendingUp, FlaskConical } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from '@/components/ui/tabs'
 import { CampaignBriefDialog } from './CampaignBriefDialog'
 import { CampaignKOLImportDialog } from './CampaignKOLImportDialog'
 import { ContentAuditDialog } from './ContentAuditDialog'
@@ -348,87 +357,127 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
           </div>
         </div>
 
-        {/* KOL 候选池 */}
+        {/* KOL 候选池 + 内容数据 — Tabs */}
         <div>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              KOL 候选池
-            </h3>
-            <Button size="sm" variant="outline" onClick={() => setImportDialogOpen(true)}>
-              <Plus size={14} className="mr-1" />
-              导入 KOL
-            </Button>
-          </div>
+          <Tabs defaultValue="kol-pool" className="w-full">
+            <div className="flex items-center justify-between mb-3">
+              <TabsList className="h-8">
+                <TabsTrigger value="kol-pool" className="text-xs gap-1">
+                  <UserCheck className="w-3.5 h-3.5" />
+                  KOL 候选池
+                </TabsTrigger>
+                <TabsTrigger value="content-tracking" className="text-xs gap-1">
+                  <BarChart3 className="w-3.5 h-3.5" />
+                  内容数据
+                </TabsTrigger>
+                <TabsTrigger value="phase-review" className="text-xs gap-1">
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  阶段复盘
+                </TabsTrigger>
+                <TabsTrigger value="ab-test" className="text-xs gap-1">
+                  <FlaskConical className="w-3.5 h-3.5" />
+                  AB 测试
+                </TabsTrigger>
+              </TabsList>
+              <Button size="sm" variant="outline" onClick={() => setImportDialogOpen(true)}>
+                <Plus size={14} className="mr-1" />
+                导入 KOL
+              </Button>
+            </div>
 
-          {loadingPool ? (
-            <div className="text-sm text-muted-foreground py-8 text-center">加载中...</div>
-          ) : poolKOLs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-center border border-dashed border-border rounded-xl">
-              <UserCheck size={32} className="text-muted-foreground/30 mb-2" />
-              <p className="text-sm text-muted-foreground">暂无 KOL 在候选池</p>
-              <p className="text-xs text-muted-foreground/60 mt-1">点击上方按钮导入 KOL</p>
-            </div>
-          ) : (
-            <div className="grid gap-2">
-              {poolKOLs.map((kol) => (
-                <div
-                  key={kol.kolId}
-                  className="flex items-center gap-3 p-3 rounded-xl border border-border bg-background hover:border-primary/20 transition-colors"
-                >
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 text-xs font-medium text-primary">
-                    {kol.name.charAt(0)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium truncate">{kol.name}</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                        {kol.platform}
-                      </span>
-                      <span className={cn(
-                        'text-[10px] px-1.5 py-0.5 rounded font-medium',
-                        kol.status === 'confirmed' ? 'bg-green-500/10 text-green-600' :
-                        kol.status === 'contacted' ? 'bg-blue-500/10 text-blue-600' :
-                        kol.status === 'shortlisted' ? 'bg-amber-500/10 text-amber-600' :
-                        kol.status === 'rejected' ? 'bg-red-500/10 text-red-600' :
-                        'bg-gray-500/10 text-gray-600'
-                      )}>
-                        {POOL_STATUS_LABEL[kol.status] ?? kol.status}
-                      </span>
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      {kol.followers} 粉丝 · {kol.engagement} 互动率 · {kol.category}
-                      {kol.city && ` · ${kol.city}`}
-                      {kol.price && ` · ${kol.price}`}
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2 text-xs text-muted-foreground hover:text-primary flex-shrink-0"
-                    onClick={() => {
-                      setSelectedBriefKOL(kol)
-                      setBriefDialogOpen(true)
-                    }}
-                  >
-                    <FileText size={13} className="mr-1" />
-                    Brief
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2 text-xs text-muted-foreground hover:text-emerald-600 flex-shrink-0"
-                    onClick={() => {
-                      setSelectedAuditKOL(kol)
-                      setAuditDialogOpen(true)
-                    }}
-                  >
-                    <ShieldCheck size={13} className="mr-1" />
-                    审核
-                  </Button>
+            <TabsContent value="kol-pool" className="mt-0">
+              {loadingPool ? (
+                <div className="text-sm text-muted-foreground py-8 text-center">加载中...</div>
+              ) : poolKOLs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 text-center border border-dashed border-border rounded-xl">
+                  <UserCheck size={32} className="text-muted-foreground/30 mb-2" />
+                  <p className="text-sm text-muted-foreground">暂无 KOL 在候选池</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">点击上方按钮导入 KOL</p>
                 </div>
-              ))}
-            </div>
-          )}
+              ) : (
+                <div className="grid gap-2">
+                  {poolKOLs.map((kol) => (
+                    <div
+                      key={kol.kolId}
+                      className="flex items-center gap-3 p-3 rounded-xl border border-border bg-background hover:border-primary/20 transition-colors"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 text-xs font-medium text-primary">
+                        {kol.name.charAt(0)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium truncate">{kol.name}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                            {kol.platform}
+                          </span>
+                          <span className={cn(
+                            'text-[10px] px-1.5 py-0.5 rounded font-medium',
+                            kol.status === 'confirmed' ? 'bg-green-500/10 text-green-600' :
+                            kol.status === 'contacted' ? 'bg-blue-500/10 text-blue-600' :
+                            kol.status === 'shortlisted' ? 'bg-amber-500/10 text-amber-600' :
+                            kol.status === 'rejected' ? 'bg-red-500/10 text-red-600' :
+                            'bg-gray-500/10 text-gray-600'
+                          )}>
+                            {POOL_STATUS_LABEL[kol.status] ?? kol.status}
+                          </span>
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {kol.followers} 粉丝 · {kol.engagement} 互动率 · {kol.category}
+                          {kol.city && ` · ${kol.city}`}
+                          {kol.price && ` · ${kol.price}`}
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs text-muted-foreground hover:text-primary flex-shrink-0"
+                        onClick={() => {
+                          setSelectedBriefKOL(kol)
+                          setBriefDialogOpen(true)
+                        }}
+                      >
+                        <FileText size={13} className="mr-1" />
+                        Brief
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs text-muted-foreground hover:text-emerald-600 flex-shrink-0"
+                        onClick={() => {
+                          setSelectedAuditKOL(kol)
+                          setAuditDialogOpen(true)
+                        }}
+                      >
+                        <ShieldCheck size={13} className="mr-1" />
+                        审核
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="content-tracking" className="mt-0">
+              <ContentTrackingManager
+                campaignId={campaign.id}
+                onSendToAssistant={onSendToAssistant}
+              />
+            </TabsContent>
+
+            <TabsContent value="phase-review" className="mt-0">
+              <PhaseReviewPanel
+                campaignId={campaign.id}
+                currentPhase={campaign.currentPhase}
+              />
+            </TabsContent>
+
+            <TabsContent value="ab-test" className="mt-0">
+              <ABTestPanel
+                campaignId={campaign.id}
+                currentPhase={campaign.currentPhase}
+              />
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
 

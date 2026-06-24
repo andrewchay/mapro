@@ -11,13 +11,14 @@
  *     ├── campaign.md          # Campaign 上下文
  *     └── history.md           # 执行历史
  *   brand-dna/                 # 品牌 DNA 产物
- *   ta-portrait/               # TA 画像产物
+ *   brand-concept/             # 品牌概念产物（品牌愿景、价值观、品牌屋）
  *   creative-concept/          # 创意概念产物
  *   platform-matrix/           # 平台矩阵产物
  *   kol-pyramid/             # KOL 金字塔产物
  *   kol-search/              # 搜索结果
  *   briefs/                  # KOL Briefs
  *   ab-test/                 # A/B 测试方案
+ *   .context/                # 上下文文件（todo.md、campaign.md、history.md）
  *
  * 每步完成后 Agent 可以更新状态，用户也可手动标记。
  */
@@ -38,8 +39,12 @@ import type {
 // =====================================================================
 
 const ARTIFACT_DIRS = [
+  'market-analysis',
+  'competitor-analysis',
+  'user-analysis',
   'brand-dna',
-  'ta-portrait',
+  'brand-concept',
+  'goal-setting',
   'creative-concept',
   'platform-matrix',
   'kol-pyramid',
@@ -50,13 +55,17 @@ const ARTIFACT_DIRS = [
 ]
 
 const STEP_DIR_MAP: Record<CampaignWorkflowStepId, string> = {
+  market_analysis: 'market-analysis',
+  competitor_analysis: 'competitor-analysis',
+  user_analysis: 'user-analysis',
   brand_dna: 'brand-dna',
-  ta_portrait: 'ta-portrait',
+  brand_concept: 'brand-concept',
+  goal_setting: 'goal-setting',
   creative_concept: 'creative-concept',
   platform_matrix: 'platform-matrix',
   kol_pyramid: 'kol-pyramid',
   search_kols: 'kol-search',
-  add_to_pool: 'kol-search',        // 搜索结果也放这里
+  add_to_pool: 'kol-search',
   generate_briefs: 'briefs',
   ab_test: 'ab-test',
 }
@@ -67,61 +76,231 @@ const STEP_DIR_MAP: Record<CampaignWorkflowStepId, string> = {
 
 const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt'>[] = [
   {
+    id: 'market_analysis',
+    title: '市场分析',
+    description: '分析市场规模、品类趋势、品类痛点，判断市场机会与趋势切入点',
+    toolName: 'ma-market-analysis',
+    minArtifactLength: 300,
+    artifactRequirements: [
+      { name: '市场规模', aliases: ['规模', '大盘', '增速', '渗透率', '市场容量'] },
+      { name: '品类趋势', aliases: ['趋势', '周期', '上升', '衰退', '偏好变化', '趋势机会'] },
+      { name: '品类痛点', aliases: ['痛点', '需求', '未被满足', '空白', '切入', '机会点'] },
+    ],
+    agentPrompt: `## 步骤 1: 市场分析
+
+目标：系统分析目标市场的规模、品类趋势与品类痛点，为后续品牌策略提供市场数据支撑。
+
+分析框架：
+1. **市场规模**：大盘数据、品类增速、渗透率、市场容量
+2. **品类趋势**：当前处于什么周期（上升/平稳/衰退），用户偏好变化趋势
+3. **品类痛点**：用户当前未被满足的需求、行业普遍问题、空白切入点
+
+执行要求：
+1. 使用 ma-market-analysis 工具分析市场
+2. 产出必须保存到以下目录：\`market-analysis/\`
+3. 文件命名建议：\`market-analysis.md\`
+4. 完成标准（校验时会检查）：
+   - market-analysis.md 必须包含市场规模、品类趋势、品类痛点分析（至少300字）
+   - 需标明数据来源（如艾瑞咨询、36氪等）
+
+完成后，请返回 "已完成：市场分析"并附上产物摘要。`,
+  },
+  {
+    id: 'competitor_analysis',
+    title: '竞品分析',
+    description: '列出直接竞品与间接竞品，分析市场份额、营销动作、核心卖点与空白机会',
+    toolName: 'ma-competitor-analyzer',
+    minArtifactLength: 300,
+    artifactRequirements: [
+      { name: '竞品清单', aliases: ['竞品', '对手', '竞争', '品牌', '对标'] },
+      { name: '市场占比', aliases: ['份额', '声量', '占比', '竞争格局'] },
+      { name: '营销动作', aliases: ['营销', '动作', '追踪', '平台', '内容', '达人'] },
+      { name: '核心卖点', aliases: ['卖点', '差异化', '主张', '定位', 'USP'] },
+      { name: '空白机会', aliases: ['空白', '机会', '差异化', '策略', '没做'] },
+    ],
+    agentPrompt: `## 步骤 2: 竞品分析
+
+目标：系统分析竞品矩阵，识别竞争格局与差异化机会。
+
+分析框架：
+1. **竞品清单**：列出直接竞品 + 间接竞品
+2. **市场占比**：各竞品的市场份额、声量占比
+3. **营销动作**：竞品当前在做什么平台、什么内容、什么达人
+4. **核心卖点**：竞品主打的差异化点
+5. **空白机会**：竞品没做或没做好的地方
+
+执行要求：
+1. 使用 ma-competitor-analyzer 工具分析竞品
+2. 产出必须保存到以下目录：\`competitor-analysis/\`
+3. 文件命名建议：\`competitor-analysis.md\`、\`competitor-matrix.md\`
+4. 完成标准（校验时会检查）：
+   - competitor-analysis.md 必须包含竞品清单、市场占比、营销动作、核心卖点、空白机会（至少300字）
+   - competitor-matrix.md 必须包含竞品矩阵对比表（至少300字）
+
+前置产物：\`market-analysis/\` 目录中的市场分析文件
+完成后，请返回 "已完成：竞品分析"并附上产物摘要。`,
+  },
+  {
+    id: 'user_analysis',
+    title: '用户分析（TA画像 + 搜索习惯）',
+    description: '构建精准受众画像，补充用户搜索习惯（平台、场景、关键词）',
+    toolName: 'ma-ta-portrait',
+    minArtifactLength: 300,
+    artifactRequirements: [
+      { name: '人口统计', aliases: ['年龄', '性别', '收入', '城市', '地域', '学历', '职业'] },
+      { name: '兴趣偏好', aliases: ['兴趣', '偏好', '爱好', '生活方式', '消费观'] },
+      { name: '痛点需求', aliases: ['痛点', '需求', '场景', '问题', '欲望', '动机'] },
+      { name: '搜索习惯', aliases: ['搜索', '关键词', '平台', '场景', '下拉词', '联想词'] },
+    ],
+    agentPrompt: `## 步骤 3: 用户分析（TA画像 + 搜索习惯）
+
+目标：基于市场分析和竞品分析，构建精准受众画像，并补充用户搜索习惯分析。
+
+分析框架：
+1. **人口统计画像**：年龄、性别、收入、城市、地域、学历、职业
+2. **兴趣偏好**：兴趣标签、生活方式、消费观、价值观
+3. **痛点与需求**：核心痛点、使用场景、未被满足的需求、购买动机
+4. **搜索习惯**：
+   - 在什么平台搜索（小红书、抖音、百度等）
+   - 在什么场景下搜索（种草前、决策中、使用后等）
+   - 搜索什么关键词（核心词、长尾词、竞品词）
+   - 建议接入小红书聚光平台关键词规划师、千瓜/蝉妈妈/新红等工具的实时数据
+
+执行要求：
+1. 使用 ma-ta-portrait 工具构建用户画像
+2. 产出必须保存到以下目录：\`user-analysis/\`
+3. 文件命名建议：\`ta-portrait.md\`、\`search-habits.md\`
+4. 完成标准（校验时会检查）：
+   - ta-portrait.md 必须包含人口统计、兴趣偏好、痛点需求（至少300字）
+   - search-habits.md 必须包含搜索平台、搜索场景、关键词列表（至少300字）
+
+前置产物：\`market-analysis/\`、\`competitor-analysis/\` 目录中的文件
+完成后，请返回 "已完成：用户分析"并附上产物摘要。`,
+  },
+  {
     id: 'brand_dna',
-    title: '提取品牌 DNA',
-    description: '分析品牌核心价值、视觉基因、语言调性，输出品牌 DNA 文档',
+    title: '品牌DNA + 品牌诊断',
+    description: '基于市场/竞品/用户分析，提取品牌核心价值并输出品牌诊断（品牌阶段、产品现状、核心问题、核心目标）',
     toolName: 'ma-brand-dna',
     minArtifactLength: 300,
     artifactRequirements: [
-      { name: '品牌核心价值', aliases: ['核心价值', '价值主张', '品牌定位', '使命', '愿景'] },
-      { name: '视觉基因', aliases: ['视觉', '色彩', '风格', '字体', '视觉风格'] },
-      { name: '语言调性', aliases: ['语气', '调性', '语言', '用词', '禁忌词', '表达'] },
+      { name: '品牌历史', aliases: ['历史', '创立', '发展', '里程碑', '传承', 'heritage'] },
+      { name: '产品服务', aliases: ['产品', '服务', '功能', '卖点', '价格', '产品线'] },
+      { name: '品牌阶段', aliases: ['起步期', '成长期', '成熟期', '焕新期', '阶段', '定位'] },
+      { name: '产品现状', aliases: ['产品力', '供应链', '价格带', 'SKU', '产品诊断'] },
+      { name: '核心问题', aliases: ['认知问题', '转化问题', '口碑问题', '问题', '定义'] },
+      { name: '核心目标', aliases: ['目标', '优先级', '曝光', '破圈', '拉新', '首要目标'] },
+      { name: '差异化优势', aliases: ['差异化', '优势', '差异', '不同', '独特', '核心竞争力'] },
     ],
-    agentPrompt: `## 步骤 1: 提取品牌 DNA
+    agentPrompt: `## 步骤 4: 品牌DNA + 品牌诊断
 
-目标：分析当前 Campaign 的品牌 DNA，提取品牌核心价值主张、视觉基因、语言调性。
+目标：基于市场分析、竞品分析和用户分析的数据支撑，提取品牌核心价值并输出品牌诊断。
+
+分析框架：
+1. **品牌自身历史**：创立背景、发展历程、里程碑事件、品牌传承
+2. **产品/服务 + 现有传播**：核心产品线、功能卖点、价格带、过往 campaign、slogan、核心文案
+3. **品牌阶段诊断**：起步期 / 成长期 / 成熟期 / 焕新期
+4. **产品现状诊断**：产品力、供应链、价格带、SKU
+5. **核心问题定义**：当前要解决的是认知问题 / 转化问题 / 口碑问题
+6. **核心目标**：基于阶段和问题，确定首要目标（曝光/破圈拉新）及目标优先级
+7. **差异化优势**：结合市场/竞品/用户分析，总结能戳到洞察的核心差异点
 
 执行要求：
 1. 使用 ma-brand-dna 工具分析品牌
 2. 产出必须保存到以下目录：\`brand-dna/\`
-3. 文件命名建议：\`brand-dna.md\`、\`visual-dna.md\`、\`tone-voice.md\`
+3. 文件命名建议：\`brand-dna.md\`、\`brand-diagnosis.md\`、\`differentiation.md\`
 4. 完成标准（校验时会检查）：
-   - brand-dna.md 必须包含品牌核心价值、使命、愿景、定位（至少300字）
-   - visual-dna.md 必须包含视觉风格、色彩、字体偏好（至少300字）
-   - tone-voice.md 必须包含语言调性、用词风格、禁忌词（至少300字）
+   - brand-dna.md 必须包含品牌历史、产品/服务、品牌核心价值、差异化优势（至少300字）
+   - brand-diagnosis.md 必须包含品牌阶段、产品现状、核心问题、核心目标（至少300字）
+   - differentiation.md 必须包含差异化优势总结（至少300字）
 
-完成后，请返回 "已完成：品牌 DNA 提取"并附上产物摘要。`,
+前置产物：\`market-analysis/\`、\`competitor-analysis/\`、\`user-analysis/\` 目录中的文件
+完成后，请返回 "已完成：品牌DNA + 品牌诊断"并附上产物摘要。`,
   },
   {
-    id: 'ta_portrait',
-    title: '构建 TA 画像',
-    description: '基于品牌 DNA 和目标城市，构建精准的受众画像（人口统计、兴趣、痛点）',
-    toolName: 'ma-ta-portrait',
+    id: 'brand_concept',
+    title: 'Brand Concept 产出',
+    description: '基于品牌DNA和品牌诊断，产出品牌愿景、价值观、品牌主张、slogan、品牌屋、Brand Tone & Visual',
+    toolName: 'ma-brand-house',
     minArtifactLength: 300,
     artifactRequirements: [
-      { name: '人口统计', aliases: ['年龄', '性别', '收入', '学历', '职业', '地域'] },
-      { name: '兴趣标签', aliases: ['兴趣', '爱好', '生活方式', '关注点', '消费偏好'] },
-      { name: '痛点', aliases: ['痛点', '需求', '问题', '困扰', '使用场景'] },
+      { name: '品牌愿景', aliases: ['愿景', '使命', '长期目标', 'vision', 'mission'] },
+      { name: '品牌价值观', aliases: ['价值观', '信仰', 'value', '信念'] },
+      { name: '品牌主张', aliases: ['主张', 'slogan', 'tagline', '宣言', '定位'] },
+      { name: '品牌人格', aliases: ['人格', '个性', '性格', 'personality', '拟人'] },
+      { name: '产品定位', aliases: ['定位', 'functional benefit', 'rtb', '差异化定位', '利益点'] },
+      { name: '品牌屋', aliases: ['品牌屋', 'brand house', '架构', '金字塔', '品牌模型'] },
+      { name: 'Brand Tone', aliases: ['tone', '调性', '语气', '语言风格', 'tone of voice'] },
+      { name: 'Brand Visual', aliases: ['visual', '视觉', '色彩', '风格', '字体'] },
     ],
-    agentPrompt: `## 步骤 2: 构建 TA 画像
+    agentPrompt: `## 步骤 5: Brand Concept 产出
 
-目标：基于品牌 DNA 和目标城市（{targetCity}）、投放平台（{platform}），构建精准受众画像。
+目标：基于品牌DNA（步骤4产物）和品牌诊断，系统产出品牌概念体系，包括品牌愿景、价值观、品牌主张、品牌屋、Brand Tone 和 Brand Visual。
+
+产出框架：
+1. **品牌愿景**（使命 + 长期目标）：品牌希望实现的长期理想状态 & 品牌为什么存在
+2. **品牌价值观**：品牌的核心信仰与价值判断
+3. **品牌主张**：并生成 slogan / tagline 候选
+4. **附加价值**（情感定位）：情感、文化、生活方式层面的价值定位
+5. **品牌人格**：3-5 个具体的形容词描述品牌拟人化特质
+6. **产品定位**（支持情感定位）：
+   - Functional benefit：产品具体解决什么问题
+   - 差异化定位：与竞品最核心的差异
+   - RTB（Reasons to Believe）：支持点 / 证据
+7. **品牌屋搭建**：确保愿景→价值观→利益点→RTB→目标人群 各层级逻辑自洽
+8. **Brand Tone 产出**：语言风格、用词风格、禁忌词
+9. **Brand Visual 产出**：视觉风格、色彩策略、字体偏好
 
 执行要求：
-1. 使用 ma-ta-portrait 工具构建 TA 画像
-2. 产出必须保存到：\`ta-portrait/\`
-3. 文件命名建议：\`ta-portrait.md\`、\`personas.md\`
+1. 使用 ma-brand-house 工具构建品牌概念体系
+2. 产出必须保存到：\`brand-concept/\`
+3. 文件命名建议：\`brand-concept.md\`、\`brand-house.md\`、\`tone-visual.md\`
 4. 完成标准（校验时会检查）：
-   - ta-portrait.md 必须包含人口统计、兴趣标签、消费行为、内容偏好（至少300字）
-   - personas.md 必须包含 2-3 个典型用户 persona（含痛点、使用场景）（至少300字）
+   - brand-concept.md 必须包含品牌愿景、品牌价值观、品牌主张、slogan（至少300字）
+   - brand-house.md 必须包含品牌屋架构（愿景/价值观/利益点/RTB/目标人群）（至少300字）
+   - tone-visual.md 必须包含 Brand Tone 和 Brand Visual 描述（至少300字）
 
-前置产物：\`brand-dna/\` 目录中的品牌 DNA 文件
-完成后，请返回 "已完成：TA 画像构建"并附上产物摘要。`,
+前置产物：\`brand-dna/\` 目录中的品牌DNA与品牌诊断文件
+完成后，请返回 "已完成：Brand Concept 产出"并附上产物摘要。`,
+  },
+  {
+    id: 'goal_setting',
+    title: '目标设定',
+    description: '基于品牌诊断，设定总目标、分层目标与量化指标（KPI）',
+    toolName: 'ma-campaign-optimizer',
+    minArtifactLength: 300,
+    artifactRequirements: [
+      { name: '总目标', aliases: ['总目标', '核心问题', '品类认知', '内容模型', '搜索转化'] },
+      { name: '分层目标', aliases: ['分层', '平台', '阶段', '人群', '测试期', '爆文模型'] },
+      { name: '量化指标', aliases: ['KPI', '指标', '互动率', 'CPE', '爆文率', '搜索量', 'ROI', '可追踪'] },
+    ],
+    agentPrompt: `## 步骤 6: 目标设定
+
+目标：基于品牌诊断（步骤4产物），设定Campaign的总目标、分层目标与量化指标。
+
+目标框架：
+1. **总目标**：本阶段要解决的核心问题
+   - 示例：建立品类认知 / 验证内容模型 / 拉动搜索转化
+2. **分层目标**：按平台/阶段/人群拆解
+   - 示例：小红书测试期：找到1组可复制的爆文模型
+3. **量化指标**：KPI必须可追踪、可复盘
+   - 示例：互动率、CPE、爆文率、搜索量、ROI
+
+执行要求：
+1. 使用 ma-campaign-optimizer 工具设定目标
+2. 产出必须保存到：\`goal-setting/\`
+3. 文件命名建议：\`goal-setting.md\`
+4. 完成标准（校验时会检查）：
+   - goal-setting.md 必须包含总目标、分层目标、量化指标（至少300字）
+   - 指标必须具体、可量化、可追踪
+
+前置产物：\`brand-dna/\` 目录中的品牌诊断文件
+完成后，请返回 "已完成：目标设定"并附上产物摘要。`,
   },
   {
     id: 'creative_concept',
     title: '生成 Big Idea',
-    description: '基于品牌 DNA 和 TA 画像，生成 Campaign 核心创意概念（Big Idea）',
+    description: '基于品牌DNA、Brand Concept和目标设定，生成Campaign核心创意概念（Big Idea）',
     toolName: 'ma-creative-concept',
     minArtifactLength: 300,
     artifactRequirements: [
@@ -129,9 +308,9 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
       { name: '创意方向', aliases: ['创意方向', '视觉方向', '文案方向', '内容方向', '媒介建议'] },
       { name: '推荐方案', aliases: ['推荐', '最优方案', '首选', '主推方案', '最终选择'] },
     ],
-    agentPrompt: `## 步骤 3: 生成 Big Idea
+    agentPrompt: `## 步骤 7: 生成 Big Idea
 
-目标：基于品牌 DNA 和 TA 画像，生成 3 个创意方向并推荐最优方案。
+目标：基于品牌DNA、Brand Concept和目标设定，生成3个创意方向并推荐最优方案。
 
 执行要求：
 1. 使用 ma-creative-concept 工具生成创意概念
@@ -139,16 +318,16 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
 3. 文件命名建议：\`big-idea.md\`、\`creative-directions.md\`
 4. 完成标准（校验时会检查）：
    - big-idea.md 必须包含核心创意概念、传播主张、创意钩子（至少300字）
-   - creative-directions.md 必须包含 3 个方向及推荐（至少300字）
+   - creative-directions.md 必须包含3个方向及推荐（至少300字）
    - 必须明确推荐最优方案及理由
 
-前置产物：\`brand-dna/\`、\`ta-portrait/\` 目录中的文件
+前置产物：\`brand-dna/\`、\`brand-concept/\`、\`goal-setting/\` 目录中的文件
 完成后，请返回 "已完成：Big Idea 生成"并附上产物摘要。`,
   },
   {
     id: 'platform_matrix',
     title: '设计平台矩阵',
-    description: '根据创意概念和 TA 画像，设计多平台内容分发矩阵和角色分工',
+    description: '根据创意概念和TA画像，设计多平台内容分发矩阵和角色分工',
     toolName: 'ma-platform-role-mapper',
     minArtifactLength: 300,
     artifactRequirements: [
@@ -157,7 +336,7 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
       { name: '预算分配', aliases: ['预算', '分配', '预算比例', '预算分配', '资源分配'] },
       { name: '内容排期', aliases: ['排期', '日历', '排期表', '时间线', '内容日历'] },
     ],
-    agentPrompt: `## 步骤 4: 设计平台矩阵
+    agentPrompt: `## 步骤 8: 设计平台矩阵
 
 目标：基于 Big Idea 和 TA 画像，为每个平台分配内容角色、KPI 和预算比例。
 
@@ -183,7 +362,7 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
       { name: '预算分配', aliases: ['预算', '预算分配', '预算比例', '费用', '投入'] },
       { name: '筛选标准', aliases: ['筛选', '标准', '要求', '条件', '粉丝量', '互动率'] },
     ],
-    agentPrompt: `## 步骤 5: 设计 KOL 金字塔
+    agentPrompt: `## 步骤 9: 设计 KOL 金字塔
 
 目标：基于总预算 {budget} 元、平台矩阵和目标人群，设计头部/腰部/尾部 KOL 金字塔。
 
@@ -210,7 +389,7 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
       { name: 'KOL 列表', aliases: ['KOL', '达人', '博主', '候选人', '推荐列表'] },
       { name: '推荐理由', aliases: ['推荐理由', '匹配度', '分析', '评估', '为什么'] },
     ],
-    agentPrompt: `## 步骤 6: 筛选候选达人
+    agentPrompt: `## 步骤 10: 筛选候选达人
 
 目标：基于 KOL 金字塔参数（平台、类目、粉丝量级、预算范围），搜索并筛选候选达人。
 
@@ -237,7 +416,7 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
       { name: 'KOL ID', aliases: ['KOL ID', '达人ID', 'ID列表', 'kol_id', '编号'] },
       { name: '导入结果', aliases: ['成功', '失败', '跳过', '结果', '状态'] },
     ],
-    agentPrompt: `## 步骤 7: 将达人加入候选池
+    agentPrompt: `## 步骤 11: 将达人加入候选池
 
 目标：将上一步筛选出的候选 KOL 从数据库导入当前 Campaign 候选池。
 
@@ -267,7 +446,7 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
       { name: '交付物', aliases: ['交付物', '交付清单', '要求', '产出', '作品'] },
       { name: '时间线', aliases: ['时间', '时间线', '节点', 'deadline', '截止日期'] },
     ],
-    agentPrompt: `## 步骤 8: 生成达人 Brief
+    agentPrompt: `## 步骤 12: 生成达人 Brief
 
 目标：为当前 Campaign 候选池中的每位已确认达人（status = confirmed）生成个性化 Brief。
 
@@ -295,7 +474,7 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
       { name: '指标', aliases: ['指标', 'KPI', '关键指标', '成功指标', '统计指标'] },
       { name: '样本量', aliases: ['样本量', '样本', '计算', '统计', '显著性'] },
     ],
-    agentPrompt: `## 步骤 9: 设计 A/B 测试
+    agentPrompt: `## 步骤 13: 设计 A/B 测试
 
 目标：为 Campaign 设计 A/B 测试方案，定义测试变量、受众分组、成功指标和样本量计算。
 
@@ -415,8 +594,12 @@ function generateTodoMarkdown(workflow: CampaignWorkflow): string {
 
 function getDirDescription(dir: string): string {
   const desc: Record<string, string> = {
-    'brand-dna': '品牌 DNA 分析文档',
-    'ta-portrait': '目标受众画像报告',
+    'market-analysis': '市场分析文档（市场规模/品类趋势/品类痛点）',
+    'competitor-analysis': '竞品分析文档（竞品矩阵/竞争格局/差异化策略）',
+    'user-analysis': '用户分析文档（TA画像/搜索习惯/关键词）',
+    'brand-dna': '品牌DNA + 品牌诊断（品牌阶段/产品现状/核心问题/核心目标）',
+    'brand-concept': '品牌概念产出（愿景/价值观/品牌屋/Tone/Visual）',
+    'goal-setting': '目标设定（总目标/分层目标/量化指标）',
     'creative-concept': '核心创意概念（Big Idea）',
     'platform-matrix': '平台内容分发矩阵',
     'kol-pyramid': 'KOL 合作金字塔方案',
@@ -467,14 +650,18 @@ ${workflow.steps.map((s, i) => `- ${s.status === 'completed' ? '[x]' : '[ ]'} �
 ## 产物目录
 
 \`\`\`
-brand-dna/          — 品牌 DNA
-ta-portrait/        — TA 画像
-creative-concept/   — 创意概念
-platform-matrix/    — 平台矩阵
-kol-pyramid/      — KOL 金字塔
-kol-search/       — 达人搜索
-briefs/           — KOL Briefs
-ab-test/          — A/B 测试
+market-analysis/      — 市场分析（市场规模/品类趋势/品类痛点）
+competitor-analysis/  — 竞品分析（竞品矩阵/竞争格局/差异化策略）
+user-analysis/        — 用户分析（TA画像/搜索习惯/关键词）
+brand-dna/            — 品牌DNA + 品牌诊断（品牌阶段/产品现状/核心问题/核心目标）
+brand-concept/        — 品牌概念（愿景/价值观/品牌屋/Tone/Visual）
+goal-setting/         — 目标设定（总目标/分层目标/量化指标）
+creative-concept/     — 创意概念（Big Idea）
+platform-matrix/      — 平台矩阵
+kol-pyramid/          — KOL 金字塔
+kol-search/           — 达人搜索
+briefs/               — KOL Briefs
+ab-test/              — A/B 测试
 \`\`\`
 
 ## 历史记录

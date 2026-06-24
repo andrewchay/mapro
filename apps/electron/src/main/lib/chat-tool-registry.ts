@@ -68,12 +68,23 @@ import {
   CAMPAIGN_AGENT_TOOL_META,
   CAMPAIGN_AGENT_TOOL_DEFINITIONS,
   isCampaignAgentAvailable,
+  CONTENT_TRACKER_TOOL_META,
+  CONTENT_TRACKER_TOOL_DEFINITIONS,
+  isContentTrackerAvailable,
+  PHASE_REVIEWER_TOOL_META,
+  PHASE_REVIEWER_TOOL_DEFINITIONS,
+  isPhaseReviewerAvailable,
 } from './ma-tools'
 import {
   KOL_DATA_MCP_TOOL_META,
   KOL_DATA_MCP_TOOL_DEFINITIONS,
   isKOLDataMcpAvailable,
 } from './ma-tools/kol-data-mcp-tool'
+import {
+  BUDGET_FORECAST_TOOL_META,
+  BUDGET_FORECAST_TOOL_DEFINITIONS,
+  isBudgetForecastAvailable,
+} from './ma-tools/budget-forecast'
 
 // ===== 内置工具注册 =====
 
@@ -170,6 +181,21 @@ const BUILTIN_TOOLS: BuiltinToolEntry[] = [
     meta: CAMPAIGN_AGENT_TOOL_META,
     getDefinitions: () => CAMPAIGN_AGENT_TOOL_DEFINITIONS,
     checkAvailable: isCampaignAgentAvailable,
+  },
+  {
+    meta: BUDGET_FORECAST_TOOL_META,
+    getDefinitions: () => BUDGET_FORECAST_TOOL_DEFINITIONS,
+    checkAvailable: isBudgetForecastAvailable,
+  },
+  {
+    meta: CONTENT_TRACKER_TOOL_META,
+    getDefinitions: () => CONTENT_TRACKER_TOOL_DEFINITIONS,
+    checkAvailable: isContentTrackerAvailable,
+  },
+  {
+    meta: PHASE_REVIEWER_TOOL_META,
+    getDefinitions: () => PHASE_REVIEWER_TOOL_DEFINITIONS,
+    checkAvailable: isPhaseReviewerAvailable,
   },
 ]
 

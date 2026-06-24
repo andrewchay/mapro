@@ -6,7 +6,7 @@
  */
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, CAMPAIGN_IPC_CHANNELS, KOL_DATA_IPC_CHANNELS, CONTENT_AUDIT_IPC_CHANNELS } from '@ma-proma/shared'
+import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, CAMPAIGN_IPC_CHANNELS, KOL_DATA_IPC_CHANNELS, CONTENT_AUDIT_IPC_CHANNELS, CONTENT_TRACKING_IPC_CHANNELS, PHASE_REPORT_IPC_CHANNELS, AB_TEST_IPC_CHANNELS } from '@ma-proma/shared'
 import { USER_PROFILE_IPC_CHANNELS, SETTINGS_IPC_CHANNELS, SCRATCH_PAD_IPC_CHANNELS, APP_ICON_IPC_CHANNELS, DOCK_BADGE_IPC_CHANNELS, STORAGE_IPC_CHANNELS } from '../types'
 import type {
   RuntimeStatus,
@@ -1005,6 +1005,59 @@ export interface ElectronAPI {
   createContentAudit: (input: import('@ma-proma/shared').CreateContentAuditInput) => Promise<import('@ma-proma/shared').ContentAudit | null>
   /** 更新审核状态 */
   updateContentAuditStatus: (auditId: string, status: 'pending' | 'reviewing' | 'passed' | 'failed') => Promise<boolean>
+
+  // ===== 内容数据追踪 =====
+
+  /** 获取 Campaign 的内容追踪记录 */
+  listContentTracking: (campaignId: string) => Promise<import('@ma-proma/shared').KOLContentTracking[]>
+  /** 获取单条内容追踪记录 */
+  getContentTracking: (id: string) => Promise<import('@ma-proma/shared').KOLContentTracking | null>
+  /** 创建内容追踪记录 */
+  addContentTracking: (input: import('@ma-proma/shared').CreateContentTrackingInput) => Promise<import('@ma-proma/shared').KOLContentTracking | null>
+  /** 更新内容数据 */
+  updateContentTrackingData: (input: import('@ma-proma/shared').UpdateContentTrackingDataInput) => Promise<import('@ma-proma/shared').KOLContentTracking | null>
+  /** 更新分析结果 */
+  updateContentTrackingAnalysis: (input: import('@ma-proma/shared').UpdateAnalysisInput) => Promise<import('@ma-proma/shared').KOLContentTracking | null>
+  /** 添加投流数据 */
+  addContentPaidData: (input: import('@ma-proma/shared').AddPaidDataInput) => Promise<import('@ma-proma/shared').KOLContentTracking | null>
+  /** 删除内容追踪记录 */
+  deleteContentTracking: (id: string) => Promise<boolean>
+
+  // ===== 阶段复盘报告 =====
+
+  /** 列出 Campaign 的复盘报告 */
+  listPhaseReports: (campaignId: string) => Promise<import('@ma-proma/shared').CampaignPhaseReport[]>
+  /** 获取单份复盘报告 */
+  getPhaseReport: (id: string) => Promise<import('@ma-proma/shared').CampaignPhaseReport | null>
+  /** 生成复盘报告 */
+  generatePhaseReport: (input: import('@ma-proma/shared').GeneratePhaseReportInput) => Promise<import('@ma-proma/shared').CampaignPhaseReport>
+  /** 更新复盘报告 */
+  updatePhaseReport: (id: string, updates: Partial<Pick<import('@ma-proma/shared').CampaignPhaseReport, 'aiSummary' | 'aiFindings' | 'aiRecommendations' | 'aiScaleAdvice' | 'status'>>) => Promise<import('@ma-proma/shared').CampaignPhaseReport | null>
+  /** 定稿复盘报告 */
+  finalizePhaseReport: (id: string) => Promise<import('@ma-proma/shared').CampaignPhaseReport | null>
+  /** 删除复盘报告 */
+  deletePhaseReport: (id: string) => Promise<boolean>
+
+  // ===== AB 测试 =====
+
+  /** 列出 Campaign 的 AB 测试 */
+  listABTests: (campaignId: string) => Promise<import('@ma-proma/shared').CampaignABTest[]>
+  /** 获取单个 AB 测试 */
+  getABTest: (id: string) => Promise<import('@ma-proma/shared').CampaignABTest | null>
+  /** 创建 AB 测试 */
+  createABTest: (input: import('@ma-proma/shared').CreateABTestInput) => Promise<import('@ma-proma/shared').CampaignABTest>
+  /** 更新 AB 测试 */
+  updateABTest: (id: string, updates: Partial<Pick<import('@ma-proma/shared').CampaignABTest, 'testName' | 'hypothesis' | 'variableType' | 'variableDescription' | 'controlGroupDefinition' | 'testGroupDefinition' | 'startDate' | 'endDate' | 'status' | 'winnerGroup' | 'winnerReason' | 'scaleRecommendation'>>) => Promise<import('@ma-proma/shared').CampaignABTest | null>
+  /** 完成 AB 测试 */
+  completeABTest: (id: string, winnerGroup: string, winnerReason: string, scaleRecommendation: string) => Promise<import('@ma-proma/shared').CampaignABTest | null>
+  /** 删除 AB 测试 */
+  deleteABTest: (id: string) => Promise<boolean>
+  /** 获取 AB 测试分组结果 */
+  getABTestResults: (abTestId: string) => Promise<import('@ma-proma/shared').ABTestResult[]>
+  /** 更新 AB 测试分组结果 */
+  updateABTestResult: (input: import('@ma-proma/shared').UpdateABTestResultInput) => Promise<import('@ma-proma/shared').ABTestResult>
+  /** 分析 AB 测试并生成放量建议 */
+  analyzeABTest: (abTestId: string) => Promise<{ success: boolean; result?: import('@ma-proma/shared').CampaignABTest; error?: string }>
 
   // ===== 菜单栏 =====
 
@@ -2218,6 +2271,98 @@ const electronAPI: ElectronAPI = {
 
   updateContentAuditStatus: (auditId: string, status: 'pending' | 'reviewing' | 'passed' | 'failed') => {
     return ipcRenderer.invoke(CONTENT_AUDIT_IPC_CHANNELS.UPDATE_STATUS, auditId, status)
+  },
+
+  // 内容数据追踪
+  listContentTracking: (campaignId: string) => {
+    return ipcRenderer.invoke(CONTENT_TRACKING_IPC_CHANNELS.LIST, campaignId)
+  },
+
+  getContentTracking: (id: string) => {
+    return ipcRenderer.invoke(CONTENT_TRACKING_IPC_CHANNELS.GET, id)
+  },
+
+  addContentTracking: (input: import('@ma-proma/shared').CreateContentTrackingInput) => {
+    return ipcRenderer.invoke(CONTENT_TRACKING_IPC_CHANNELS.CREATE, input)
+  },
+
+  updateContentTrackingData: (input: import('@ma-proma/shared').UpdateContentTrackingDataInput) => {
+    return ipcRenderer.invoke(CONTENT_TRACKING_IPC_CHANNELS.UPDATE_DATA, input)
+  },
+
+  updateContentTrackingAnalysis: (input: import('@ma-proma/shared').UpdateAnalysisInput) => {
+    return ipcRenderer.invoke(CONTENT_TRACKING_IPC_CHANNELS.UPDATE_ANALYSIS, input)
+  },
+
+  addContentPaidData: (input: import('@ma-proma/shared').AddPaidDataInput) => {
+    return ipcRenderer.invoke(CONTENT_TRACKING_IPC_CHANNELS.ADD_PAID_DATA, input)
+  },
+
+  deleteContentTracking: (id: string) => {
+    return ipcRenderer.invoke(CONTENT_TRACKING_IPC_CHANNELS.DELETE, id)
+  },
+
+  // 阶段复盘报告
+  listPhaseReports: (campaignId: string) => {
+    return ipcRenderer.invoke(PHASE_REPORT_IPC_CHANNELS.LIST, campaignId)
+  },
+
+  getPhaseReport: (id: string) => {
+    return ipcRenderer.invoke(PHASE_REPORT_IPC_CHANNELS.GET, id)
+  },
+
+  generatePhaseReport: (input: import('@ma-proma/shared').GeneratePhaseReportInput) => {
+    return ipcRenderer.invoke(PHASE_REPORT_IPC_CHANNELS.GENERATE, input)
+  },
+
+  updatePhaseReport: (id: string, updates: Partial<Pick<import('@ma-proma/shared').CampaignPhaseReport, 'aiSummary' | 'aiFindings' | 'aiRecommendations' | 'aiScaleAdvice' | 'status'>>) => {
+    return ipcRenderer.invoke(PHASE_REPORT_IPC_CHANNELS.UPDATE, id, updates)
+  },
+
+  finalizePhaseReport: (id: string) => {
+    return ipcRenderer.invoke(PHASE_REPORT_IPC_CHANNELS.FINALIZE, id)
+  },
+
+  deletePhaseReport: (id: string) => {
+    return ipcRenderer.invoke(PHASE_REPORT_IPC_CHANNELS.DELETE, id)
+  },
+
+  // ===== AB 测试 =====
+
+  listABTests: (campaignId: string) => {
+    return ipcRenderer.invoke(AB_TEST_IPC_CHANNELS.LIST, campaignId)
+  },
+
+  getABTest: (id: string) => {
+    return ipcRenderer.invoke(AB_TEST_IPC_CHANNELS.GET, id)
+  },
+
+  createABTest: (input: import('@ma-proma/shared').CreateABTestInput) => {
+    return ipcRenderer.invoke(AB_TEST_IPC_CHANNELS.CREATE, input)
+  },
+
+  updateABTest: (id: string, updates: Partial<Pick<import('@ma-proma/shared').CampaignABTest, 'testName' | 'hypothesis' | 'variableType' | 'variableDescription' | 'controlGroupDefinition' | 'testGroupDefinition' | 'startDate' | 'endDate' | 'status' | 'winnerGroup' | 'winnerReason' | 'scaleRecommendation'>>) => {
+    return ipcRenderer.invoke(AB_TEST_IPC_CHANNELS.UPDATE, id, updates)
+  },
+
+  completeABTest: (id: string, winnerGroup: string, winnerReason: string, scaleRecommendation: string) => {
+    return ipcRenderer.invoke(AB_TEST_IPC_CHANNELS.COMPLETE, id, winnerGroup, winnerReason, scaleRecommendation)
+  },
+
+  deleteABTest: (id: string) => {
+    return ipcRenderer.invoke(AB_TEST_IPC_CHANNELS.DELETE, id)
+  },
+
+  getABTestResults: (abTestId: string) => {
+    return ipcRenderer.invoke(AB_TEST_IPC_CHANNELS.GET_RESULTS, abTestId)
+  },
+
+  updateABTestResult: (input: import('@ma-proma/shared').UpdateABTestResultInput) => {
+    return ipcRenderer.invoke(AB_TEST_IPC_CHANNELS.UPDATE_RESULT, input)
+  },
+
+  analyzeABTest: (abTestId: string) => {
+    return ipcRenderer.invoke(AB_TEST_IPC_CHANNELS.ANALYZE, abTestId)
   },
 
   // ===== 快速任务窗口 =====

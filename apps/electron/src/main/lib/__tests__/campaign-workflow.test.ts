@@ -103,15 +103,16 @@ describe('Campaign 工作流测试', () => {
     const workflow = workflowService.loadCampaignWorkflow(testCampaignId)
 
     expect(workflow.campaignId).toBe(testCampaignId)
-    expect(workflow.steps).toHaveLength(9)
+    expect(workflow.steps).toHaveLength(13)
     expect(workflow.currentStepIndex).toBe(-1)
-    expect(workflow.steps[0]?.id).toBe('brand_dna')
+    expect(workflow.steps[0]?.id).toBe('market_analysis')
     expect(workflow.steps[0]?.status).toBe('pending')
 
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
     const expectedDirs = [
-      'brand-dna', 'ta-portrait', 'creative-concept', 'platform-matrix',
-      'kol-pyramid', 'kol-search', 'briefs', 'ab-test', '.context',
+      'market-analysis', 'competitor-analysis', 'user-analysis',
+      'brand-dna', 'brand-concept', 'goal-setting', 'creative-concept',
+      'platform-matrix', 'kol-pyramid', 'kol-search', 'briefs', 'ab-test', '.context',
     ]
     for (const dir of expectedDirs) {
       expect(existsSync(join(workspaceDir, dir))).toBe(true)
@@ -122,7 +123,7 @@ describe('Campaign 工作流测试', () => {
     const todoContent = readFileSync(todoPath, 'utf-8')
     expect(todoContent).toContain('Campaign 工作流 Todo')
     expect(todoContent).toContain('⏳ 待完成')
-    expect(todoContent).toContain('brand-dna')
+    expect(todoContent).toContain('market-analysis')
 
     const campaignMdPath = join(workspaceDir, '.context', 'campaign.md')
     expect(existsSync(campaignMdPath)).toBe(true)
@@ -143,11 +144,11 @@ describe('Campaign 工作流测试', () => {
 
   it('Slice 2b: 非文本文件 → valid=false，原因=没有可读产物', () => {
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
-    const dir = join(workspaceDir, 'ta-portrait')
+    const dir = join(workspaceDir, 'brand-concept')
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'image.jpg'), 'fake-binary', 'utf-8')
 
-    const result = workflowService.validateStepArtifacts(testCampaignId, 'ta_portrait')
+    const result = workflowService.validateStepArtifacts(testCampaignId, 'brand_concept')
     expect(result.valid).toBe(false)
     expect(result.files).toHaveLength(0)
     expect(result.missing.some((m) => m.includes('没有可读产物'))).toBe(true)
@@ -323,6 +324,11 @@ describe('Campaign 工作流测试', () => {
     })
 
     const content = [
+      '品牌历史：品牌创立于 2018 年，从社区水果店起步，发展至今已有六年历程，传承每日鲜果理念。',
+      '产品服务：核心产品线包括鲜切水果盒、季节果篮，功能卖点为当日鲜切、冷链配送，价格带 29-99 元。',
+      '目标人群洞察：核心人群为都市年轻女性，TA 画像集中在一二线白领，痛点是没时间处理水果，需求是开盖即食。',
+      '竞品对标：直接竞品为百果园、鲜丰水果，竞争品牌同质化严重；对标 aspiration 品牌喜茶的生活方式调性。',
+      '差异化优势：我们的差异化在于鲜切即食加场景化套餐，核心竞争力是供应链稳定，与竞品最核心的差异在场景绑定。',
       '品牌核心价值：品牌以新鲜、可信赖和城市品质生活作为核心价值，强调每日鲜果带来的稳定幸福感。',
       '价值主张：让忙碌都市用户用更低决策成本获得高品质鲜果体验，品牌定位是深耕线下的鲜果服务品牌。',
       '使命：通过稳定供应链和精细化服务，让更多家庭和办公室用户持续获得安心的水果选择。',

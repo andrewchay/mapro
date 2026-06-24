@@ -1,10 +1,12 @@
 /**
  * FilePreviewDialog - 内联文本/Markdown 文件预览弹窗
  *
- * 安全预览：直接显示原始文本，避免 dangerouslySetInnerHTML 导致白屏。
+ * 支持 Markdown 渲染（默认）和原始文本切换，避免纯文本白屏。
  */
 import * as React from 'react'
-import { X, FileText, Copy, Check } from 'lucide-react'
+import { X, FileText, Copy, Check, Eye, Code, ExternalLink } from 'lucide-react'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
@@ -20,16 +22,22 @@ export function FilePreviewDialog({ filePath, open, onOpenChange }: FilePreviewD
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState('')
   const [copied, setCopied] = React.useState(false)
+  const [rawMode, setRawMode] = React.useState(false)
+
+  const fileName = filePath ? filePath.split('/').pop() ?? filePath.split('\\').pop() ?? filePath : ''
+  const isMarkdown = fileName.toLowerCase().endsWith('.md') || fileName.toLowerCase().endsWith('.markdown')
 
   React.useEffect(() => {
     if (!filePath || !open) {
       setContent('')
       setError('')
+      setRawMode(false)
       return
     }
 
     setLoading(true)
     setError('')
+    setRawMode(false)
     window.electronAPI
       .readFileContent(filePath)
       .then((result) => {
@@ -51,7 +59,10 @@ export function FilePreviewDialog({ filePath, open, onOpenChange }: FilePreviewD
     })
   }
 
-  const fileName = filePath ? filePath.split('/').pop() ?? filePath.split('\\').pop() ?? filePath : ''
+  const handleOpenExternal = () => {
+    if (!filePath) return
+    window.electronAPI.openFile(filePath).catch(console.error)
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -63,7 +74,19 @@ export function FilePreviewDialog({ filePath, open, onOpenChange }: FilePreviewD
               {fileName}
             </DialogTitle>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            {isMarkdown && content && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 px-2 text-xs"
+                onClick={() => setRawMode((prev) => !prev)}
+                title={rawMode ? '切换到渲染视图' : '切换到原始文本'}
+              >
+                {rawMode ? <Eye size={13} /> : <Code size={13} />}
+                <span className="ml-1">{rawMode ? '渲染' : '原文'}</span>
+              </Button>
+            )}
             {content && (
               <Button
                 size="sm"
@@ -75,6 +98,16 @@ export function FilePreviewDialog({ filePath, open, onOpenChange }: FilePreviewD
                 <span className="ml-1">{copied ? '已复制' : '复制'}</span>
               </Button>
             )}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2 text-xs"
+              onClick={handleOpenExternal}
+              title="用系统应用打开"
+            >
+              <ExternalLink size={13} />
+              <span className="ml-1">打开</span>
+            </Button>
             <Button
               size="sm"
               variant="ghost"
@@ -93,6 +126,39 @@ export function FilePreviewDialog({ filePath, open, onOpenChange }: FilePreviewD
             </div>
           ) : error ? (
             <div className="text-sm text-red-500 py-8 text-center">{error}</div>
+          ) : isMarkdown && !rawMode ? (
+            <div
+              className="prose dark:prose-invert max-w-none text-[14px]
+                prose-p:my-2 prose-p:leading-[1.75] prose-li:leading-[1.75]
+                prose-headings:my-3 prose-pre:my-0
+                prose-img:rounded-xl prose-img:shadow-md prose-img:max-w-full
+                prose-blockquote:border-primary/30 prose-blockquote:text-muted-foreground
+                [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+            >
+              <Markdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  a: ({ href, children: linkChildren, ...linkProps }) => (
+                    <a
+                      {...linkProps}
+                      href={href}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
+                          window.electronAPI.openExternal(href)
+                        }
+                      }}
+                      title={href}
+                      className="text-primary hover:underline cursor-pointer"
+                    >
+                      {linkChildren}
+                    </a>
+                  ),
+                }}
+              >
+                {content}
+              </Markdown>
+            </div>
           ) : (
             <pre className="whitespace-pre-wrap break-words text-sm font-mono leading-relaxed">
               {content}
