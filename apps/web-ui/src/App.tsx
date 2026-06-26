@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Layout } from './components/Layout.tsx'
 import { CampaignListPage } from './pages/CampaignListPage.tsx'
 import { CampaignDetailPage } from './pages/CampaignDetailPage.tsx'
+import { ChatPage } from './pages/ChatPage.tsx'
 
 export function App() {
   return (
@@ -10,6 +11,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<CampaignListPage />} />
           <Route path="/campaigns/:id" element={<CampaignDetailPage />} />
+          <Route path="/chat" element={<ChatPage />} />
         </Routes>
       </Layout>
     </BrowserRouter>

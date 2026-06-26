@@ -3,9 +3,10 @@
  */
 
 import type { Campaign, KOLContentTracking } from '@ma-proma/shared'
-import type { CreateCampaignInput, PlatformAPI } from './platform-api.ts'
+import type { CreateCampaignInput, PlatformAPI, ChatSendInput, ChatStreamEvent } from './platform-api.ts'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const WS_BASE = import.meta.env.VITE_WS_BASE || 'ws://localhost:8081'
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -40,8 +41,38 @@ export const webAPI: PlatformAPI = {
 
   async listContentTracking(campaignId: string) {
     // 阶段 A 后端暂未实现内容追踪 API，先返回空数组
-    // 后续接入：/campaigns/${campaignId}/content-tracking
     console.log('[webAPI] 内容追踪 API 待接入，campaignId:', campaignId)
     return []
+  },
+
+  sendChatMessage(input: ChatSendInput, onEvent: (event: ChatStreamEvent) => void) {
+    const ws = new WebSocket(WS_BASE)
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'chat', payload: input }))
+    }
+
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data)
+        if (message.type === 'chat-stream-event') {
+          onEvent(message.data as ChatStreamEvent)
+          if (message.data?.type === 'done' || message.data?.type === 'error') {
+            ws.close()
+          }
+        }
+      } catch (error) {
+        console.error('[webAPI] WebSocket 消息解析失败:', error)
+      }
+    }
+
+    ws.onerror = (error) => {
+      console.error('[webAPI] WebSocket 错误:', error)
+      onEvent({ type: 'error', error: 'WebSocket 连接失败' })
+    }
+
+    ws.onclose = () => {
+      // 连接关闭
+    }
   },
 }
