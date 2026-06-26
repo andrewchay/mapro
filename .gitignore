@@ -43,4 +43,10 @@ what_are_humans_thinking
 软著申请/
 
 # vendor binaries
-vendorMAPro-source.zip
+vendor/
+
+# 本地运行时数据目录（Web 服务默认数据目录）
+.mapro/
+
+# 源码打包产物
+ma-proma-source.zip

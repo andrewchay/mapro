@@ -8,7 +8,7 @@
  * 4. Chat WebSocket 未配置提示
  */
 
-import { spawn } from 'node:child_process'
+import { spawn, execSync } from 'node:child_process'
 import { rmSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -24,7 +24,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function killPort(port: number): void {
+  try {
+    execSync(`lsof -tiTCP:${port} -sTCP:LISTEN | xargs kill -9 2>/dev/null || true`, { stdio: 'ignore' })
+  } catch {
+    // 端口可能空闲，忽略错误
+  }
+}
+
 async function startServer(): Promise<void> {
+  // 清理可能的残留进程，避免端口占用导致测试失败
+  killPort(TEST_PORT)
+  killPort(TEST_WS_PORT)
+  await sleep(500)
+
   serverProcess = spawn('bun', ['run', '--filter=@ma-proma/web', 'start'], {
     env: {
       ...process.env,
@@ -33,6 +46,7 @@ async function startServer(): Promise<void> {
       MAPRO_WS_PORT: String(TEST_WS_PORT),
     },
     stdio: 'pipe',
+    detached: true,
   })
 
   // 等待服务启动
@@ -50,12 +64,24 @@ async function startServer(): Promise<void> {
 
 async function stopServer(): Promise<void> {
   if (serverProcess) {
-    serverProcess.kill('SIGTERM')
+    try {
+      // detached 模式下通过进程组信号确保子进程（bun run 启动的真实服务）也被终止
+      process.kill(-serverProcess.pid!, 'SIGTERM')
+    } catch {
+      serverProcess.kill('SIGTERM')
+    }
     await sleep(1000)
     if (!serverProcess.killed) {
-      serverProcess.kill('SIGKILL')
+      try {
+        process.kill(-serverProcess.pid!, 'SIGKILL')
+      } catch {
+        serverProcess.kill('SIGKILL')
+      }
     }
   }
+  // 兜底：直接清理测试端口上的残留监听
+  killPort(TEST_PORT)
+  killPort(TEST_WS_PORT)
   rmSync(TEST_DATA_DIR, { recursive: true, force: true })
 }
 

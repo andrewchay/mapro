@@ -1,8 +1,8 @@
 /**
  * Campaign 查询服务
  *
- * 阶段 A 只读查询层，封装 CampaignRepository 的数据访问，
- * 为未来添加缓存、权限校验、数据聚合留下扩展点。
+ * 阶段 B0：封装 CampaignRepository 的数据访问，所有方法改为异步，
+ * 与未来 DbProvider 异步抽象保持一致。
  */
 
 import type { Campaign, CampaignKOLPoolItem, KOLContentTracking } from '@ma-proma/shared'
@@ -15,19 +15,19 @@ export class CampaignQueryService {
     this.repository = repository
   }
 
-  listCampaigns(): Campaign[] {
+  async listCampaigns(): Promise<Campaign[]> {
     return this.repository.listCampaigns()
   }
 
-  getCampaignById(id: string): Campaign | null {
+  async getCampaignById(id: string): Promise<Campaign | null> {
     return this.repository.getCampaignById(id)
   }
 
-  listContentTracking(campaignId: string): KOLContentTracking[] {
+  async listContentTracking(campaignId: string): Promise<KOLContentTracking[]> {
     return this.repository.listContentTracking(campaignId)
   }
 
-  getPoolKOLs(campaignId: string): CampaignKOLPoolItem[] {
+  async getPoolKOLs(campaignId: string): Promise<CampaignKOLPoolItem[]> {
     return this.repository.getPoolKOLs(campaignId)
   }
 }

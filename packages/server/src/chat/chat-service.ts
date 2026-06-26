@@ -13,7 +13,7 @@
 import { getAdapter, streamSSE } from '@ma-proma/core'
 import type { StreamEvent } from '@ma-proma/core'
 import type { ChatMessage, ProviderType } from '@ma-proma/shared'
-import type { EventSink } from '../context/types.ts'
+import type { RendererTransport } from '../transport/types.ts'
 import type { ChatProviderConfig, ChatSendInput, ChatStreamEvent } from './types.ts'
 
 export class ChatService {
@@ -23,7 +23,7 @@ export class ChatService {
     this.config = config
   }
 
-  async sendMessage(input: ChatSendInput, eventSink: EventSink, signal?: AbortSignal): Promise<void> {
+  async sendMessage(input: ChatSendInput, transport: RendererTransport, signal?: AbortSignal): Promise<void> {
     const adapter = getAdapter(this.config.provider as ProviderType)
 
     const request = adapter.buildStreamRequest({
@@ -39,7 +39,7 @@ export class ChatService {
     })
 
     const sendEvent = (event: ChatStreamEvent) => {
-      eventSink.send('chat-stream-event', event)
+      transport.send('chat-stream-event', event)
     }
 
     try {

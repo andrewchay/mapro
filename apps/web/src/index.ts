@@ -13,12 +13,12 @@ import express from 'express'
 import cors from 'cors'
 import { WebSocketServer } from 'ws'
 import { loadChatConfig } from '@ma-proma/server'
-import { createWebAppContext } from './context.ts'
+import { createWebServerContext } from './context.ts'
 import { createCampaignRouter } from './routes/campaign.ts'
-import { createWebSocketHandler } from './websocket/index.ts'
+import { createWebSocketHandler, createWebSocketTransport } from './websocket/index.ts'
 
 const app = express()
-const context = createWebAppContext()
+const { appContext } = createWebServerContext()
 const chatConfig = loadChatConfig()
 
 app.use(cors())
@@ -29,8 +29,9 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', chatEnabled: chatConfig !== null })
 })
 
-// Campaign API
-app.use('/api/campaigns', createCampaignRouter(context))
+// Campaign API（异步初始化 Router）
+const campaignRouter = await createCampaignRouter(appContext)
+app.use('/api/campaigns', campaignRouter)
 
 // 生产环境：托管前端静态资源
 const staticDir = process.env.MAPRO_WEB_UI_DIR
@@ -40,7 +41,6 @@ if (staticDir && existsSync(staticDir)) {
     res.sendFile(resolve(staticDir, 'index.html'))
   })
 } else {
-  // 默认尝试相邻的 web-ui/dist 目录
   const defaultStaticDir = resolve(process.cwd(), '../web-ui/dist')
   if (existsSync(defaultStaticDir)) {
     app.use(express.static(defaultStaticDir))
@@ -55,7 +55,7 @@ const WS_PORT = Number(process.env.MAPRO_WS_PORT ?? 8081)
 
 app.listen(PORT, () => {
   console.log(`[MAPro Web] HTTP 服务已启动：http://localhost:${PORT}`)
-  console.log(`[MAPro Web] 数据目录：${context.getConfigDir()}`)
+  console.log(`[MAPro Web] 数据目录：${appContext.getConfigDir()}`)
   console.log(`[MAPro Web] Chat 状态：${chatConfig ? `已启用 (${chatConfig.provider})` : '未配置'}`)
 })
 

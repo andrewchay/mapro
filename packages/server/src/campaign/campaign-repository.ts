@@ -1,7 +1,9 @@
 /**
- * Campaign 纯数据访问层
+ * Campaign 纯数据访问层（基于 DbProvider 抽象）
  *
- * 阶段 A 范围：
+ * 阶段 B0 范围：
+ * - 通过 DbProvider 接口访问数据库，不再直接依赖 SqliteDatabase。
+ * - 保留 SQLite 方言的 Schema 初始化逻辑（内部版仍使用 SQLite）。
  * - Campaign 表的初始化、list/get/create/update
  * - 内容追踪表的 list/get（只读）
  *
@@ -12,8 +14,6 @@
  * - 阶段复盘报告生成
  */
 
-import { join } from 'node:path'
-import { existsSync, mkdirSync } from 'node:fs'
 import type {
   Campaign,
   CampaignCreativePlan,
@@ -22,41 +22,20 @@ import type {
   CreateCampaignInput,
   KOLContentTracking,
 } from '@ma-proma/shared'
-import type { AppContext } from '../context/types.ts'
-import { getConfigDir } from '../context/config-paths.ts'
-import { SqliteDatabase } from '../context/sqlite-adapter.ts'
+import type { DbProvider } from '../db/types.ts'
 
 export class CampaignRepository {
-  private context: AppContext
-  private dbInstance: SqliteDatabase | null = null
+  private db: DbProvider
 
-  constructor(context: AppContext) {
-    this.context = context
+  constructor(db: DbProvider) {
+    this.db = db
   }
 
-  private getDbPath(): string {
-    return join(getConfigDir(this.context), 'campaign-database.sqlite')
-  }
-
-  private getDb(): SqliteDatabase {
-    if (this.dbInstance) return this.dbInstance
-
-    const dbPath = this.getDbPath()
-    const dir = getConfigDir(this.context)
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true })
-    }
-
-    this.dbInstance = new SqliteDatabase(dbPath)
-    this.initSchema()
-    return this.dbInstance
-  }
-
-  private initSchema(): void {
-    const db = this.dbInstance!
+  async initSchema(): Promise<void> {
+    const db = this.db
 
     // Campaign 核心表
-    db.run(`
+    await db.exec(`
       CREATE TABLE IF NOT EXISTS campaigns (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -75,19 +54,19 @@ export class CampaignRepository {
       )
     `)
 
-    db.run(`CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status)`)
-    db.run(`CREATE INDEX IF NOT EXISTS idx_campaigns_brand ON campaigns(brand)`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status)`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_campaigns_brand ON campaigns(brand)`)
 
-    const campaignColumns = db.query(`PRAGMA table_info(campaigns)`).all() as Array<{ name: string }>
+    const { rows: campaignColumns } = await db.query<{ name: string }>(`PRAGMA table_info(campaigns)`)
     if (!campaignColumns.some((col) => col.name === 'phase_plans')) {
-      db.run(`ALTER TABLE campaigns ADD COLUMN phase_plans TEXT`)
+      await db.exec(`ALTER TABLE campaigns ADD COLUMN phase_plans TEXT`)
     }
     if (!campaignColumns.some((col) => col.name === 'creative_plan')) {
-      db.run(`ALTER TABLE campaigns ADD COLUMN creative_plan TEXT`)
+      await db.exec(`ALTER TABLE campaigns ADD COLUMN creative_plan TEXT`)
     }
 
     // Campaign KOL 候选池表（阶段 A 只读）
-    db.run(`
+    await db.exec(`
       CREATE TABLE IF NOT EXISTS campaign_kol_pool (
         campaign_id TEXT NOT NULL,
         kol_id TEXT NOT NULL,
@@ -105,12 +84,12 @@ export class CampaignRepository {
         FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
       )
     `)
-    db.run(`CREATE INDEX IF NOT EXISTS idx_pool_campaign ON campaign_kol_pool(campaign_id)`)
-    db.run(`CREATE INDEX IF NOT EXISTS idx_pool_status ON campaign_kol_pool(status)`)
-    db.run(`CREATE INDEX IF NOT EXISTS idx_pool_platform ON campaign_kol_pool(platform)`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_pool_campaign ON campaign_kol_pool(campaign_id)`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_pool_status ON campaign_kol_pool(status)`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_pool_platform ON campaign_kol_pool(platform)`)
 
     // 内容数据追踪表（阶段 A 只读）
-    db.run(`
+    await db.exec(`
       CREATE TABLE IF NOT EXISTS kol_content_tracking (
         id TEXT PRIMARY KEY,
         campaign_id TEXT NOT NULL,
@@ -151,25 +130,27 @@ export class CampaignRepository {
         updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
       )
     `)
-    db.run(`CREATE INDEX IF NOT EXISTS idx_content_tracking_campaign ON kol_content_tracking(campaign_id)`)
-    db.run(`CREATE INDEX IF NOT EXISTS idx_content_tracking_kol ON kol_content_tracking(kol_id)`)
-    db.run(`CREATE INDEX IF NOT EXISTS idx_content_tracking_platform ON kol_content_tracking(platform)`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_tracking_campaign ON kol_content_tracking(campaign_id)`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_tracking_kol ON kol_content_tracking(kol_id)`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_tracking_platform ON kol_content_tracking(platform)`)
   }
 
-  listCampaigns(): Campaign[] {
-    const db = this.getDb()
-    const rows = db.query(`SELECT * FROM campaigns ORDER BY created_at DESC`).all() as Record<string, unknown>[]
+  async listCampaigns(): Promise<Campaign[]> {
+    const { rows } = await this.db.query<Record<string, unknown>>(
+      `SELECT * FROM campaigns ORDER BY created_at DESC`
+    )
     return rows.map((row) => rowToCampaign(row))
   }
 
-  getCampaignById(id: string): Campaign | null {
-    const db = this.getDb()
-    const row = db.query(`SELECT * FROM campaigns WHERE id = ?`).get(id) as Record<string, unknown> | null
+  async getCampaignById(id: string): Promise<Campaign | null> {
+    const row = await this.db.queryOne<Record<string, unknown>>(
+      `SELECT * FROM campaigns WHERE id = $1`,
+      [id]
+    )
     return row ? rowToCampaign(row) : null
   }
 
-  createCampaign(input: CreateCampaignInput): Campaign {
-    const db = this.getDb()
+  async createCampaign(input: CreateCampaignInput): Promise<Campaign> {
     const now = Date.now()
     const id = generateId()
     const phasePlans = normalizePhasePlans(input.phasePlans, input.budget, input.durationMonths)
@@ -178,23 +159,25 @@ export class CampaignRepository {
       targetAudience: input.targetAudience,
     })
 
-    db.run(
+    await this.db.execute(
       `INSERT INTO campaigns (id, name, brand, platform, budget, duration_months, target_city, target_audience, current_phase, phase_plans, creative_plan, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      id,
-      input.name,
-      input.brand,
-      input.platform,
-      input.budget,
-      input.durationMonths,
-      JSON.stringify(input.targetCity),
-      input.targetAudience,
-      1,
-      JSON.stringify(phasePlans),
-      JSON.stringify(creativePlan),
-      'draft',
-      now,
-      now,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+      [
+        id,
+        input.name,
+        input.brand,
+        input.platform,
+        input.budget,
+        input.durationMonths,
+        JSON.stringify(input.targetCity),
+        input.targetAudience,
+        1,
+        JSON.stringify(phasePlans),
+        JSON.stringify(creativePlan),
+        'draft',
+        now,
+        now,
+      ]
     )
 
     return {
@@ -215,60 +198,63 @@ export class CampaignRepository {
     }
   }
 
-  updateCampaign(
+  async updateCampaign(
     id: string,
     updates: Partial<Pick<Campaign, 'name' | 'brand' | 'platform' | 'budget' | 'durationMonths' | 'targetCity' | 'targetAudience' | 'currentPhase' | 'phasePlans' | 'creativePlan' | 'status'>>,
-  ): Campaign | null {
-    const db = this.getDb()
-    const campaign = this.getCampaignById(id)
+  ): Promise<Campaign | null> {
+    const campaign = await this.getCampaignById(id)
     if (!campaign) return null
 
     const fields: string[] = []
     const values: unknown[] = []
 
-    if (updates.name !== undefined) { fields.push('name = ?'); values.push(updates.name) }
-    if (updates.brand !== undefined) { fields.push('brand = ?'); values.push(updates.brand) }
-    if (updates.platform !== undefined) { fields.push('platform = ?'); values.push(updates.platform) }
-    if (updates.budget !== undefined) { fields.push('budget = ?'); values.push(updates.budget) }
-    if (updates.durationMonths !== undefined) { fields.push('duration_months = ?'); values.push(updates.durationMonths) }
-    if (updates.targetCity !== undefined) { fields.push('target_city = ?'); values.push(JSON.stringify(updates.targetCity)) }
-    if (updates.targetAudience !== undefined) { fields.push('target_audience = ?'); values.push(updates.targetAudience) }
-    if (updates.currentPhase !== undefined) { fields.push('current_phase = ?'); values.push(updates.currentPhase) }
-    if (updates.phasePlans !== undefined) { fields.push('phase_plans = ?'); values.push(JSON.stringify(updates.phasePlans)) }
-    if (updates.creativePlan !== undefined) { fields.push('creative_plan = ?'); values.push(JSON.stringify(updates.creativePlan)) }
-    if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status) }
+    if (updates.name !== undefined) { fields.push('name = $' + (values.length + 1)); values.push(updates.name) }
+    if (updates.brand !== undefined) { fields.push('brand = $' + (values.length + 1)); values.push(updates.brand) }
+    if (updates.platform !== undefined) { fields.push('platform = $' + (values.length + 1)); values.push(updates.platform) }
+    if (updates.budget !== undefined) { fields.push('budget = $' + (values.length + 1)); values.push(updates.budget) }
+    if (updates.durationMonths !== undefined) { fields.push('duration_months = $' + (values.length + 1)); values.push(updates.durationMonths) }
+    if (updates.targetCity !== undefined) { fields.push('target_city = $' + (values.length + 1)); values.push(JSON.stringify(updates.targetCity)) }
+    if (updates.targetAudience !== undefined) { fields.push('target_audience = $' + (values.length + 1)); values.push(updates.targetAudience) }
+    if (updates.currentPhase !== undefined) { fields.push('current_phase = $' + (values.length + 1)); values.push(updates.currentPhase) }
+    if (updates.phasePlans !== undefined) { fields.push('phase_plans = $' + (values.length + 1)); values.push(JSON.stringify(updates.phasePlans)) }
+    if (updates.creativePlan !== undefined) { fields.push('creative_plan = $' + (values.length + 1)); values.push(JSON.stringify(updates.creativePlan)) }
+    if (updates.status !== undefined) { fields.push('status = $' + (values.length + 1)); values.push(updates.status) }
 
     if (fields.length === 0) return campaign
 
-    fields.push('updated_at = ?')
+    fields.push('updated_at = $' + (values.length + 1))
     values.push(Date.now())
     values.push(id)
 
-    db.run(
-      `UPDATE campaigns SET ${fields.join(', ')} WHERE id = ?`,
-      ...values,
+    await this.db.execute(
+      `UPDATE campaigns SET ${fields.join(', ')} WHERE id = $${values.length}`,
+      values
     )
 
-    return this.getCampaignById(id)!
+    return this.getCampaignById(id)
   }
 
-  listContentTracking(campaignId: string): KOLContentTracking[] {
-    const db = this.getDb()
-    const rows = db.query(`SELECT * FROM kol_content_tracking WHERE campaign_id = ? ORDER BY created_at DESC`).all(campaignId) as Record<string, unknown>[]
+  async listContentTracking(campaignId: string): Promise<KOLContentTracking[]> {
+    const { rows } = await this.db.query<Record<string, unknown>>(
+      `SELECT * FROM kol_content_tracking WHERE campaign_id = $1 ORDER BY created_at DESC`,
+      [campaignId]
+    )
     return rows.map(rowToContentTracking)
   }
 
-  getContentTracking(id: string): KOLContentTracking | null {
-    const db = this.getDb()
-    const row = db.query('SELECT * FROM kol_content_tracking WHERE id = ?').get(id) as Record<string, unknown> | null
+  async getContentTracking(id: string): Promise<KOLContentTracking | null> {
+    const row = await this.db.queryOne<Record<string, unknown>>(
+      'SELECT * FROM kol_content_tracking WHERE id = $1',
+      [id]
+    )
     return row ? rowToContentTracking(row) : null
   }
 
-  getPoolKOLs(campaignId: string): CampaignKOLPoolItem[] {
-    const db = this.getDb()
-    const rows = db.query(
-      `SELECT * FROM campaign_kol_pool WHERE campaign_id = ? ORDER BY added_at DESC`
-    ).all(campaignId) as Record<string, unknown>[]
+  async getPoolKOLs(campaignId: string): Promise<CampaignKOLPoolItem[]> {
+    const { rows } = await this.db.query<Record<string, unknown>>(
+      `SELECT * FROM campaign_kol_pool WHERE campaign_id = $1 ORDER BY added_at DESC`,
+      [campaignId]
+    )
     return rows.map(rowToPoolItem)
   }
 }

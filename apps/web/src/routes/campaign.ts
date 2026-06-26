@@ -1,24 +1,32 @@
 /**
  * Campaign REST API
  *
- * 阶段 A 范围：
+ * 阶段 B0：使用 DbProvider 抽象初始化 Repository，
+ * 让 Web 端与 Electron 端可共享同一 CampaignRepository。
+ *
+ * 当前范围：
  * - GET /api/campaigns        列表
  * - GET /api/campaigns/:id    详情
  * - POST /api/campaigns       创建（仅基础字段）
+ * - GET /api/campaigns/:id/content-tracking  内容追踪
+ * - GET /api/campaigns/:id/kol-pool          KOL 候选池
  */
 
 import { Router } from 'express'
-import { CampaignRepository, CampaignQueryService } from '@ma-proma/server'
+import { CampaignRepository, CampaignQueryService, SqliteDbProvider, getCampaignDbPath } from '@ma-proma/server'
 import type { AppContext } from '@ma-proma/server'
 
-export function createCampaignRouter(context: AppContext) {
+export async function createCampaignRouter(context: AppContext) {
   const router = Router()
-  const repository = new CampaignRepository(context)
+  const dbPath = getCampaignDbPath(context)
+  const db = new SqliteDbProvider(dbPath)
+  const repository = new CampaignRepository(db)
+  await repository.initSchema()
   const queryService = new CampaignQueryService(repository)
 
-  router.get('/', (_req, res) => {
+  router.get('/', async (_req, res) => {
     try {
-      const campaigns = queryService.listCampaigns()
+      const campaigns = await queryService.listCampaigns()
       res.json({ success: true, campaigns })
     } catch (error) {
       console.error('[Campaign API] 列表获取失败:', error)
@@ -26,9 +34,9 @@ export function createCampaignRouter(context: AppContext) {
     }
   })
 
-  router.get('/:id', (req, res) => {
+  router.get('/:id', async (req, res) => {
     try {
-      const campaign = queryService.getCampaignById(req.params.id)
+      const campaign = await queryService.getCampaignById(req.params.id)
       if (!campaign) {
         res.status(404).json({ success: false, error: 'Campaign 不存在' })
         return
@@ -40,9 +48,9 @@ export function createCampaignRouter(context: AppContext) {
     }
   })
 
-  router.get('/:id/content-tracking', (req, res) => {
+  router.get('/:id/content-tracking', async (req, res) => {
     try {
-      const tracking = repository.listContentTracking(req.params.id)
+      const tracking = await queryService.listContentTracking(req.params.id)
       res.json({ success: true, tracking })
     } catch (error) {
       console.error('[Campaign API] 内容追踪获取失败:', error)
@@ -50,9 +58,9 @@ export function createCampaignRouter(context: AppContext) {
     }
   })
 
-  router.get('/:id/kol-pool', (req, res) => {
+  router.get('/:id/kol-pool', async (req, res) => {
     try {
-      const pool = repository.getPoolKOLs(req.params.id)
+      const pool = await queryService.getPoolKOLs(req.params.id)
       res.json({ success: true, pool })
     } catch (error) {
       console.error('[Campaign API] 候选池获取失败:', error)
@@ -60,7 +68,7 @@ export function createCampaignRouter(context: AppContext) {
     }
   })
 
-  router.post('/', (req, res) => {
+  router.post('/', async (req, res) => {
     try {
       const { name, brand, platform, budget, durationMonths, targetCity, targetAudience } = req.body
       if (!name || !brand || !platform) {
@@ -68,7 +76,7 @@ export function createCampaignRouter(context: AppContext) {
         return
       }
 
-      const campaign = repository.createCampaign({
+      const campaign = await repository.createCampaign({
         name,
         brand,
         platform,
