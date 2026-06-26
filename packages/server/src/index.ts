@@ -23,7 +23,7 @@ export {
   getResourcesPath,
 } from './context/config-paths.ts'
 export { SqliteDatabase } from './context/sqlite-adapter.ts'
-export { CampaignRepository, CampaignQueryService } from './campaign/index.ts'
+export { CampaignRepository, CampaignQueryService, CampaignCommandService } from './campaign/index.ts'
 export type { ChatProviderConfig, ChatSendInput, ChatStreamEvent } from './chat/index.ts'
 export { loadChatConfig, ChatService, InMemoryChatHistory } from './chat/index.ts'
 

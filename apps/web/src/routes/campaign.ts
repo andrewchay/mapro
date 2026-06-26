@@ -1,19 +1,19 @@
 /**
  * Campaign REST API
  *
- * 阶段 B0：使用 DbProvider 抽象初始化 Repository，
- * 让 Web 端与 Electron 端可共享同一 CampaignRepository。
+ * 阶段 B1：补齐 Brief / 内容追踪 / 性能分析的写入能力，
+ * 让 Web 端与 Electron 端共享同一 Campaign 业务逻辑。
  *
  * 当前范围：
- * - GET /api/campaigns        列表
- * - GET /api/campaigns/:id    详情
- * - POST /api/campaigns       创建（仅基础字段）
- * - GET /api/campaigns/:id/content-tracking  内容追踪
- * - GET /api/campaigns/:id/kol-pool          KOL 候选池
+ * - Campaign 列表/详情/创建
+ * - KOL 候选池只读
+ * - Brief 获取/保存/自动生成模板
+ * - 内容追踪 CRUD + 投流数据 + 分析结果
+ * - 内容性能本地分析（基于数据标准基准）
  */
 
 import { Router } from 'express'
-import { CampaignRepository, CampaignQueryService, SqliteDbProvider, getCampaignDbPath } from '@ma-proma/server'
+import { CampaignRepository, CampaignQueryService, CampaignCommandService, SqliteDbProvider, getCampaignDbPath } from '@ma-proma/server'
 import type { AppContext } from '@ma-proma/server'
 
 export async function createCampaignRouter(context: AppContext) {
@@ -23,6 +23,11 @@ export async function createCampaignRouter(context: AppContext) {
   const repository = new CampaignRepository(db)
   await repository.initSchema()
   const queryService = new CampaignQueryService(repository)
+  const commandService = new CampaignCommandService(repository)
+
+  // =====================================================================
+  // Campaign 基础
+  // =====================================================================
 
   router.get('/', async (_req, res) => {
     try {
@@ -48,26 +53,6 @@ export async function createCampaignRouter(context: AppContext) {
     }
   })
 
-  router.get('/:id/content-tracking', async (req, res) => {
-    try {
-      const tracking = await queryService.listContentTracking(req.params.id)
-      res.json({ success: true, tracking })
-    } catch (error) {
-      console.error('[Campaign API] 内容追踪获取失败:', error)
-      res.status(500).json({ success: false, error: '获取内容追踪失败' })
-    }
-  })
-
-  router.get('/:id/kol-pool', async (req, res) => {
-    try {
-      const pool = await queryService.getPoolKOLs(req.params.id)
-      res.json({ success: true, pool })
-    } catch (error) {
-      console.error('[Campaign API] 候选池获取失败:', error)
-      res.status(500).json({ success: false, error: '获取候选池失败' })
-    }
-  })
-
   router.post('/', async (req, res) => {
     try {
       const { name, brand, platform, budget, durationMonths, targetCity, targetAudience } = req.body
@@ -90,6 +75,222 @@ export async function createCampaignRouter(context: AppContext) {
     } catch (error) {
       console.error('[Campaign API] 创建失败:', error)
       res.status(500).json({ success: false, error: '创建 Campaign 失败' })
+    }
+  })
+
+  router.patch('/:id', async (req, res) => {
+    try {
+      const allowedFields = ['name', 'brand', 'platform', 'budget', 'durationMonths', 'targetCity', 'targetAudience', 'currentPhase', 'phasePlans', 'creativePlan', 'status'] as const
+      const updates: Record<string, unknown> = {}
+      for (const key of allowedFields) {
+        if (req.body[key] !== undefined) {
+          updates[key] = req.body[key]
+        }
+      }
+
+      const campaign = await repository.updateCampaign(req.params.id, updates)
+      if (!campaign) {
+        res.status(404).json({ success: false, error: 'Campaign 不存在' })
+        return
+      }
+      res.json({ success: true, campaign })
+    } catch (error) {
+      console.error('[Campaign API] 更新失败:', error)
+      res.status(500).json({ success: false, error: '更新 Campaign 失败' })
+    }
+  })
+
+  // =====================================================================
+  // KOL 候选池（只读；导入写入放到 B1 Slice 2）
+  // =====================================================================
+
+  router.get('/:id/kol-pool', async (req, res) => {
+    try {
+      const pool = await queryService.getPoolKOLs(req.params.id)
+      res.json({ success: true, pool })
+    } catch (error) {
+      console.error('[Campaign API] 候选池获取失败:', error)
+      res.status(500).json({ success: false, error: '获取候选池失败' })
+    }
+  })
+
+  // =====================================================================
+  // KOL Brief
+  // =====================================================================
+
+  router.get('/:id/briefs/:kolId', async (req, res) => {
+    try {
+      const brief = await commandService.getBrief(req.params.id, req.params.kolId)
+      if (!brief) {
+        res.status(404).json({ success: false, error: 'Brief 不存在' })
+        return
+      }
+      res.json({ success: true, brief })
+    } catch (error) {
+      console.error('[Campaign API] Brief 获取失败:', error)
+      res.status(500).json({ success: false, error: '获取 Brief 失败' })
+    }
+  })
+
+  router.post('/:id/briefs', async (req, res) => {
+    try {
+      const { kolId, kolName, content, aiGenerated, autoGenerate } = req.body
+      if (!kolId || !kolName) {
+        res.status(400).json({ success: false, error: '缺少必填字段：kolId, kolName' })
+        return
+      }
+
+      let finalContent = content
+      if (!finalContent || autoGenerate) {
+        const campaign = await queryService.getCampaignById(req.params.id)
+        if (!campaign) {
+          res.status(404).json({ success: false, error: 'Campaign 不存在' })
+          return
+        }
+        const pool = await queryService.getPoolKOLs(req.params.id)
+        const kol = pool.find((item) => item.kolId === kolId)
+        if (!kol) {
+          res.status(404).json({ success: false, error: 'KOL 不在候选池中' })
+          return
+        }
+        finalContent = commandService.generateBriefTemplate(campaign, kol)
+      }
+
+      const brief = await commandService.saveBrief({
+        campaignId: req.params.id,
+        kolId,
+        kolName,
+        content: finalContent,
+        aiGenerated: aiGenerated ?? false,
+      })
+
+      res.status(201).json({ success: true, brief })
+    } catch (error) {
+      console.error('[Campaign API] Brief 保存失败:', error)
+      res.status(500).json({ success: false, error: '保存 Brief 失败' })
+    }
+  })
+
+  // =====================================================================
+  // 内容数据追踪
+  // =====================================================================
+
+  router.get('/:id/content-tracking', async (req, res) => {
+    try {
+      const tracking = await queryService.listContentTracking(req.params.id)
+      res.json({ success: true, tracking })
+    } catch (error) {
+      console.error('[Campaign API] 内容追踪获取失败:', error)
+      res.status(500).json({ success: false, error: '获取内容追踪失败' })
+    }
+  })
+
+  router.post('/:id/content-tracking', async (req, res) => {
+    try {
+      const input = req.body
+      if (!input.kolId || !input.kolName || !input.platform) {
+        res.status(400).json({ success: false, error: '缺少必填字段：kolId, kolName, platform' })
+        return
+      }
+
+      const tracking = await commandService.createContentTracking({
+        ...input,
+        campaignId: req.params.id,
+      })
+      res.status(201).json({ success: true, tracking })
+    } catch (error) {
+      console.error('[Campaign API] 内容追踪创建失败:', error)
+      res.status(500).json({ success: false, error: '创建内容追踪失败' })
+    }
+  })
+
+  router.patch('/content-tracking/:trackingId/data', async (req, res) => {
+    try {
+      const tracking = await commandService.updateContentTrackingData({
+        id: req.params.trackingId,
+        ...req.body,
+      })
+      if (!tracking) {
+        res.status(404).json({ success: false, error: '内容追踪记录不存在' })
+        return
+      }
+      res.json({ success: true, tracking })
+    } catch (error) {
+      console.error('[Campaign API] 内容追踪数据更新失败:', error)
+      res.status(500).json({ success: false, error: '更新内容追踪数据失败' })
+    }
+  })
+
+  router.patch('/content-tracking/:trackingId/paid', async (req, res) => {
+    try {
+      const tracking = await commandService.addPaidData({
+        id: req.params.trackingId,
+        ...req.body,
+      })
+      if (!tracking) {
+        res.status(404).json({ success: false, error: '内容追踪记录不存在' })
+        return
+      }
+      res.json({ success: true, tracking })
+    } catch (error) {
+      console.error('[Campaign API] 投流数据更新失败:', error)
+      res.status(500).json({ success: false, error: '更新投流数据失败' })
+    }
+  })
+
+  router.patch('/content-tracking/:trackingId/analysis', async (req, res) => {
+    try {
+      const tracking = await commandService.updateContentTrackingAnalysis({
+        id: req.params.trackingId,
+        ...req.body,
+      })
+      if (!tracking) {
+        res.status(404).json({ success: false, error: '内容追踪记录不存在' })
+        return
+      }
+      res.json({ success: true, tracking })
+    } catch (error) {
+      console.error('[Campaign API] 分析结果更新失败:', error)
+      res.status(500).json({ success: false, error: '更新分析结果失败' })
+    }
+  })
+
+  router.delete('/content-tracking/:trackingId', async (req, res) => {
+    try {
+      const deleted = await commandService.deleteContentTracking(req.params.trackingId)
+      if (!deleted) {
+        res.status(404).json({ success: false, error: '内容追踪记录不存在' })
+        return
+      }
+      res.json({ success: true })
+    } catch (error) {
+      console.error('[Campaign API] 内容追踪删除失败:', error)
+      res.status(500).json({ success: false, error: '删除内容追踪失败' })
+    }
+  })
+
+  router.post('/content-tracking/analyze', async (req, res) => {
+    try {
+      const { platform, priceTier, followersRange, ctr, engagementRate, cpm, cpe } = req.body
+      if (!platform || !priceTier || !followersRange) {
+        res.status(400).json({ success: false, error: '缺少必填字段：platform, priceTier, followersRange' })
+        return
+      }
+
+      const result = await commandService.analyzeContentPerformance(
+        platform,
+        priceTier,
+        followersRange,
+        Number(ctr ?? 0),
+        Number(engagementRate ?? 0),
+        Number(cpm ?? 0),
+        Number(cpe ?? 0),
+      )
+
+      res.json({ success: true, result })
+    } catch (error) {
+      console.error('[Campaign API] 内容性能分析失败:', error)
+      res.status(500).json({ success: false, error: '内容性能分析失败' })
     }
   })
 

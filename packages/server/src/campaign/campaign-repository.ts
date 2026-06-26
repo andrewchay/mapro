@@ -1,26 +1,33 @@
 /**
  * Campaign 纯数据访问层（基于 DbProvider 抽象）
  *
- * 阶段 B0 范围：
- * - 通过 DbProvider 接口访问数据库，不再直接依赖 SqliteDatabase。
- * - 保留 SQLite 方言的 Schema 初始化逻辑（内部版仍使用 SQLite）。
- * - Campaign 表的初始化、list/get/create/update
- * - 内容追踪表的 list/get（只读）
+ * 阶段 B1 范围：
+ * - 在 B0 基础上补齐 Brief / 内容追踪 / 数据标准基准的 CRUD 与计算
+ * - 保留 SQLite 方言的 Schema 初始化逻辑（内部版仍使用 SQLite）
+ * - 候选池导入（依赖 KOL 数据库）放到 Slice 2
  *
  * 不包含：
  * - Agent Workspace 创建
- * - KOL 候选池导入
- * - Brief / 内容审核 / AB 测试
- * - 阶段复盘报告生成
+ * - 工作流服务
+ * - 阶段复盘报告 / A/B 测试
+ * - LLM AI 分析（保留纯本地计算）
  */
 
 import type {
   Campaign,
+  CampaignBrief,
   CampaignCreativePlan,
   CampaignKOLPoolItem,
   CampaignPhasePlan,
+  ContentBenchmark,
+  CreateBenchmarkInput,
   CreateCampaignInput,
+  CreateContentTrackingInput,
   KOLContentTracking,
+  SaveCampaignBriefInput,
+  UpdateAnalysisInput,
+  UpdateContentTrackingDataInput,
+  AddPaidDataInput,
 } from '@ma-proma/shared'
 import type { DbProvider } from '../db/types.ts'
 
@@ -65,7 +72,7 @@ export class CampaignRepository {
       await db.exec(`ALTER TABLE campaigns ADD COLUMN creative_plan TEXT`)
     }
 
-    // Campaign KOL 候选池表（阶段 A 只读）
+    // Campaign KOL 候选池表
     await db.exec(`
       CREATE TABLE IF NOT EXISTS campaign_kol_pool (
         campaign_id TEXT NOT NULL,
@@ -88,7 +95,25 @@ export class CampaignRepository {
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_pool_status ON campaign_kol_pool(status)`)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_pool_platform ON campaign_kol_pool(platform)`)
 
-    // 内容数据追踪表（阶段 A 只读）
+    // KOL Brief 表（B1 新增）
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS campaign_briefs (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL,
+        kol_id TEXT NOT NULL,
+        kol_name TEXT NOT NULL,
+        content TEXT NOT NULL,
+        ai_generated INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'draft',
+        created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+        updated_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+        UNIQUE(campaign_id, kol_id)
+      )
+    `)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_briefs_campaign ON campaign_briefs(campaign_id)`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_briefs_kol ON campaign_briefs(kol_id)`)
+
+    // 内容数据追踪表
     await db.exec(`
       CREATE TABLE IF NOT EXISTS kol_content_tracking (
         id TEXT PRIMARY KEY,
@@ -133,7 +158,33 @@ export class CampaignRepository {
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_tracking_campaign ON kol_content_tracking(campaign_id)`)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_tracking_kol ON kol_content_tracking(kol_id)`)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_tracking_platform ON kol_content_tracking(platform)`)
+
+    // 数据标准基准表（B1 新增）
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS content_benchmarks (
+        id TEXT PRIMARY KEY,
+        platform TEXT NOT NULL,
+        price_tier TEXT NOT NULL,
+        followers_range TEXT NOT NULL,
+        metric_name TEXT NOT NULL,
+        excellent_threshold REAL DEFAULT 0,
+        good_threshold REAL DEFAULT 0,
+        normal_threshold REAL DEFAULT 0,
+        description TEXT,
+        created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+        updated_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+        UNIQUE(platform, price_tier, followers_range, metric_name)
+      )
+    `)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_benchmarks_platform ON content_benchmarks(platform)`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_benchmarks_tier ON content_benchmarks(price_tier)`)
+
+    await this.seedContentBenchmarks()
   }
+
+  // =====================================================================
+  // Campaign 基础 CRUD
+  // =====================================================================
 
   async listCampaigns(): Promise<Campaign[]> {
     const { rows } = await this.db.query<Record<string, unknown>>(
@@ -234,13 +285,126 @@ export class CampaignRepository {
     return this.getCampaignById(id)
   }
 
-  async listContentTracking(campaignId: string): Promise<KOLContentTracking[]> {
+  // =====================================================================
+  // KOL 候选池（只读；导入写入放到 Slice 2）
+  // =====================================================================
+
+  async getPoolKOLs(campaignId: string): Promise<CampaignKOLPoolItem[]> {
     const { rows } = await this.db.query<Record<string, unknown>>(
-      `SELECT * FROM kol_content_tracking WHERE campaign_id = $1 ORDER BY created_at DESC`,
+      `SELECT * FROM campaign_kol_pool WHERE campaign_id = $1 ORDER BY added_at DESC`,
       [campaignId]
     )
-    return rows.map(rowToContentTracking)
+    return rows.map(rowToPoolItem)
   }
+
+  // =====================================================================
+  // KOL Brief
+  // =====================================================================
+
+  async getBrief(campaignId: string, kolId: string): Promise<CampaignBrief | null> {
+    const row = await this.db.queryOne<Record<string, unknown>>(
+      `SELECT * FROM campaign_briefs WHERE campaign_id = $1 AND kol_id = $2`,
+      [campaignId, kolId]
+    )
+    return row ? rowToBrief(row) : null
+  }
+
+  async saveBrief(input: SaveCampaignBriefInput): Promise<CampaignBrief> {
+    const now = Date.now()
+    const existing = await this.db.queryOne<{ id: string }>(
+      `SELECT id FROM campaign_briefs WHERE campaign_id = $1 AND kol_id = $2`,
+      [input.campaignId, input.kolId]
+    )
+
+    if (existing) {
+      await this.db.execute(
+        `UPDATE campaign_briefs
+         SET content = $1, kol_name = $2, ai_generated = $3, status = $4, updated_at = $5
+         WHERE id = $6`,
+        [input.content, input.kolName, input.aiGenerated ? 1 : 0, 'draft', now, existing.id]
+      )
+      const updated = await this.getBrief(input.campaignId, input.kolId)
+      return updated!
+    }
+
+    const id = generateId()
+    await this.db.execute(
+      `INSERT INTO campaign_briefs (id, campaign_id, kol_id, kol_name, content, ai_generated, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [id, input.campaignId, input.kolId, input.kolName, input.content, input.aiGenerated ? 1 : 0, 'draft', now, now]
+    )
+
+    const created = await this.getBrief(input.campaignId, input.kolId)
+    return created!
+  }
+
+  generateBriefTemplate(campaign: Campaign, kol: CampaignKOLPoolItem): string {
+    const platformLabel: Record<string, string> = {
+      xiaohongshu: '小红书',
+      douyin: '抖音',
+    }
+
+    return `# ${campaign.brand} × ${kol.name} 合作 Brief
+
+## 合作背景
+- **品牌**：${campaign.brand}
+- **项目**：${campaign.name}
+- **投放平台**：${platformLabel[campaign.platform] ?? campaign.platform}
+- **目标人群**：${campaign.targetAudience || '待补充'}
+- **投放周期**：${campaign.durationMonths} 个月
+
+## KOL 画像
+- **账号**：${kol.name}
+- **平台**：${kol.platform}
+- **粉丝量**：${kol.followers}
+- **互动率**：${kol.engagement}
+- **内容类目**：${kol.category}
+${kol.city ? `- **所在城市**：${kol.city}` : ''}
+${kol.price ? `- **合作报价**：${kol.price}` : ''}
+
+## 内容方向（三阶段投放策略）
+
+### 第一阶段：美学吸睛期（建立视觉认知）
+- 产品开箱 / 颜值展示
+- 强调包装设计、色彩美学
+- 适配 ${kol.platform} 平台视觉调性
+
+### 第二阶段：场景渗透期（场景绑定）
+- 都市女性生活场景植入
+- 办公室下午茶 / 健身后补充 / 旅行便携
+- 情感共鸣：忙碌生活中的品质小确幸
+
+### 第三阶段：价值深化期（品牌护城河）
+- 品牌理念传递：天然、健康、可持续
+- 与其他品牌的差异化对比
+- 用户证言 / 复购理由
+
+## 内容要求
+- [ ] 必须露出品牌名「${campaign.brand}」
+- [ ] 强调核心卖点：天然、健康、品质
+- [ ] 内容风格适配 ${kol.platform} 平台调性
+- [ ] 避免过度营销感，保持真实分享感
+
+## 交付要求
+- 笔记/视频数量：____ 条
+- 发布时间：配合 Campaign 整体排期
+- 需提前 3 天提交内容审核
+- 发布后 7 天内提供数据截图
+
+## 审核标准
+- 内容真实、有情感共鸣
+- 产品露出自然不生硬
+- 评论区互动积极回应
+- 无负面舆情风险
+
+---
+*此 Brief 由 MAPro 自动生成，可根据实际合作需求调整。*
+`
+  }
+
+  // =====================================================================
+  // 内容数据追踪
+  // =====================================================================
 
   async getContentTracking(id: string): Promise<KOLContentTracking | null> {
     const row = await this.db.queryOne<Record<string, unknown>>(
@@ -250,12 +414,288 @@ export class CampaignRepository {
     return row ? rowToContentTracking(row) : null
   }
 
-  async getPoolKOLs(campaignId: string): Promise<CampaignKOLPoolItem[]> {
+  async listContentTracking(campaignId: string): Promise<KOLContentTracking[]> {
     const { rows } = await this.db.query<Record<string, unknown>>(
-      `SELECT * FROM campaign_kol_pool WHERE campaign_id = $1 ORDER BY added_at DESC`,
+      `SELECT * FROM kol_content_tracking WHERE campaign_id = $1 ORDER BY created_at DESC`,
       [campaignId]
     )
-    return rows.map(rowToPoolItem)
+    return rows.map(rowToContentTracking)
+  }
+
+  async createContentTracking(input: CreateContentTrackingInput): Promise<KOLContentTracking> {
+    const now = Date.now()
+    const id = generateTrackingId()
+    const estimatedPrice = input.paidSpend ?? 0
+    const metrics = calculateMetrics({
+      exposure: input.exposure,
+      views: input.views,
+      likes: input.likes,
+      saves: input.saves,
+      comments: input.comments,
+      shares: input.shares,
+      estimatedPrice,
+    })
+
+    await this.db.execute(
+      `INSERT INTO kol_content_tracking (
+        id, campaign_id, kol_id, kol_name, platform, content_url, content_type, publish_date,
+        exposure, views, likes, saves, comments, shares, completion_rate,
+        cpm, cpe, ctr, engagement_rate, data_source, collected_at,
+        performance_grade, benchmark_comparison, paid_spend, created_at, updated_at,
+        phase, test_group, note_type, cost, is_organic
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)`,
+      [
+        id,
+        input.campaignId,
+        input.kolId,
+        input.kolName,
+        input.platform,
+        input.contentUrl,
+        input.contentType,
+        input.publishDate,
+        input.exposure,
+        input.views,
+        input.likes,
+        input.saves,
+        input.comments,
+        input.shares,
+        input.completionRate ?? null,
+        metrics.cpm,
+        metrics.cpe,
+        metrics.ctr,
+        metrics.engagementRate,
+        input.dataSource,
+        now,
+        'pending',
+        '',
+        estimatedPrice,
+        now,
+        now,
+        input.phase ?? 1,
+        input.testGroup ?? '',
+        input.noteType ?? '',
+        input.cost ?? 0,
+        input.isOrganic ?? true ? 1 : 0,
+      ]
+    )
+
+    const created = await this.getContentTracking(id)
+    return created!
+  }
+
+  async updateContentTrackingData(input: UpdateContentTrackingDataInput): Promise<KOLContentTracking | null> {
+    const existing = await this.getContentTracking(input.id)
+    if (!existing) return null
+
+    const estimatedPrice = existing.paidSpend > 0 ? existing.paidSpend : 0
+    const metrics = calculateMetrics({
+      exposure: input.exposure,
+      views: input.views,
+      likes: input.likes,
+      saves: input.saves,
+      comments: input.comments,
+      shares: input.shares,
+      estimatedPrice,
+    })
+    const now = Date.now()
+
+    await this.db.execute(
+      `UPDATE kol_content_tracking SET
+        exposure = $1, views = $2, likes = $3, saves = $4, comments = $5, shares = $6,
+        completion_rate = $7, cpm = $8, cpe = $9, ctr = $10, engagement_rate = $11,
+        data_source = $12, collected_at = $13, updated_at = $14
+       WHERE id = $15`,
+      [
+        input.exposure,
+        input.views,
+        input.likes,
+        input.saves,
+        input.comments,
+        input.shares,
+        input.completionRate ?? null,
+        metrics.cpm,
+        metrics.cpe,
+        metrics.ctr,
+        metrics.engagementRate,
+        input.dataSource,
+        now,
+        now,
+        input.id,
+      ]
+    )
+
+    return this.getContentTracking(input.id)
+  }
+
+  async addPaidData(input: AddPaidDataInput): Promise<KOLContentTracking | null> {
+    const now = Date.now()
+    await this.db.execute(
+      `UPDATE kol_content_tracking SET
+        paid_spend = $1, paid_exposure = $2, paid_views = $3, paid_likes = $4,
+        paid_data = $5, updated_at = $6
+       WHERE id = $7`,
+      [input.paidSpend, input.paidExposure, input.paidViews, input.paidLikes, input.paidData, now, input.id]
+    )
+    return this.getContentTracking(input.id)
+  }
+
+  async updateContentTrackingAnalysis(input: UpdateAnalysisInput): Promise<KOLContentTracking | null> {
+    const now = Date.now()
+    await this.db.execute(
+      `UPDATE kol_content_tracking SET
+        performance_grade = $1, benchmark_comparison = $2, ai_analysis = $3,
+        recommendations = $4, updated_at = $5
+       WHERE id = $6`,
+      [input.performanceGrade, input.benchmarkComparison, input.aiAnalysis, input.recommendations, now, input.id]
+    )
+    return this.getContentTracking(input.id)
+  }
+
+  async deleteContentTracking(id: string): Promise<boolean> {
+    const result = await this.db.execute('DELETE FROM kol_content_tracking WHERE id = $1', [id])
+    return result.changes > 0
+  }
+
+  // =====================================================================
+  // 数据标准基准
+  // =====================================================================
+
+  async seedContentBenchmarks(): Promise<void> {
+    const { rows: countRows } = await this.db.query<{ total: number }>('SELECT COUNT(*) as total FROM content_benchmarks')
+    if ((countRows[0]?.total ?? 0) > 0) return
+
+    const now = Date.now()
+    const benchmarks: Array<Omit<ContentBenchmark, 'id' | 'createdAt' | 'updatedAt'>> = [
+      // 小红书
+      { platform: '小红书', priceTier: 'budget', followersRange: '10k-100k', metricName: 'ctr', excellentThreshold: 10, goodThreshold: 8, normalThreshold: 5, description: '点击率（浏览/曝光）' },
+      { platform: '小红书', priceTier: 'budget', followersRange: '10k-100k', metricName: 'engagement_rate', excellentThreshold: 8, goodThreshold: 5, normalThreshold: 3, description: '互动率（总互动/曝光）' },
+      { platform: '小红书', priceTier: 'budget', followersRange: '10k-100k', metricName: 'cpm', excellentThreshold: 50, goodThreshold: 100, normalThreshold: 200, description: '千次曝光成本（元），越低越好' },
+      { platform: '小红书', priceTier: 'budget', followersRange: '10k-100k', metricName: 'cpe', excellentThreshold: 5, goodThreshold: 10, normalThreshold: 20, description: '单次互动成本（元），越低越好' },
+      { platform: '小红书', priceTier: 'mid', followersRange: '100k-1m', metricName: 'ctr', excellentThreshold: 12, goodThreshold: 9, normalThreshold: 6, description: '点击率（浏览/曝光）' },
+      { platform: '小红书', priceTier: 'mid', followersRange: '100k-1m', metricName: 'engagement_rate', excellentThreshold: 10, goodThreshold: 7, normalThreshold: 4, description: '互动率（总互动/曝光）' },
+      { platform: '小红书', priceTier: 'mid', followersRange: '100k-1m', metricName: 'cpm', excellentThreshold: 80, goodThreshold: 150, normalThreshold: 300, description: '千次曝光成本（元），越低越好' },
+      { platform: '小红书', priceTier: 'mid', followersRange: '100k-1m', metricName: 'cpe', excellentThreshold: 8, goodThreshold: 15, normalThreshold: 30, description: '单次互动成本（元），越低越好' },
+      { platform: '小红书', priceTier: 'premium', followersRange: '1m+', metricName: 'ctr', excellentThreshold: 15, goodThreshold: 11, normalThreshold: 7, description: '点击率（浏览/曝光）' },
+      { platform: '小红书', priceTier: 'premium', followersRange: '1m+', metricName: 'engagement_rate', excellentThreshold: 12, goodThreshold: 8, normalThreshold: 5, description: '互动率（总互动/曝光）' },
+      { platform: '小红书', priceTier: 'premium', followersRange: '1m+', metricName: 'cpm', excellentThreshold: 120, goodThreshold: 200, normalThreshold: 400, description: '千次曝光成本（元），越低越好' },
+      { platform: '小红书', priceTier: 'premium', followersRange: '1m+', metricName: 'cpe', excellentThreshold: 12, goodThreshold: 20, normalThreshold: 40, description: '单次互动成本（元），越低越好' },
+      // 抖音
+      { platform: '抖音', priceTier: 'budget', followersRange: '10k-100k', metricName: 'ctr', excellentThreshold: 8, goodThreshold: 6, normalThreshold: 4, description: '点击率（浏览/曝光）' },
+      { platform: '抖音', priceTier: 'budget', followersRange: '10k-100k', metricName: 'engagement_rate', excellentThreshold: 6, goodThreshold: 4, normalThreshold: 2, description: '互动率（总互动/曝光）' },
+      { platform: '抖音', priceTier: 'budget', followersRange: '10k-100k', metricName: 'cpm', excellentThreshold: 40, goodThreshold: 80, normalThreshold: 150, description: '千次曝光成本（元），越低越好' },
+      { platform: '抖音', priceTier: 'budget', followersRange: '10k-100k', metricName: 'cpe', excellentThreshold: 4, goodThreshold: 8, normalThreshold: 15, description: '单次互动成本（元），越低越好' },
+      { platform: '抖音', priceTier: 'mid', followersRange: '100k-1m', metricName: 'ctr', excellentThreshold: 10, goodThreshold: 7, normalThreshold: 4, description: '点击率（浏览/曝光）' },
+      { platform: '抖音', priceTier: 'mid', followersRange: '100k-1m', metricName: 'engagement_rate', excellentThreshold: 8, goodThreshold: 5, normalThreshold: 3, description: '互动率（总互动/曝光）' },
+      { platform: '抖音', priceTier: 'mid', followersRange: '100k-1m', metricName: 'cpm', excellentThreshold: 60, goodThreshold: 120, normalThreshold: 250, description: '千次曝光成本（元），越低越好' },
+      { platform: '抖音', priceTier: 'mid', followersRange: '100k-1m', metricName: 'cpe', excellentThreshold: 6, goodThreshold: 12, normalThreshold: 25, description: '单次互动成本（元），越低越好' },
+      { platform: '抖音', priceTier: 'premium', followersRange: '1m+', metricName: 'ctr', excellentThreshold: 12, goodThreshold: 9, normalThreshold: 6, description: '点击率（浏览/曝光）' },
+      { platform: '抖音', priceTier: 'premium', followersRange: '1m+', metricName: 'engagement_rate', excellentThreshold: 10, goodThreshold: 7, normalThreshold: 4, description: '互动率（总互动/曝光）' },
+      { platform: '抖音', priceTier: 'premium', followersRange: '1m+', metricName: 'cpm', excellentThreshold: 100, goodThreshold: 180, normalThreshold: 350, description: '千次曝光成本（元），越低越好' },
+      { platform: '抖音', priceTier: 'premium', followersRange: '1m+', metricName: 'cpe', excellentThreshold: 10, goodThreshold: 18, normalThreshold: 35, description: '单次互动成本（元），越低越好' },
+      // 微博
+      { platform: '微博', priceTier: 'budget', followersRange: '10k-100k', metricName: 'ctr', excellentThreshold: 5, goodThreshold: 3, normalThreshold: 2, description: '点击率（浏览/曝光）' },
+      { platform: '微博', priceTier: 'budget', followersRange: '10k-100k', metricName: 'engagement_rate', excellentThreshold: 4, goodThreshold: 2.5, normalThreshold: 1.5, description: '互动率（总互动/曝光）' },
+      { platform: '微博', priceTier: 'budget', followersRange: '10k-100k', metricName: 'cpm', excellentThreshold: 30, goodThreshold: 60, normalThreshold: 120, description: '千次曝光成本（元），越低越好' },
+      { platform: '微博', priceTier: 'budget', followersRange: '10k-100k', metricName: 'cpe', excellentThreshold: 3, goodThreshold: 6, normalThreshold: 12, description: '单次互动成本（元），越低越好' },
+      { platform: '微博', priceTier: 'mid', followersRange: '100k-1m', metricName: 'ctr', excellentThreshold: 7, goodThreshold: 5, normalThreshold: 3, description: '点击率（浏览/曝光）' },
+      { platform: '微博', priceTier: 'mid', followersRange: '100k-1m', metricName: 'engagement_rate', excellentThreshold: 6, goodThreshold: 4, normalThreshold: 2, description: '互动率（总互动/曝光）' },
+      { platform: '微博', priceTier: 'mid', followersRange: '100k-1m', metricName: 'cpm', excellentThreshold: 50, goodThreshold: 100, normalThreshold: 200, description: '千次曝光成本（元），越低越好' },
+      { platform: '微博', priceTier: 'mid', followersRange: '100k-1m', metricName: 'cpe', excellentThreshold: 5, goodThreshold: 10, normalThreshold: 20, description: '单次互动成本（元），越低越好' },
+    ]
+
+    for (const bm of benchmarks) {
+      await this.db.execute(
+        `INSERT INTO content_benchmarks (id, platform, price_tier, followers_range, metric_name, excellent_threshold, good_threshold, normal_threshold, description, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [generateBenchmarkId(), bm.platform, bm.priceTier, bm.followersRange, bm.metricName, bm.excellentThreshold, bm.goodThreshold, bm.normalThreshold, bm.description, now, now]
+      )
+    }
+  }
+
+  async analyzeContentPerformance(
+    platform: string,
+    priceTier: string,
+    followersRange: string,
+    ctr: number,
+    engagementRate: number,
+    cpm: number,
+    cpe: number,
+  ): Promise<{ grade: 'excellent' | 'good' | 'normal' | 'poor'; comparison: Record<string, unknown> }> {
+    const { rows } = await this.db.query<{
+      metric_name: string
+      excellent_threshold: number
+      good_threshold: number
+      normal_threshold: number
+    }>(
+      `SELECT metric_name, excellent_threshold, good_threshold, normal_threshold
+       FROM content_benchmarks
+       WHERE platform = $1 AND price_tier = $2 AND followers_range = $3`,
+      [platform, priceTier, followersRange]
+    )
+
+    if (rows.length === 0) {
+      return { grade: 'pending' as 'excellent' | 'good' | 'normal' | 'poor', comparison: { reason: '未找到对应基准数据' } }
+    }
+
+    const comparison: Record<string, unknown> = {}
+    let excellentCount = 0
+    let goodCount = 0
+    let poorCount = 0
+
+    for (const row of rows) {
+      const metricName = row.metric_name
+      const excellent = row.excellent_threshold
+      const good = row.good_threshold
+      const normal = row.normal_threshold
+
+      let value = 0
+      switch (metricName) {
+        case 'ctr': value = ctr; break
+        case 'engagement_rate': value = engagementRate; break
+        case 'cpm': value = cpm; break
+        case 'cpe': value = cpe; break
+        default: continue
+      }
+
+      const isLowerBetter = metricName === 'cpm' || metricName === 'cpe'
+      let grade: string
+      if (isLowerBetter) {
+        if (value <= excellent) grade = 'excellent'
+        else if (value <= good) grade = 'good'
+        else if (value <= normal) grade = 'normal'
+        else grade = 'poor'
+      } else {
+        if (value >= excellent) grade = 'excellent'
+        else if (value >= good) grade = 'good'
+        else if (value >= normal) grade = 'normal'
+        else grade = 'poor'
+      }
+
+      comparison[metricName] = {
+        value: Number(value.toFixed(2)),
+        excellent: isLowerBetter ? `<= ${excellent}` : `>= ${excellent}`,
+        good: isLowerBetter ? `<= ${good}` : `>= ${good}`,
+        normal: isLowerBetter ? `<= ${normal}` : `>= ${normal}`,
+        grade,
+      }
+
+      if (grade === 'excellent') excellentCount++
+      if (grade === 'good') goodCount++
+      if (grade === 'poor') poorCount++
+    }
+
+    let finalGrade: 'excellent' | 'good' | 'normal' | 'poor'
+    if (excellentCount >= 2) {
+      finalGrade = 'excellent'
+    } else if (excellentCount >= 1 || goodCount >= 2) {
+      finalGrade = 'good'
+    } else if (poorCount > 0) {
+      finalGrade = 'poor'
+    } else {
+      finalGrade = 'normal'
+    }
+
+    return { grade: finalGrade, comparison }
   }
 }
 
@@ -341,6 +781,34 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
+function generateTrackingId(): string {
+  return `ct_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+}
+
+function generateBenchmarkId(): string {
+  return `bm_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+}
+
+function calculateMetrics(input: {
+  exposure: number
+  views: number
+  likes: number
+  saves: number
+  comments: number
+  shares: number
+  estimatedPrice: number
+}): { cpm: number; cpe: number; ctr: number; engagementRate: number } {
+  const safeExposure = Math.max(input.exposure, 1)
+  const safeEngagement = Math.max(input.likes + input.saves + input.comments + input.shares, 1)
+
+  const cpm = input.estimatedPrice > 0 ? (input.estimatedPrice / safeExposure) * 1000 : 0
+  const cpe = input.estimatedPrice > 0 ? input.estimatedPrice / safeEngagement : 0
+  const ctr = (input.views / safeExposure) * 100
+  const engagementRate = (safeEngagement / safeExposure) * 100
+
+  return { cpm, cpe, ctr, engagementRate }
+}
+
 function rowToPoolItem(row: Record<string, unknown>): CampaignKOLPoolItem {
   return {
     campaignId: String(row.campaign_id),
@@ -355,6 +823,20 @@ function rowToPoolItem(row: Record<string, unknown>): CampaignKOLPoolItem {
     status: row.status as CampaignKOLPoolItem['status'],
     notes: String(row.notes ?? ''),
     addedAt: Number(row.added_at),
+  }
+}
+
+function rowToBrief(row: Record<string, unknown>): CampaignBrief {
+  return {
+    id: String(row.id),
+    campaignId: String(row.campaign_id),
+    kolId: String(row.kol_id),
+    kolName: String(row.kol_name),
+    content: String(row.content),
+    aiGenerated: Boolean(row.ai_generated),
+    status: row.status as 'draft' | 'final',
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
   }
 }
 
