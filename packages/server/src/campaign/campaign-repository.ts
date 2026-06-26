@@ -297,6 +297,26 @@ export class CampaignRepository {
     return rows.map(rowToPoolItem)
   }
 
+  async addPoolKOL(item: Omit<CampaignKOLPoolItem, 'addedAt' | 'status' | 'notes'> & { status?: CampaignKOLPoolItem['status']; notes?: string }): Promise<void> {
+    await this.db.execute(
+      `INSERT INTO campaign_kol_pool (campaign_id, kol_id, name, platform, followers, engagement, category, price, city, status, added_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        item.campaignId,
+        item.kolId,
+        item.name,
+        item.platform,
+        item.followers,
+        item.engagement,
+        item.category,
+        item.price,
+        item.city,
+        item.status ?? 'candidate',
+        Date.now(),
+      ]
+    )
+  }
+
   // =====================================================================
   // KOL Brief
   // =====================================================================

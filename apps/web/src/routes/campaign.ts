@@ -13,7 +13,15 @@
  */
 
 import { Router } from 'express'
-import { CampaignRepository, CampaignQueryService, CampaignCommandService, SqliteDbProvider, getCampaignDbPath } from '@ma-proma/server'
+import {
+  CampaignRepository,
+  CampaignQueryService,
+  CampaignCommandService,
+  KOLDatabaseRepository,
+  SqliteDbProvider,
+  getCampaignDbPath,
+  getKolDbPath,
+} from '@ma-proma/server'
 import type { AppContext } from '@ma-proma/server'
 
 export async function createCampaignRouter(context: AppContext) {
@@ -22,8 +30,14 @@ export async function createCampaignRouter(context: AppContext) {
   const db = new SqliteDbProvider(dbPath)
   const repository = new CampaignRepository(db)
   await repository.initSchema()
+
+  const kolDbPath = getKolDbPath(context)
+  const kolDb = new SqliteDbProvider(kolDbPath)
+  const kolRepository = new KOLDatabaseRepository(kolDb, { seedMockData: process.env.MAPRO_SEED_MOCK_KOLS === '1' })
+  await kolRepository.initSchema()
+
   const queryService = new CampaignQueryService(repository)
-  const commandService = new CampaignCommandService(repository)
+  const commandService = new CampaignCommandService(repository, kolRepository)
 
   // =====================================================================
   // Campaign 基础
@@ -36,6 +50,23 @@ export async function createCampaignRouter(context: AppContext) {
     } catch (error) {
       console.error('[Campaign API] 列表获取失败:', error)
       res.status(500).json({ success: false, error: '获取 Campaign 列表失败' })
+    }
+  })
+
+  // 注意：该路由必须在 /:id 之前注册，避免被当作 Campaign ID 处理
+  router.get('/available-kols', async (req, res) => {
+    try {
+      const { platform, category, keywords, limit } = req.query
+      const result = await commandService.listAvailableKOLs({
+        platform: platform ? String(platform) : undefined,
+        category: category ? String(category) : undefined,
+        keywords: keywords ? String(keywords).split(',').filter(Boolean) : undefined,
+        limit: limit ? Number(limit) : undefined,
+      })
+      res.json({ success: true, ...result })
+    } catch (error) {
+      console.error('[Campaign API] 可导入 KOL 列表获取失败:', error)
+      res.status(500).json({ success: false, error: '获取可导入 KOL 列表失败' })
     }
   })
 
@@ -111,6 +142,25 @@ export async function createCampaignRouter(context: AppContext) {
     } catch (error) {
       console.error('[Campaign API] 候选池获取失败:', error)
       res.status(500).json({ success: false, error: '获取候选池失败' })
+    }
+  })
+
+  router.post('/:id/kol-pool', async (req, res) => {
+    try {
+      const { kolIds } = req.body
+      if (!Array.isArray(kolIds) || kolIds.length === 0) {
+        res.status(400).json({ success: false, error: '缺少必填字段：kolIds（数组）' })
+        return
+      }
+
+      const result = await commandService.importKOLsToPool({
+        campaignId: req.params.id,
+        kolIds,
+      })
+      res.json({ success: true, ...result })
+    } catch (error) {
+      console.error('[Campaign API] KOL 导入失败:', error)
+      res.status(500).json({ success: false, error: '导入 KOL 到候选池失败' })
     }
   })
 

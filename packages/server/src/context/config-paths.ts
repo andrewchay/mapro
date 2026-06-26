@@ -128,3 +128,10 @@ export function getAgentWorkspacePath(context: AppContext, slug: string): string
 export function getResourcesPath(context: AppContext): string {
   return context.getResourcesPath()
 }
+
+/**
+ * 获取 KOL 数据库文件路径
+ */
+export function getKolDbPath(context: AppContext): string {
+  return join(getConfigDir(context), 'kol-database.sqlite')
+}
