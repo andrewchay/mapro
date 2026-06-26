@@ -35,7 +35,7 @@ export function ChatPage() {
 
     const chatInput: ChatSendInput = {
       conversationId: 'web-chat',
-      messages: newMessages.map((m) => ({
+      messages: messages.map((m) => ({
         role: m.role,
         content: m.content,
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,

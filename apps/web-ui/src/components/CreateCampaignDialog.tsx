@@ -14,6 +14,7 @@ export function CreateCampaignDialog({ open, onClose }: CreateCampaignDialogProp
   const [platform, setPlatform] = React.useState('xiaohongshu')
   const [budget, setBudget] = React.useState('')
   const [durationMonths, setDurationMonths] = React.useState('3')
+  const [targetCityText, setTargetCityText] = React.useState('')
   const [targetAudience, setTargetAudience] = React.useState('')
   const [submitting, setSubmitting] = React.useState(false)
 
@@ -31,12 +32,17 @@ export function CreateCampaignDialog({ open, onClose }: CreateCampaignDialogProp
         platform,
         budget: Number(budget) || 0,
         durationMonths: Number(durationMonths) || 1,
+        targetCity: targetCityText
+          .split(/[,，]/)
+          .map((city) => city.trim())
+          .filter(Boolean),
         targetAudience,
       })
       setName('')
       setBrand('')
       setBudget('')
       setDurationMonths('3')
+      setTargetCityText('')
       setTargetAudience('')
       onClose()
     } finally {
@@ -109,6 +115,17 @@ export function CreateCampaignDialog({ open, onClose }: CreateCampaignDialogProp
                 min={1}
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700">目标城市</label>
+            <input
+              type="text"
+              value={targetCityText}
+              onChange={(e) => setTargetCityText(e.currentTarget.value)}
+              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              placeholder="例如：上海、杭州"
+            />
           </div>
 
           <div>
