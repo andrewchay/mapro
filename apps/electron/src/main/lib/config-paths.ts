@@ -42,10 +42,23 @@ export function getConfigDirName(): string {
 /**
  * 获取配置目录路径
  *
- * 开发模式返回 ~/.mapro-dev/，正式版本返回 ~/.mapro/。
+ * 优先级：
+ * 1. MAPRO_DATA_DIR 环境变量（用于 Docker / 服务端部署）
+ * 2. _MAPRO_TEST_CONFIG_DIR 环境变量（用于测试）
+ * 3. 开发模式返回 ~/.mapro-dev/，正式版本返回 ~/.mapro/
+ *
  * 如果目录不存在则自动创建。
  */
 export function getConfigDir(): string {
+  if (process.env.MAPRO_DATA_DIR) {
+    const dataDir = process.env.MAPRO_DATA_DIR
+    if (!existsSync(dataDir)) {
+      mkdirSync(dataDir, { recursive: true })
+      console.log(`[配置] 已创建数据目录: ${dataDir}`)
+    }
+    return dataDir
+  }
+
   if (process.env._MAPRO_TEST_CONFIG_DIR) {
     const testConfigDir = process.env._MAPRO_TEST_CONFIG_DIR
     if (!existsSync(testConfigDir)) {
