@@ -131,6 +131,20 @@ export async function createCampaignRouter(context: AppContext) {
     }
   })
 
+  router.post('/:id/advance-phase', async (req, res) => {
+    try {
+      const campaign = await commandService.advanceCampaignPhase(req.params.id)
+      if (!campaign) {
+        res.status(400).json({ success: false, error: 'Campaign 不存在或已处于最后阶段' })
+        return
+      }
+      res.json({ success: true, campaign })
+    } catch (error) {
+      console.error('[Campaign API] 阶段推进失败:', error)
+      res.status(500).json({ success: false, error: '推进 Campaign 阶段失败' })
+    }
+  })
+
   // =====================================================================
   // KOL 候选池（只读；导入写入放到 B1 Slice 2）
   // =====================================================================

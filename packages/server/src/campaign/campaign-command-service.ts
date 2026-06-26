@@ -9,6 +9,7 @@
 
 import type {
   AddPaidDataInput,
+  Campaign,
   CampaignBrief,
   CampaignKOLPoolItem,
   CreateContentTrackingInput,
@@ -86,6 +87,29 @@ export class CampaignCommandService {
       return { kols: [], total: 0 }
     }
     return this.kolRepository.listAvailableKOLs(filters)
+  }
+
+  // =====================================================================
+  // Campaign 阶段推进
+  // =====================================================================
+
+  async advanceCampaignPhase(id: string): Promise<Campaign | null> {
+    const campaign = await this.repository.getCampaignById(id)
+    if (!campaign) return null
+
+    const nextPhase = campaign.currentPhase + 1
+    if (nextPhase > 3) return null
+
+    const phaseStatusMap: Record<number, Campaign['status']> = {
+      1: 'strategy',
+      2: 'kol_selection',
+      3: 'content_production',
+    }
+
+    return this.repository.updateCampaign(id, {
+      currentPhase: nextPhase,
+      status: phaseStatusMap[nextPhase] ?? campaign.status,
+    })
   }
 
   // =====================================================================
