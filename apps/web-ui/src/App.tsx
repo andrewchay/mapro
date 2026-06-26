@@ -1,0 +1,17 @@
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { Layout } from './components/Layout.tsx'
+import { CampaignListPage } from './pages/CampaignListPage.tsx'
+import { CampaignDetailPage } from './pages/CampaignDetailPage.tsx'
+
+export function App() {
+  return (
+    <BrowserRouter>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<CampaignListPage />} />
+          <Route path="/campaigns/:id" element={<CampaignDetailPage />} />
+        </Routes>
+      </Layout>
+    </BrowserRouter>
+  )
+}
