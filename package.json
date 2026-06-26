@@ -14,9 +14,13 @@
     "electron:dev": "bun run --filter='@ma-proma/electron' dev",
     "electron:build": "bun run --filter='@ma-proma/electron' build",
     "electron:start": "bun run --filter='@ma-proma/electron' start",
+    "web:dev": "concurrently -k -n web,web-ui -c blue,green \"bun run --filter='@ma-proma/web' dev\" \"bun run --filter='@ma-proma/web-ui' dev\"",
+    "web:build": "bun run --filter='@ma-proma/web-ui' build && bun run --filter='@ma-proma/web' typecheck",
+    "web:start": "bun run --filter='@ma-proma/web' start",
     "build": "bun run --filter='*' build",
     "typecheck": "bun run --filter='*' typecheck",
-    "test": "bun test"
+    "test": "bun test",
+    "test:smoke": "bun run scripts/smoke-test.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -24,7 +28,9 @@
     "@types/node": "^20.0.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
+    "concurrently": "^9.2.1",
     "dompurify": "^3.4.2",
+    "ws": "^8.21.0",
     "typescript": "^5.0.0"
   },
   "peerDependencies": {

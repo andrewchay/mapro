@@ -40,6 +40,26 @@ export function createCampaignRouter(context: AppContext) {
     }
   })
 
+  router.get('/:id/content-tracking', (req, res) => {
+    try {
+      const tracking = repository.listContentTracking(req.params.id)
+      res.json({ success: true, tracking })
+    } catch (error) {
+      console.error('[Campaign API] 内容追踪获取失败:', error)
+      res.status(500).json({ success: false, error: '获取内容追踪失败' })
+    }
+  })
+
+  router.get('/:id/kol-pool', (req, res) => {
+    try {
+      const pool = repository.getPoolKOLs(req.params.id)
+      res.json({ success: true, pool })
+    } catch (error) {
+      console.error('[Campaign API] 候选池获取失败:', error)
+      res.status(500).json({ success: false, error: '获取候选池失败' })
+    }
+  })
+
   router.post('/', (req, res) => {
     try {
       const { name, brand, platform, budget, durationMonths, targetCity, targetAudience } = req.body

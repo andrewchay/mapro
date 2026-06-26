@@ -5,7 +5,7 @@
  * 为未来添加缓存、权限校验、数据聚合留下扩展点。
  */
 
-import type { Campaign, KOLContentTracking } from '@ma-proma/shared'
+import type { Campaign, CampaignKOLPoolItem, KOLContentTracking } from '@ma-proma/shared'
 import type { CampaignRepository } from './campaign-repository.ts'
 
 export class CampaignQueryService {
@@ -25,5 +25,9 @@ export class CampaignQueryService {
 
   listContentTracking(campaignId: string): KOLContentTracking[] {
     return this.repository.listContentTracking(campaignId)
+  }
+
+  getPoolKOLs(campaignId: string): CampaignKOLPoolItem[] {
+    return this.repository.getPoolKOLs(campaignId)
   }
 }

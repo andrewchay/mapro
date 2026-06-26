@@ -2,7 +2,7 @@
  * Web 端 PlatformAPI 实现
  */
 
-import type { Campaign, KOLContentTracking } from '@ma-proma/shared'
+import type { Campaign, CampaignKOLPoolItem, KOLContentTracking } from '@ma-proma/shared'
 import type { CreateCampaignInput, PlatformAPI, ChatSendInput, ChatStreamEvent } from './platform-api.ts'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
@@ -40,9 +40,13 @@ export const webAPI: PlatformAPI = {
   },
 
   async listContentTracking(campaignId: string) {
-    // 阶段 A 后端暂未实现内容追踪 API，先返回空数组
-    console.log('[webAPI] 内容追踪 API 待接入，campaignId:', campaignId)
-    return []
+    const { tracking } = await fetchApi<{ tracking: KOLContentTracking[] }>(`/campaigns/${campaignId}/content-tracking`)
+    return tracking
+  },
+
+  async getPoolKOLs(campaignId: string) {
+    const { pool } = await fetchApi<{ pool: CampaignKOLPoolItem[] }>(`/campaigns/${campaignId}/kol-pool`)
+    return pool
   },
 
   sendChatMessage(input: ChatSendInput, onEvent: (event: ChatStreamEvent) => void) {

@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "3000:3000"
+      - "8081:8081"
+    environment:
+      - NODE_ENV=production
+      - MAPRO_DATA_DIR=/app/data
+      # 阶段 A 最小 Chat 配置（按需启用）
+      # - MAPRO_CHAT_PROVIDER=deepseek
+      # - MAPRO_CHAT_API_KEY=your-api-key
+      # - MAPRO_CHAT_BASE_URL=https://api.deepseek.com
+      # - MAPRO_CHAT_MODEL=deepseek-chat
+    volumes:
+      - mapro-data:/app/data
+
+volumes:
+  mapro-data:

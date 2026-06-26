@@ -17,6 +17,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import type {
   Campaign,
   CampaignCreativePlan,
+  CampaignKOLPoolItem,
   CampaignPhasePlan,
   CreateCampaignInput,
   KOLContentTracking,
@@ -84,6 +85,29 @@ export class CampaignRepository {
     if (!campaignColumns.some((col) => col.name === 'creative_plan')) {
       db.run(`ALTER TABLE campaigns ADD COLUMN creative_plan TEXT`)
     }
+
+    // Campaign KOL 候选池表（阶段 A 只读）
+    db.run(`
+      CREATE TABLE IF NOT EXISTS campaign_kol_pool (
+        campaign_id TEXT NOT NULL,
+        kol_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        followers TEXT,
+        engagement TEXT,
+        category TEXT,
+        price TEXT,
+        city TEXT,
+        status TEXT DEFAULT 'candidate',
+        notes TEXT,
+        added_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+        PRIMARY KEY (campaign_id, kol_id),
+        FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+      )
+    `)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_pool_campaign ON campaign_kol_pool(campaign_id)`)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_pool_status ON campaign_kol_pool(status)`)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_pool_platform ON campaign_kol_pool(platform)`)
 
     // 内容数据追踪表（阶段 A 只读）
     db.run(`
@@ -239,6 +263,14 @@ export class CampaignRepository {
     const row = db.query('SELECT * FROM kol_content_tracking WHERE id = ?').get(id) as Record<string, unknown> | null
     return row ? rowToContentTracking(row) : null
   }
+
+  getPoolKOLs(campaignId: string): CampaignKOLPoolItem[] {
+    const db = this.getDb()
+    const rows = db.query(
+      `SELECT * FROM campaign_kol_pool WHERE campaign_id = ? ORDER BY added_at DESC`
+    ).all(campaignId) as Record<string, unknown>[]
+    return rows.map(rowToPoolItem)
+  }
 }
 
 // =====================================================================
@@ -321,6 +353,23 @@ function normalizeCreativePlan(
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+function rowToPoolItem(row: Record<string, unknown>): CampaignKOLPoolItem {
+  return {
+    campaignId: String(row.campaign_id),
+    kolId: String(row.kol_id),
+    name: String(row.name),
+    platform: String(row.platform),
+    followers: String(row.followers ?? ''),
+    engagement: String(row.engagement ?? ''),
+    category: String(row.category ?? ''),
+    price: String(row.price ?? ''),
+    city: String(row.city ?? ''),
+    status: row.status as CampaignKOLPoolItem['status'],
+    notes: String(row.notes ?? ''),
+    addedAt: Number(row.added_at),
+  }
 }
 
 function rowToCampaign(row: Record<string, unknown>): Campaign {

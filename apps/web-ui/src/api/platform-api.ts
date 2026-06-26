@@ -5,7 +5,7 @@
  * 阶段 A 先实现 Web 端版本。
  */
 
-import type { Campaign, KOLContentTracking, ChatMessage } from '@ma-proma/shared'
+import type { Campaign, CampaignKOLPoolItem, KOLContentTracking, ChatMessage } from '@ma-proma/shared'
 
 export interface CreateCampaignInput {
   name: string
@@ -38,5 +38,6 @@ export interface PlatformAPI {
   getCampaignById(id: string): Promise<Campaign | null>
   createCampaign(input: CreateCampaignInput): Promise<Campaign>
   listContentTracking(campaignId: string): Promise<KOLContentTracking[]>
+  getPoolKOLs(campaignId: string): Promise<CampaignKOLPoolItem[]>
   sendChatMessage(input: ChatSendInput, onEvent: (event: ChatStreamEvent) => void): void
 }
