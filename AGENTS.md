@@ -25,16 +25,19 @@ proma-v2/
 ├── packages/
 │   ├── shared/     # 共享类型、IPC 通道常量、配置、工具函数 (v0.1.23)
 │   ├── core/       # AI Provider 适配器、代码高亮服务 (v0.2.9)
-│   └── ui/         # 共享 UI 组件 (CodeBlock, MermaidBlock) (v0.1.3)
+│   ├── ui/         # 共享 UI 组件 (CodeBlock, MermaidBlock) (v0.1.3)
+│   └── server/     # 服务端共享业务逻辑与跨平台抽象 (v0.1.8)
 └── apps/
-    └── electron/   # Electron 桌面应用 (v0.1.9)
-        └── src/
-            ├── main/       # 主进程 + 服务层 (main/lib/)
-            ├── preload/    # IPC 上下文桥接
-            └── renderer/   # React UI (Vite + Tailwind + Radix UI)
+    ├── electron/   # Electron 桌面应用 (v0.1.9)
+    │   └── src/
+    │       ├── main/       # 主进程 + 服务层 (main/lib/)
+    │       ├── preload/    # IPC 上下文桥接
+    │       └── renderer/   # React UI (Vite + Tailwind + Radix UI)
+    ├── web/        # Web 服务端入口 (Express + WebSocket) (v0.1.8)
+    └── web-ui/     # Web 端 React SPA (v0.1.4)
 ```
 
-**包命名规范**：`@ma-proma/*` 作用域（`@ma-proma/core`、`@ma-proma/shared`、`@ma-proma/ui`、`@ma-proma/electron`）
+**包命名规范**：`@ma-proma/*` 作用域（`@ma-proma/core`、`@ma-proma/shared`、`@ma-proma/ui`、`@ma-proma/server`、`@ma-proma/electron`）
 
 **依赖管理**：package.json 中使用 `workspace:*` 引用内部包
 
@@ -55,6 +58,16 @@ proma-v2/
 - **关键组件**：共享 React UI 组件库
 - **依赖**：`@ma-proma/core`、`beautiful-mermaid`、`shiki`、Radix UI
 - **Peer 依赖**：`react@^18.3.0`、`react-dom@^18.3.0`
+
+#### @ma-proma/server (v0.1.8)
+- **导出模块**：`./campaign`、`./chat`、`./context`、`./db`、`./files`、`./kol`、`./secrets`、`./transport`
+- **关键功能**：
+  - `CampaignRepository` / `CampaignQueryService` / `CampaignCommandService`：Campaign 项目 CRUD 与业务协调
+  - `CampaignWorkflowService`：13 步标准工作流状态机（JSON 持久化、Workspace 文件同步）
+  - `CampaignArtifactValidator`：产物校验引擎（目录/文件/字数/语义锚点）与 Agent 兜底落盘
+  - `KOLDatabaseRepository`：KOL 主数据库访问
+  - 跨平台抽象：`DbProvider`、`FileProvider`、`SecretsStore`、`RendererTransport`
+- **依赖**：`@ma-proma/shared`、`@ma-proma/core`、`better-sqlite3`
 
 #### @ma-proma/electron (v0.1.9)
 - **职责**：Electron 桌面应用主体，集成所有包
@@ -201,7 +214,7 @@ bun run generate:icons    # 生成应用图标
 | 服务 | 职责 |
 |------|------|
 | `campaign-manager.ts` | Campaign 项目数据服务：SQLite 存储（`~/.mapro/campaign-database.sqlite`）、Campaign CRUD、KOL 候选池、Brief、阶段推进、内容审核、KOL 数据库连接（双引擎适配 `bun:sqlite` / `better-sqlite3`） |
-| `campaign-workflow-service.ts` | Campaign 9 步工作流状态机：工作流 JSON 持久化、标准产物目录管理、语义锚点校验（`artifactRequirements` + `minArtifactLength`）、兜底落盘、执行历史（`history.md`）、`todo.md` 同步 |
+| `campaign-workflow-service.ts` | Campaign 13 步工作流状态机（Electron 本地实现）：工作流 JSON 持久化、标准产物目录管理、语义锚点校验（`artifactRequirements` + `minArtifactLength`）、兜底落盘、执行历史（`history.md`）、`todo.md` 同步 |
 | `ma-tools/` | MA 营销工具集（17 个 Chat Tool）：strategy-iq、match-ai、connect-bot、creative-pilot、script-studio、kol-search、kol-crm、kol-portal、kol-data-mcp、kol-data-service、campaign-agent、campaign-optimizer、campaign-tester、content-audit、llm-service 等，通过 `ChatToolMeta` + `ToolDefinition` 注册到 Chat 模式 |
 
 #### 工具与文件
@@ -531,7 +544,7 @@ Campaign 是在 Agent 模式之上构建的 **KOL 投放项目管理**高层抽�
 | `Campaign` | 项目主体：品牌、平台（小红书/抖音/双平台）、预算、周期、目标城市/人群、3 阶段 `phasePlans`、创意策略 `creativePlan`、状态机（draft→strategy→kol_selection→negotiation→content_production→live→review→completed） |
 | `CampaignKOLPoolItem` | KOL 候选池：每 Campaign 独立，状态流转 candidate→shortlisted→contacted→confirmed/rejected |
 | `CampaignBrief` | 每个 KOL 一份 Markdown 合作 Brief，支持 AI 生成标记 |
-| `CampaignWorkflow` | 9 步标准工作流：每步含 `agentPrompt` / `toolName` / `artifactRequirements`（语义锚点）/ `minArtifactLength` |
+| `CampaignWorkflow` | 13 步标准工作流：每步含 `agentPrompt` / `toolName` / `artifactRequirements`（语义锚点）/ `minArtifactLength` |
 | `ContentAudit` | 内容审核：AI 审核 + 人工复核，4 维度评分（合规/品牌契合/质量/综合） |
 | `ContentTracking` | 内容数据追踪：合作内容数据回收（曝光/浏览/点赞/收藏/评论/转发/CPM/CPE/CTR）、自然流性能判断（按价格带标准分级）、投流数据追踪与优化建议 |
 
@@ -540,20 +553,24 @@ Campaign 是在 Agent 模式之上构建的 **KOL 投放项目管理**高层抽�
 - `~/.mapro/campaign-database.sqlite`：Campaign + KOL 候选池 + Brief + 内容审核 + 内容数据追踪 + 数据标准基准 6 张表
 - `~/.mapro/kol-database.sqlite`：KOL 主数据库（含 fan/engagement/content/overall_score 评分系统 + extended_data 达人内容分析数据：粉丝画像、赞藏比、爆文率、CPE/CPM、广告笔记占比、近10条数据趋势等）
 - **双引擎适配**：Bun 环境用 `bun:sqlite`，Electron 环境用 `better-sqlite3`（`campaign-manager.ts:loadEngine` 自动选择，二者 API 对齐）
-- 每步**产物文件**存到 `~/.mapro/agent-workspaces/campaign-{id}/` 下标准目录：`brand-dna/`、`brand-concept/`、`creative-concept/`、`platform-matrix/`、`kol-pyramid/`、`kol-search/`、`briefs/`、`ab-test/`、`.context/`（含 `todo.md` / `campaign.md` / `history.md`）
+- 每步**产物文件**存到 `~/.mapro/agent-workspaces/campaign-{id}/` 下标准目录：`market-analysis/`、`competitor-analysis/`、`user-analysis/`、`brand-dna/`、`brand-concept/`、`goal-setting/`、`creative-concept/`、`platform-matrix/`、`kol-pyramid/`、`kol-search/`、`briefs/`、`ab-test/`、`.context/`（含 `todo.md` / `campaign.md` / `history.md`）
 
-### 9 步标准工作流（`campaign-workflow-service.ts`）
+### 13 步标准工作流（`campaign-workflow-service.ts`）
 
 ```
-1. 提取品牌 DNA        → ma-brand-dna
-2. Brand Concept 产出  → ma-brand-house
-3. 生成 Big Idea        → ma-creative-concept
-4. 设计平台矩阵         → ma-platform-role-mapper
-5. 设计 KOL 金字塔      → ma-kol-pyramid
-6. 筛选候选达人         → kol-data/search_kols
-7. 加入候选池           → ma-campaign-agent (ma_campaign_kol_add)
-8. 生成达人 Brief       → ma-creative-pilot
-9. 设计 A/B 测试        → ma-campaign-tester
+1.  市场分析            → ma-market-analysis
+2.  竞品分析            → ma-competitor-analyzer
+3.  用户分析（TA画像 + 搜索习惯） → ma-ta-portrait
+4.  品牌DNA + 品牌诊断  → ma-brand-dna
+5.  Brand Concept 产出  → ma-brand-house
+6.  目标设定            → ma-campaign-optimizer
+7.  生成 Big Idea        → ma-creative-concept
+8.  设计平台矩阵         → ma-platform-role-mapper
+9.  设计 KOL 金字塔      → ma-kol-pyramid
+10. 筛选候选达人         → kol-data/search_kols
+11. 加入候选池           → ma-campaign-agent (ma_campaign_kol_add)
+12. 生成达人 Brief       → ma-creative-pilot
+13. 设计 A/B 测试        → ma-campaign-tester
 ```
 
 每步带：模板化 `agentPrompt`（`{brand}`/`{budget}` 等变量替换）、`artifactRequirements`（语义锚点 + 最低字数 300）、产物校验、兜底落盘（Agent 只在对话输出未写文件时自动保存为 `agent-output.md`）。
@@ -576,7 +593,8 @@ Campaign 是在 Agent 模式之上构建的 **KOL 投放项目管理**高层抽�
 ### IPC 全链路
 
 - **通道常量**：`CAMPAIGN_IPC_CHANNELS`（14 个）+ `CONTENT_AUDIT_IPC_CHANNELS`（4 个）+ `CONTENT_TRACKING_IPC_CHANNELS`（7 个）+ `KOL_DATA_IPC_CHANNELS`（4 个）
-- **主进程**：`ipc.ts` → `campaign-manager.ts`（CRUD/候选池/Brief/审核/内容数据追踪）+ `campaign-workflow-service.ts`（工作流状态机/产物校验）
+- **Electron 主进程**：`ipc.ts` → `campaign-manager.ts`（CRUD/候选池/Brief/审核/内容数据追踪）+ `campaign-workflow-service.ts`（工作流状态机/产物校验，本地同步实现）
+- **Web 服务端**：`@ma-proma/server` 提供 `CampaignCommandService` / `CampaignWorkflowService` / `CampaignArtifactValidator`，通过 `apps/web/src/routes/campaign.ts` 暴露 REST API
 - **Preload**：`window.electronAPI.listCampaigns` / `getCampaignWorkflow` / `advanceCampaignPhase` / `listContentAudits` / `listContentTracking` / `addContentTracking` 等
 - **渲染层**：`campaign-atoms.ts` + `CampaignDetail` / `CampaignList` / `CampaignWorkflowSteps` / `CampaignKOLImportDialog` / `CampaignBriefDialog` / `ContentAuditDialog` / `FilePreviewDialog`
 
@@ -609,7 +627,7 @@ Campaign 是在 Agent 模式之上构建的 **KOL 投放项目管理**高层抽�
 
 - ✅ **多 Provider 支持**：Anthropic、OpenAI、DeepSeek、Kimi、智谱、MiniMax、豆包、通义千问、Google、自定义端点
 - ✅ **Agent SDK 集成**：基于 Claude Agent SDK 的完整 Agent 模式
-- ✅ **Campaign 项目管理**：KOL 投放项目、9 步标准工作流、产物校验、KOL 候选池、Brief 生成、内容审核、内容数据追踪（fork 后新增，详见 Campaign 功能架构段落）
+- ✅ **Campaign 项目管理**：KOL 投放项目、13 步标准工作流、产物校验、KOL 候选池、Brief 生成、内容审核、内容数据追踪（fork 后新增，详见 Campaign 功能架构段落）
 - ✅ **MA 营销工具集**：19 个 ma-tools Chat Tool + 12 个 `ma-*` default Skills，覆盖品牌 DNA、TA 画像、创意概念、KOL 匹配/建联/搜索/CRM、脚本工坊、内容审核、内容数据追踪等
 - ✅ **飞书集成**：消息同步、任务通知、OAuth 认证（68KB 核心服务）
 - ✅ **钉钉 / 微信桥接**：机器人消息桥接入口

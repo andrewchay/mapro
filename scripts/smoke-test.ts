@@ -172,7 +172,22 @@ async function run(): Promise<void> {
     console.assert(Array.isArray(tracking), '内容追踪返回格式错误')
     console.log('  ✅ 数量:', tracking.length)
 
-    console.log('[Smoke Test] 7. WebSocket Chat 未配置提示')
+    console.log('[Smoke Test] 7. 工作流加载与推进')
+    const { workflow } = await fetchApi<{ workflow: { steps: { id: string; status: string }[]; currentStepIndex: number } }>(`/campaigns/${campaign.id}/workflow`)
+    console.assert(workflow.steps.length === 13, '工作流步骤数量不对')
+    console.assert(workflow.currentStepIndex === -1, '初始当前步骤索引不对')
+    console.log('  ✅ 步骤数:', workflow.steps.length)
+
+    const { workflow: advanced } = await fetchApi<{ workflow: { steps: { id: string; status: string }[]; currentStepIndex: number } }>(`/campaigns/${campaign.id}/workflow/advance`, {
+      method: 'POST',
+      body: JSON.stringify({ stepId: 'market_analysis', nextStepId: 'competitor_analysis' }),
+    })
+    console.assert(advanced.steps[0]?.status === 'completed', '第一步未标记完成')
+    console.assert(advanced.steps[1]?.status === 'in_progress', '第二步未标记进行中')
+    console.assert(advanced.currentStepIndex === 1, '当前步骤索引未更新')
+    console.log('  ✅ 已推进到:', advanced.steps[1]?.id)
+
+    console.log('[Smoke Test] 8. WebSocket Chat 未配置提示')
     await testWebSocket()
     console.log('  ✅')
 

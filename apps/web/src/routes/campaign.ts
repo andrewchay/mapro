@@ -13,11 +13,15 @@
  */
 
 import { Router } from 'express'
+import type { CampaignWorkflowStepId } from '@ma-proma/shared'
 import {
   CampaignRepository,
   CampaignQueryService,
   CampaignCommandService,
+  CampaignWorkflowService,
+  CampaignArtifactValidator,
   KOLDatabaseRepository,
+  LocalFileProvider,
   SqliteDbProvider,
   getCampaignDbPath,
   getKolDbPath,
@@ -37,7 +41,10 @@ export async function createCampaignRouter(context: AppContext) {
   await kolRepository.initSchema()
 
   const queryService = new CampaignQueryService(repository)
-  const commandService = new CampaignCommandService(repository, kolRepository)
+  const fileProvider = new LocalFileProvider()
+  const validator = new CampaignArtifactValidator(context, fileProvider)
+  const workflowService = new CampaignWorkflowService(context, fileProvider, validator)
+  const commandService = new CampaignCommandService(repository, kolRepository, workflowService)
 
   // =====================================================================
   // Campaign 基础
@@ -355,6 +362,106 @@ export async function createCampaignRouter(context: AppContext) {
     } catch (error) {
       console.error('[Campaign API] 内容性能分析失败:', error)
       res.status(500).json({ success: false, error: '内容性能分析失败' })
+    }
+  })
+
+  // =====================================================================
+  // 工作流（阶段 B2）
+  // =====================================================================
+
+  router.get('/:id/workflow', async (req, res) => {
+    try {
+      const workflow = await commandService.loadWorkflow(req.params.id)
+      res.json({ success: true, workflow })
+    } catch (error) {
+      console.error('[Campaign API] 工作流加载失败:', error)
+      res.status(500).json({ success: false, error: '加载工作流失败' })
+    }
+  })
+
+  router.patch('/:id/workflow/steps/:stepId', async (req, res) => {
+    try {
+      const workflow = await commandService.updateWorkflowStep({
+        campaignId: req.params.id,
+        stepId: req.params.stepId,
+        ...req.body,
+      })
+      res.json({ success: true, workflow })
+    } catch (error) {
+      console.error('[Campaign API] 工作流步骤更新失败:', error)
+      res.status(500).json({ success: false, error: '更新工作流步骤失败' })
+    }
+  })
+
+  router.post('/:id/workflow/advance', async (req, res) => {
+    try {
+      const { stepId, nextStepId } = req.body
+      if (!stepId || !nextStepId) {
+        res.status(400).json({ success: false, error: '缺少 stepId 或 nextStepId' })
+        return
+      }
+      const workflow = await commandService.advanceWorkflow({
+        campaignId: req.params.id,
+        stepId,
+        nextStepId,
+      })
+      res.json({ success: true, workflow })
+    } catch (error) {
+      console.error('[Campaign API] 工作流推进失败:', error)
+      res.status(500).json({ success: false, error: '推进工作流失败' })
+    }
+  })
+
+  router.post('/:id/workflow/reset', async (req, res) => {
+    try {
+      const workflow = await commandService.resetWorkflow(req.params.id)
+      res.json({ success: true, workflow })
+    } catch (error) {
+      console.error('[Campaign API] 工作流重置失败:', error)
+      res.status(500).json({ success: false, error: '重置工作流失败' })
+    }
+  })
+
+  router.get('/:id/workflow/current-step', async (req, res) => {
+    try {
+      const step = await commandService.getCurrentWorkflowStep(req.params.id)
+      res.json({ success: true, step })
+    } catch (error) {
+      console.error('[Campaign API] 当前步骤获取失败:', error)
+      res.status(500).json({ success: false, error: '获取当前步骤失败' })
+    }
+  })
+
+  router.post('/:id/workflow/steps/:stepId/validate', async (req, res) => {
+    try {
+      const stepId = req.params.stepId as CampaignWorkflowStepId
+      const result = await commandService.validateStepArtifacts(req.params.id, stepId)
+      res.json({ success: true, result })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error('[Campaign API] 产物校验失败:', error)
+      if (message.includes('步骤不存在') || message.includes('未知步骤')) {
+        res.status(400).json({ success: false, error: message })
+        return
+      }
+      res.status(500).json({ success: false, error: '产物校验失败' })
+    }
+  })
+
+  router.post('/:id/workflow/steps/:stepId/complete', async (req, res) => {
+    try {
+      const stepId = req.params.stepId as CampaignWorkflowStepId
+      const { messages } = req.body
+      const result = await commandService.completeStepWithValidation(req.params.id, stepId, messages)
+      res.json({ success: true, result })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error('[Campaign API] 步骤完成失败:', error)
+      if (message.includes('步骤不存在') || message.includes('未知步骤')) {
+        res.status(400).json({ success: false, error: message })
+        return
+      }
+      res.status(500).json({ success: false, error: '步骤完成失败' })
     }
   })
 

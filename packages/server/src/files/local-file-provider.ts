@@ -5,7 +5,7 @@
  */
 
 import { readFile, writeFile, readdir, stat, mkdir, rm, access } from 'node:fs/promises'
-import { join, basename } from 'node:path'
+import { join } from 'node:path'
 import type { FileEntry, FileFilter, FileProvider, PickedFile } from './types.ts'
 
 export class LocalFileProvider implements FileProvider {
@@ -45,6 +45,29 @@ export class LocalFileProvider implements FileProvider {
         modifiedAt: info.mtime.getTime(),
       })
     }
+    return result
+  }
+
+  async listDirectoryRecursive(path: string): Promise<FileEntry[]> {
+    const result: FileEntry[] = []
+    const walk = async (dir: string): Promise<void> => {
+      const entries = await readdir(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        const entryPath = join(dir, entry.name)
+        const info = await stat(entryPath)
+        result.push({
+          name: entry.name,
+          path: entryPath,
+          isDirectory: entry.isDirectory(),
+          size: info.size,
+          modifiedAt: info.mtime.getTime(),
+        })
+        if (entry.isDirectory()) {
+          await walk(entryPath)
+        }
+      }
+    }
+    await walk(path)
     return result
   }
 

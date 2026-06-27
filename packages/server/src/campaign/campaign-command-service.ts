@@ -9,9 +9,14 @@
 
 import type {
   AddPaidDataInput,
+  AdvanceWorkflowInput,
+  AgentMessage,
   Campaign,
   CampaignBrief,
   CampaignKOLPoolItem,
+  CampaignWorkflow,
+  CampaignWorkflowStep,
+  CampaignWorkflowStepId,
   CreateContentTrackingInput,
   ImportKOLsToPoolInput,
   KOLContentTracking,
@@ -19,9 +24,12 @@ import type {
   SaveCampaignBriefInput,
   UpdateAnalysisInput,
   UpdateContentTrackingDataInput,
+  UpdateWorkflowStepInput,
 } from '@ma-proma/shared'
 import type { CampaignRepository } from './campaign-repository.ts'
 import type { KOLDatabaseRepository } from '../kol/kol-database-repository.ts'
+import type { CampaignWorkflowService } from './campaign-workflow-service.ts'
+import type { ArtifactValidationResult } from './campaign-artifact-validator.ts'
 
 export interface CampaignCommandServiceOptions {
   /** 创建内容追踪时是否自动从 KOL 数据库读取报价估算 */
@@ -31,16 +39,81 @@ export interface CampaignCommandServiceOptions {
 export class CampaignCommandService {
   private repository: CampaignRepository
   private kolRepository: KOLDatabaseRepository | null
+  private workflowService: CampaignWorkflowService | null
   private options: CampaignCommandServiceOptions
 
   constructor(
     repository: CampaignRepository,
     kolRepository: KOLDatabaseRepository | null = null,
+    workflowService: CampaignWorkflowService | null = null,
     options: CampaignCommandServiceOptions = {},
   ) {
     this.repository = repository
     this.kolRepository = kolRepository
+    this.workflowService = workflowService
     this.options = { estimatePriceFromKOLDatabase: true, ...options }
+  }
+
+  // =====================================================================
+  // 工作流状态机（委托给 CampaignWorkflowService）
+  // =====================================================================
+
+  private ensureWorkflowService(): CampaignWorkflowService {
+    if (!this.workflowService) {
+      throw new Error('CampaignWorkflowService 未注入')
+    }
+    return this.workflowService
+  }
+
+  async loadWorkflow(campaignId: string): Promise<CampaignWorkflow> {
+    return this.ensureWorkflowService().loadCampaignWorkflow(campaignId)
+  }
+
+  async updateWorkflowStep(input: UpdateWorkflowStepInput): Promise<CampaignWorkflow> {
+    return this.ensureWorkflowService().updateWorkflowStep(input)
+  }
+
+  async advanceWorkflow(input: AdvanceWorkflowInput): Promise<CampaignWorkflow> {
+    return this.ensureWorkflowService().advanceWorkflow(input)
+  }
+
+  async resetWorkflow(campaignId: string): Promise<CampaignWorkflow> {
+    return this.ensureWorkflowService().resetWorkflow(campaignId)
+  }
+
+  async getCurrentWorkflowStep(campaignId: string): Promise<CampaignWorkflowStep | null> {
+    return this.ensureWorkflowService().getCurrentStep(campaignId)
+  }
+
+  async getStepAgentPrompt(
+    campaignId: string,
+    stepId: CampaignWorkflowStepId,
+    context?: Record<string, string>,
+  ): Promise<string> {
+    return this.ensureWorkflowService().getStepAgentPrompt(campaignId, stepId, context)
+  }
+
+  async getWorkflowProgress(campaignId: string): Promise<number> {
+    return this.ensureWorkflowService().getWorkflowProgress(campaignId)
+  }
+
+  async isWorkflowComplete(campaignId: string): Promise<boolean> {
+    return this.ensureWorkflowService().isWorkflowComplete(campaignId)
+  }
+
+  async validateStepArtifacts(
+    campaignId: string,
+    stepId: CampaignWorkflowStepId,
+  ): Promise<ArtifactValidationResult> {
+    return this.ensureWorkflowService().validateStepArtifacts(campaignId, stepId)
+  }
+
+  async completeStepWithValidation(
+    campaignId: string,
+    stepId: CampaignWorkflowStepId,
+    messages: AgentMessage[] | undefined,
+  ): Promise<{ success: boolean; workflow: CampaignWorkflow; reason?: string }> {
+    return this.ensureWorkflowService().completeStep(campaignId, stepId, messages)
   }
 
   // =====================================================================

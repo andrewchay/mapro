@@ -44,6 +44,9 @@ export interface FileProvider {
   /** 列出目录 */
   listDirectory(path: string): Promise<FileEntry[]>
 
+  /** 递归列出目录下所有文件（深度优先） */
+  listDirectoryRecursive(path: string): Promise<FileEntry[]>
+
   /** 检查路径是否存在 */
   exists(path: string): Promise<boolean>
 
