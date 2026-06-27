@@ -121,7 +121,7 @@ async function testWebSocket(type: 'chat' | 'agent'): Promise<void> {
 
     ws.on('message', (data) => {
       const message = JSON.parse(data.toString())
-      if (type === 'chat' && message.type === 'chat-stream-event' && message.data?.type === 'error') {
+      if (type === 'chat' && message.channel === 'chat-stream-event' && message.data?.type === 'error') {
         clearTimeout(timeout)
         ws.close()
         resolve()

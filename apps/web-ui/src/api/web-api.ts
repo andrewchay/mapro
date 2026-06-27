@@ -74,7 +74,7 @@ export const webAPI: PlatformAPI = {
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data)
-        if (message.type === 'chat-stream-event') {
+        if (message.channel === 'chat-stream-event') {
           onEvent(message.data as ChatStreamEvent)
           if (message.data?.type === 'done' || message.data?.type === 'error') {
             ws.close()

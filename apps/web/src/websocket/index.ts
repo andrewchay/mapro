@@ -40,10 +40,8 @@ export function createWebSocketHandler(chatConfig: ChatProviderConfig | null, ag
 
     if (message.type === 'chat') {
       if (!chatService) {
-        ws.send(JSON.stringify({
-          type: 'chat-stream-event',
-          data: { type: 'error', error: 'Chat 未配置：请设置 MAPRO_CHAT_PROVIDER 和 MAPRO_CHAT_API_KEY' } satisfies ChatStreamEvent,
-        }))
+        const transport = createWebSocketTransport(ws)
+        transport.send('chat-stream-event', { type: 'error', error: 'Chat 未配置：请设置 MAPRO_CHAT_PROVIDER 和 MAPRO_CHAT_API_KEY' } satisfies ChatStreamEvent)
         return
       }
 

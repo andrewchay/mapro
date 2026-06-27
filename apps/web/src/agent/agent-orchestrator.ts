@@ -96,7 +96,10 @@ export class AgentOrchestrator {
       ? getAgentWorkspacePath(this.context, workspace.slug)
       : this.context.getConfigDir()
 
-    // 追加用户消息到持久化存储
+    const history = await this.sessionManager.getAgentSessionMessages(sessionId)
+    const prompt = this.buildPrompt(history, userMessage)
+
+    // 追加用户消息到持久化存储（放在 prompt 构建之后，避免同一条消息在 prompt 里重复）
     await this.sessionManager.appendAgentMessage(sessionId, {
       id: cryptoRandomId(),
       role: 'user',
@@ -112,9 +115,6 @@ export class AgentOrchestrator {
 
     const controller = new AbortController()
     this.abortControllers.set(sessionId, controller)
-
-    const history = await this.sessionManager.getAgentSessionMessages(sessionId)
-    const prompt = this.buildPrompt(history, userMessage)
 
     try {
       const stream = this.adapter.query({

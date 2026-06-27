@@ -261,7 +261,7 @@ export class AgentSessionManager {
   }
 
   /**
-   * 读取会话的所有消息
+   * 读取会话的所有消息（过滤 SDKMessage，只保留 AgentMessage）
    */
   getAgentSessionMessages(id: string): AgentMessage[] {
     const filePath = getAgentSessionMessagesPath(this.context, id)
@@ -273,7 +273,17 @@ export class AgentSessionManager {
     try {
       const raw = readFileSync(filePath, 'utf-8')
       const lines = raw.split('\n').filter((line) => line.trim())
-      return lines.map((line) => JSON.parse(line) as AgentMessage)
+      return lines
+        .map((line) => JSON.parse(line))
+        .filter((obj) => {
+          // AgentMessage 必须有 role 字段；SDKMessage 没有 role
+          return (
+            obj != null &&
+            typeof obj === 'object' &&
+            typeof (obj as AgentMessage).role === 'string' &&
+            ['user', 'assistant', 'tool', 'status'].includes((obj as AgentMessage).role)
+          )
+        }) as AgentMessage[]
     } catch (error) {
       console.error(`[Agent 会话] 读取消息失败 (${id}):`, error)
       return []

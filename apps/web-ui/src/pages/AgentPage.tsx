@@ -58,6 +58,7 @@ export function AgentPage() {
   const [input, setInput] = React.useState('')
   const [streaming, setStreaming] = React.useState(false)
   const [selectedWorkspaceId, setSelectedWorkspaceId] = React.useState('')
+  const stopRef = React.useRef<(() => void) | null>(null)
 
   React.useEffect(() => {
     refreshSessions()
@@ -97,7 +98,7 @@ export function AgentPage() {
     let assistantContent = ''
     let currentToolName: string | undefined
 
-    const stop = webAPI.sendAgentMessage(selectedSession.id, userMessage, (event) => {
+    stopRef.current = webAPI.sendAgentMessage(selectedSession.id, userMessage, (event) => {
       if (event.type === 'payload') {
         const text = extractTextFromPayload(event.payload)
         if (text) {
@@ -125,13 +126,19 @@ export function AgentPage() {
         }
       } else if (event.type === 'complete') {
         setStreaming(false)
+        stopRef.current = null
       } else if (event.type === 'error') {
         setStreaming(false)
         setMessages((prev) => [...prev, { role: 'assistant', content: `❌ ${event.error}` }])
+        stopRef.current = null
       }
     })
+  }
 
-    return () => stop()
+  const handleStop = () => {
+    stopRef.current?.()
+    stopRef.current = null
+    setStreaming(false)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -247,7 +254,7 @@ export function AgentPage() {
                   className="flex-1 resize-none border border-slate-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <button
-                  onClick={streaming ? undefined : handleSend}
+                  onClick={streaming ? handleStop : handleSend}
                   disabled={!input.trim() && !streaming}
                   className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg"
                 >
