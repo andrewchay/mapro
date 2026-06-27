@@ -28,7 +28,7 @@ proma-v2/
 │   ├── ui/         # 共享 UI 组件 (CodeBlock, MermaidBlock) (v0.1.3)
 │   └── server/     # 服务端共享业务逻辑与跨平台抽象 (v0.1.8)
 └── apps/
-    ├── electron/   # Electron 桌面应用 (v0.1.9)
+    ├── electron/   # Electron 桌面应用 (v0.1.12)
     │   └── src/
     │       ├── main/       # 主进程 + 服务层 (main/lib/)
     │       ├── preload/    # IPC 上下文桥接
@@ -69,7 +69,7 @@ proma-v2/
   - 跨平台抽象：`DbProvider`、`FileProvider`、`SecretsStore`、`RendererTransport`
 - **依赖**：`@ma-proma/shared`、`@ma-proma/core`、`better-sqlite3`
 
-#### @ma-proma/electron (v0.1.9)
+#### @ma-proma/electron (v0.1.12)
 - **职责**：Electron 桌面应用主体，集成所有包
 - **关键依赖**：
   - `@anthropic-ai/claude-agent-sdk@0.3.143` - Agent SDK
@@ -215,6 +215,7 @@ bun run generate:icons    # 生成应用图标
 |------|------|
 | `campaign-manager.ts` | Campaign 项目数据服务：SQLite 存储（`~/.mapro/campaign-database.sqlite`）、Campaign CRUD、KOL 候选池、Brief、阶段推进、内容审核、KOL 数据库连接（双引擎适配 `bun:sqlite` / `better-sqlite3`） |
 | `campaign-workflow-service.ts` | Campaign 13 步工作流状态机（Electron 本地实现）：工作流 JSON 持久化、标准产物目录管理、语义锚点校验（`artifactRequirements` + `minArtifactLength`）、兜底落盘、执行历史（`history.md`）、`todo.md` 同步 |
+| `agent-workspace-manager.ts` | Agent 工作区 CRUD、默认营销工作区初始化（`ensureDefaultWorkspace`）、默认 Skills 同步、`chat-tools.json` 预配置（含 KOL Data MCP 默认启用） |
 | `ma-tools/` | MA 营销工具集（17 个 Chat Tool）：strategy-iq、match-ai、connect-bot、creative-pilot、script-studio、kol-search、kol-crm、kol-portal、kol-data-mcp、kol-data-service、campaign-agent、campaign-optimizer、campaign-tester、content-audit、llm-service 等，通过 `ChatToolMeta` + `ToolDefinition` 注册到 Chat 模式 |
 
 #### 工具与文件

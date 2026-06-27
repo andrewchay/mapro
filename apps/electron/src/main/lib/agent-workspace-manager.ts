@@ -10,6 +10,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, cpSync, rmSync, m
 import { writeJsonFileAtomic, readJsonFileSafe } from './safe-file'
 import { randomUUID } from 'node:crypto'
 import { join, resolve, relative, isAbsolute, dirname, basename } from 'node:path'
+import { getChatToolsConfig, saveChatToolsConfig } from './chat-tool-config'
 import {
   getAgentWorkspacesIndexPath,
   getAgentWorkspacePath,
@@ -156,6 +157,14 @@ const EXCLUDED_DEFAULT_SKILLS = new Set([
   'guizang-ppt-skill',
 ])
 
+/** 确保 Chat 工具配置文件存在，首次启动时预配置 KOL Data MCP 等 MA 工具 */
+function ensureDefaultChatToolsConfig(): void {
+  const config = getChatToolsConfig()
+  // 只要读取过配置（无论文件是否存在），都重新保存一次默认值，确保新增工具对老用户也生效
+  saveChatToolsConfig(config)
+  console.log('[Agent 工作区] 已确保默认 Chat 工具配置（含 KOL Data MCP）')
+}
+
 /** 将 ~/.mapro/default-skills/ 的内容逐个复制到工作区 skills/ 目录 */
 function copyDefaultSkills(workspaceSlug: string): void {
   const defaultDir = getDefaultSkillsDir()
@@ -285,6 +294,7 @@ export function ensureDefaultWorkspace(): AgentWorkspace {
     getAgentWorkspacePath('default')
     ensurePluginManifest('default', '默认营销工作区')
     copyDefaultSkills('default')
+    ensureDefaultChatToolsConfig()
 
     index.workspaces.push(defaultWs)
     writeIndex(index)
