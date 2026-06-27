@@ -19,8 +19,17 @@ export {
   getAttachmentsDir,
   getAgentSessionsIndexPath,
   getAgentSessionsDir,
+  getAgentSessionMessagesPath,
+  getAgentWorkspacesIndexPath,
   getAgentWorkspacesDir,
   getAgentWorkspacePath,
+  getAgentSessionWorkspacePath,
+  getWorkspaceMcpPath,
+  getWorkspaceSkillsDir,
+  getInactiveSkillsDir,
+  getDefaultSkillsDir,
+  getSdkConfigDir,
+  parseSkillVersion,
   getResourcesPath,
 } from './context/config-paths.ts'
 export { SqliteDatabase } from './context/sqlite-adapter.ts'
@@ -44,3 +53,15 @@ export type { FileProvider, FileEntry, FileFilter, FileReadResult, PickedFile } 
 export { LocalFileProvider } from './files/index.ts'
 export type { DbProvider, DbQueryResult, DbTransaction } from './db/index.ts'
 export { SqliteDbProvider, PostgresDbProvider } from './db/index.ts'
+export { readJsonFileSafe, writeJsonFileAtomic } from './utils/safe-file.ts'
+export {
+  AgentSessionManager,
+  type AgentSessionManagerDeps,
+  type AgentWorkspaceResolver,
+  type AgentWorkspaceSnapshot,
+} from './agent/agent-session-manager.ts'
+export {
+  AgentWorkspaceManager,
+  type AgentWorkspaceManagerDeps,
+} from './agent/agent-workspace-manager.ts'
+export { ChatToolConfigService, type ChatToolConfigServiceDeps } from './agent/chat-tool-config.ts'

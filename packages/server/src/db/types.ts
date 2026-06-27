@@ -28,6 +28,9 @@ export interface DbProvider {
 
   /** 关闭连接 */
   close(): Promise<void>
+
+  /** 列出表的所有列名（用于跨方言的 Schema 迁移） */
+  listTableColumns(tableName: string): Promise<string[]>
 }
 
 export interface DbTransaction {

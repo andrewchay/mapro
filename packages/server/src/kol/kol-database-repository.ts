@@ -36,8 +36,8 @@ export class KOLDatabaseRepository {
         avatar TEXT,
         source TEXT NOT NULL,
         raw_data TEXT,
-        created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
-        updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+        created_at INTEGER,
+        updated_at INTEGER
       )
     `)
 
@@ -65,8 +65,8 @@ export class KOLDatabaseRepository {
   }
 
   private async ensureColumn(table: string, column: string, type: string): Promise<void> {
-    const { rows } = await this.db.query<{ name: string }>(`PRAGMA table_info(${table})`)
-    if (!rows.some((r) => r.name === column)) {
+    const columns = await this.db.listTableColumns(table)
+    if (!columns.includes(column)) {
       await this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
     }
   }
@@ -94,11 +94,14 @@ export class KOLDatabaseRepository {
       params.push(filters.category)
     }
     if (filters?.keywords && filters.keywords.length > 0) {
-      const keywordConditions = filters.keywords.map(() => 'name LIKE $' + (params.length + 1)).join(' OR ')
-      conditions.push(`(${keywordConditions})`)
       for (const kw of filters.keywords) {
         params.push(`%${kw}%`)
       }
+      const keywordStartIndex = params.length - filters.keywords.length + 1
+      const keywordConditions = filters.keywords
+        .map((_, i) => `LOWER(name) LIKE LOWER($${keywordStartIndex + i})`)
+        .join(' OR ')
+      conditions.push(`(${keywordConditions})`)
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''

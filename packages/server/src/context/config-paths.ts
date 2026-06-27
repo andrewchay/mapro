@@ -6,7 +6,7 @@
  */
 
 import { join, basename } from 'node:path'
-import { mkdirSync, existsSync } from 'node:fs'
+import { mkdirSync, existsSync, readFileSync } from 'node:fs'
 import type { AppContext } from './types.ts'
 
 /**
@@ -83,6 +83,13 @@ export function getAttachmentsDir(context: AppContext): string {
 }
 
 /**
+ * 获取 Chat 工具配置文件路径
+ */
+export function getChatToolsConfigPath(context: AppContext): string {
+  return join(getConfigDir(context), 'chat-tools.json')
+}
+
+/**
  * 获取 Agent 会话索引文件路径
  */
 export function getAgentSessionsIndexPath(context: AppContext): string {
@@ -134,4 +141,108 @@ export function getResourcesPath(context: AppContext): string {
  */
 export function getKolDbPath(context: AppContext): string {
   return join(getConfigDir(context), 'kol-database.sqlite')
+}
+
+/**
+ * 获取指定 Agent 会话的消息文件路径
+ */
+export function getAgentSessionMessagesPath(context: AppContext, id: string): string {
+  return join(getAgentSessionsDir(context), `${id}.jsonl`)
+}
+
+/**
+ * 获取 Agent 工作区索引文件路径
+ */
+export function getAgentWorkspacesIndexPath(context: AppContext): string {
+  return join(getConfigDir(context), 'agent-workspaces.json')
+}
+
+/**
+ * 获取指定会话在工作区下的独立工作目录
+ */
+export function getAgentSessionWorkspacePath(
+  context: AppContext,
+  workspaceSlug: string,
+  sessionId: string,
+): string {
+  const dir = join(getAgentWorkspacePath(context, workspaceSlug), sessionId)
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+  return dir
+}
+
+/**
+ * 获取指定工作区的 MCP 配置文件路径
+ */
+export function getWorkspaceMcpPath(context: AppContext, slug: string): string {
+  return join(getAgentWorkspacePath(context, slug), 'mcp.json')
+}
+
+/**
+ * 获取指定工作区的 Skills 目录路径
+ */
+export function getWorkspaceSkillsDir(context: AppContext, slug: string): string {
+  const dir = join(getAgentWorkspacePath(context, slug), 'skills')
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+  return dir
+}
+
+/**
+ * 获取工作区不活跃 Skills 目录路径
+ */
+export function getInactiveSkillsDir(context: AppContext, slug: string): string {
+  const dir = join(getAgentWorkspacePath(context, slug), 'skills-inactive')
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+  return dir
+}
+
+/**
+ * 获取默认 Skills 模板目录路径
+ */
+export function getDefaultSkillsDir(context: AppContext): string {
+  const dir = join(getConfigDir(context), 'default-skills')
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+  return dir
+}
+
+/**
+ * 从 SKILL.md 的 YAML frontmatter 中解析 version 字段
+ */
+export function parseSkillVersion(skillDir: string): string {
+  const skillMdPath = join(skillDir, 'SKILL.md')
+  if (!existsSync(skillMdPath)) return '0.0.0'
+
+  try {
+    const content = readFileSync(skillMdPath, 'utf-8')
+    const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/)
+    if (!fmMatch?.[1]) return '0.0.0'
+
+    const versionMatch = fmMatch[1].match(/^version:\s*(.+)$/m)
+    if (versionMatch?.[1]) {
+      const version = versionMatch[1].trim()
+      if (/^\d+\.\d+\.\d+$/.test(version)) return version
+    }
+  } catch {
+    // 解析失败时按旧版本处理
+  }
+
+  return '0.0.0'
+}
+
+/**
+ * 获取 SDK 独立配置目录路径
+ */
+export function getSdkConfigDir(context: AppContext): string {
+  const dir = join(getConfigDir(context), 'sdk-config')
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+  return dir
 }

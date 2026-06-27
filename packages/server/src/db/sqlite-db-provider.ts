@@ -23,19 +23,22 @@ export class SqliteDbProvider implements DbProvider {
 
   async query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<DbQueryResult<T>> {
     const normalizedSql = normalizePlaceholders(sql)
-    const rows = this.db.query(normalizedSql).all(...(params ?? [])) as T[]
+    const normalizedParams = normalizeParams(params)
+    const rows = this.db.query(normalizedSql).all(...normalizedParams) as T[]
     return { rows, rowCount: rows.length }
   }
 
   async queryOne<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T | null> {
     const normalizedSql = normalizePlaceholders(sql)
-    const row = this.db.query(normalizedSql).get(...(params ?? [])) as T | null
+    const normalizedParams = normalizeParams(params)
+    const row = this.db.query(normalizedSql).get(...normalizedParams) as T | null
     return row
   }
 
   async execute(sql: string, params?: unknown[]): Promise<{ changes: number }> {
     const normalizedSql = normalizePlaceholders(sql)
-    const result = this.db.run(normalizedSql, ...(params ?? []))
+    const normalizedParams = normalizeParams(params)
+    const result = this.db.run(normalizedSql, ...normalizedParams)
     return { changes: result.changes }
   }
 
@@ -63,9 +66,28 @@ export class SqliteDbProvider implements DbProvider {
   async close(): Promise<void> {
     this.db.close()
   }
+
+  async listTableColumns(tableName: string): Promise<string[]> {
+    const { rows } = await this.query<{ name: string }>(`PRAGMA table_info(${tableName})`)
+    return rows.map((r) => r.name)
+  }
 }
 
 /** 把 $1, $2... 占位符替换为 ? */
 function normalizePlaceholders(sql: string): string {
   return sql.replace(/\$(\d+)/g, '?')
+}
+
+/**
+ * 参数归一化
+ *
+ * 当前 Schema 中布尔标志列统一使用 INTEGER DEFAULT 0/1。
+ * 若业务层传入 boolean，转换为 0/1 以保持与 INTEGER 列的兼容性。
+ */
+function normalizeParams(params?: unknown[]): unknown[] {
+  if (!params) return []
+  return params.map((p) => {
+    if (typeof p === 'boolean') return p ? 1 : 0
+    return p
+  })
 }

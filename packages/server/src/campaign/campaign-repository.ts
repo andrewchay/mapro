@@ -56,19 +56,19 @@ export class CampaignRepository {
         phase_plans TEXT,
         creative_plan TEXT,
         status TEXT DEFAULT 'draft',
-        created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
-        updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+        created_at INTEGER,
+        updated_at INTEGER
       )
     `)
 
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status)`)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_campaigns_brand ON campaigns(brand)`)
 
-    const { rows: campaignColumns } = await db.query<{ name: string }>(`PRAGMA table_info(campaigns)`)
-    if (!campaignColumns.some((col) => col.name === 'phase_plans')) {
+    const campaignColumns = await db.listTableColumns('campaigns')
+    if (!campaignColumns.includes('phase_plans')) {
       await db.exec(`ALTER TABLE campaigns ADD COLUMN phase_plans TEXT`)
     }
-    if (!campaignColumns.some((col) => col.name === 'creative_plan')) {
+    if (!campaignColumns.includes('creative_plan')) {
       await db.exec(`ALTER TABLE campaigns ADD COLUMN creative_plan TEXT`)
     }
 
@@ -86,7 +86,7 @@ export class CampaignRepository {
         city TEXT,
         status TEXT DEFAULT 'candidate',
         notes TEXT,
-        added_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+        added_at INTEGER,
         PRIMARY KEY (campaign_id, kol_id),
         FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
       )
@@ -105,8 +105,8 @@ export class CampaignRepository {
         content TEXT NOT NULL,
         ai_generated INTEGER DEFAULT 0,
         status TEXT DEFAULT 'draft',
-        created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
-        updated_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+        created_at INTEGER,
+        updated_at INTEGER,
         UNIQUE(campaign_id, kol_id)
       )
     `)
@@ -151,8 +151,8 @@ export class CampaignRepository {
         note_type TEXT DEFAULT '',
         cost REAL DEFAULT 0,
         is_organic INTEGER DEFAULT 1,
-        created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
-        updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+        created_at INTEGER,
+        updated_at INTEGER
       )
     `)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_tracking_campaign ON kol_content_tracking(campaign_id)`)
@@ -171,8 +171,8 @@ export class CampaignRepository {
         good_threshold REAL DEFAULT 0,
         normal_threshold REAL DEFAULT 0,
         description TEXT,
-        created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
-        updated_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+        created_at INTEGER,
+        updated_at INTEGER,
         UNIQUE(platform, price_tier, followers_range, metric_name)
       )
     `)
