@@ -65,3 +65,16 @@ export {
   type AgentWorkspaceManagerDeps,
 } from './agent/agent-workspace-manager.ts'
 export { ChatToolConfigService, type ChatToolConfigServiceDeps } from './agent/chat-tool-config.ts'
+export {
+  ClaudeAgentAdapter,
+  type ClaudeAgentQueryOptions,
+} from './agent/adapters/claude-agent-adapter.ts'
+export { AgentEventBus } from './agent/agent-event-bus.ts'
+export {
+  buildAgentEnvironment,
+  type AgentRunEnv,
+  type AgentRunOptions,
+  type AgentRunResult,
+  type AgentRunCallbacks,
+  type AgentRunner,
+} from './agent/agent-runner.ts'

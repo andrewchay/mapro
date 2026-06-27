@@ -20,11 +20,31 @@ export interface WebServerContext {
   appContext: AppContext
   secretsStore: SecretsStore
   fileProvider: FileProvider
+  agentConfig: {
+    provider: string
+    apiKey: string
+    model: string
+    channelId: string
+    baseUrl?: string
+    proxyUrl?: string
+  } | null
 }
 
 export function createWebServerContext(): WebServerContext {
   const dataDir = process.env.MAPRO_DATA_DIR ?? join(cwd(), '.mapro')
   const resourcesPath = process.env.MAPRO_RESOURCES_PATH ?? cwd()
+
+  const agentApiKey = process.env.MAPRO_AGENT_API_KEY
+  const agentConfig = agentApiKey
+    ? {
+        provider: process.env.MAPRO_AGENT_PROVIDER || 'anthropic',
+        apiKey: agentApiKey,
+        model: process.env.MAPRO_AGENT_MODEL || 'claude-sonnet-4-20250514',
+        channelId: process.env.MAPRO_AGENT_CHANNEL_ID || 'web-agent',
+        baseUrl: process.env.MAPRO_AGENT_BASE_URL,
+        proxyUrl: process.env.MAPRO_AGENT_PROXY_URL,
+      }
+    : null
 
   const appContext: AppContext = {
     getConfigDir: () => dataDir,
@@ -47,5 +67,5 @@ export function createWebServerContext(): WebServerContext {
 
   const fileProvider = new LocalFileProvider()
 
-  return { appContext, secretsStore, fileProvider }
+  return { appContext, secretsStore, fileProvider, agentConfig }
 }

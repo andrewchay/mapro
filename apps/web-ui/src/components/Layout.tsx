@@ -1,11 +1,12 @@
 import { Link, useLocation } from 'react-router-dom'
-import { MessageSquare, LayoutGrid } from 'lucide-react'
+import { MessageSquare, LayoutGrid, Bot } from 'lucide-react'
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
 
   const navItems = [
     { to: '/', icon: LayoutGrid, label: 'Campaign' },
+    { to: '/agent', icon: Bot, label: 'Agent' },
     { to: '/chat', icon: MessageSquare, label: 'Chat' },
   ]
 

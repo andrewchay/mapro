@@ -97,7 +97,7 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
-async function testWebSocket(): Promise<void> {
+async function testWebSocket(type: 'chat' | 'agent'): Promise<void> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://localhost:${TEST_WS_PORT}`)
     const timeout = setTimeout(() => {
@@ -106,15 +106,27 @@ async function testWebSocket(): Promise<void> {
     }, 5000)
 
     ws.on('open', () => {
-      ws.send(JSON.stringify({
-        type: 'chat',
-        payload: { conversationId: 'smoke', messages: [], userMessage: 'hello' },
-      }))
+      if (type === 'chat') {
+        ws.send(JSON.stringify({
+          type: 'chat',
+          payload: { conversationId: 'smoke', messages: [], userMessage: 'hello' },
+        }))
+      } else {
+        ws.send(JSON.stringify({
+          type: 'agent:send',
+          payload: { sessionId: 'smoke', userMessage: 'hello' },
+        }))
+      }
     })
 
     ws.on('message', (data) => {
       const message = JSON.parse(data.toString())
-      if (message.type === 'chat-stream-event' && message.data?.type === 'error') {
+      if (type === 'chat' && message.type === 'chat-stream-event' && message.data?.type === 'error') {
+        clearTimeout(timeout)
+        ws.close()
+        resolve()
+      }
+      if (type === 'agent' && message.type === 'error') {
         clearTimeout(timeout)
         ws.close()
         resolve()
@@ -188,7 +200,30 @@ async function run(): Promise<void> {
     console.log('  ✅ 已推进到:', advanced.steps[1]?.id)
 
     console.log('[Smoke Test] 8. WebSocket Chat 未配置提示')
-    await testWebSocket()
+    await testWebSocket('chat')
+    console.log('  ✅')
+
+    console.log('[Smoke Test] 9. Agent 工作区列表')
+    const { workspaces } = await fetchApi<{ workspaces: { id: string; slug: string; name: string }[] }>('/agent/workspaces')
+    console.assert(workspaces.length >= 1, '默认工作区未创建')
+    console.log('  ✅ 数量:', workspaces.length)
+
+    console.log('[Smoke Test] 10. 创建 Agent 会话')
+    const defaultWorkspace = workspaces.find((w) => w.slug === 'default') ?? workspaces[0]
+    const { session } = await fetchApi<{ session: { id: string; title: string } }>('/agent/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ title: '冒烟测试 Agent 会话', workspaceId: defaultWorkspace?.id }),
+    })
+    console.assert(session.title === '冒烟测试 Agent 会话', '创建 Agent 会话失败')
+    console.log('  ✅', session.id)
+
+    console.log('[Smoke Test] 11. 获取 Agent 会话详情')
+    const { session: sessionDetail, messages } = await fetchApi<{ session: { id: string }; messages: unknown[] }>(`/agent/sessions/${session.id}`)
+    console.assert(sessionDetail.id === session.id, 'Agent 会话详情不匹配')
+    console.log('  ✅ 消息数:', messages.length)
+
+    console.log('[Smoke Test] 12. WebSocket Agent 未配置提示')
+    await testWebSocket('agent')
     console.log('  ✅')
 
     console.log('\n[Smoke Test] 全部通过 🎉')

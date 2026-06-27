@@ -5,7 +5,17 @@
  * 阶段 A 先实现 Web 端版本。
  */
 
-import type { Campaign, CampaignKOLPoolItem, KOLContentTracking, ChatMessage } from '@ma-proma/shared'
+import type {
+  Campaign,
+  CampaignKOLPoolItem,
+  KOLContentTracking,
+  ChatMessage,
+  AgentSessionMeta,
+  AgentWorkspace,
+  WorkspaceCapabilities,
+  AgentMessage,
+  AgentStreamPayload,
+} from '@ma-proma/shared'
 
 export interface CreateCampaignInput {
   name: string
@@ -33,6 +43,16 @@ export interface ChatStreamEvent {
   error?: string
 }
 
+export interface CreateAgentSessionInput {
+  title?: string
+  workspaceId?: string
+}
+
+export type AgentStreamEvent =
+  | { type: 'payload'; payload: AgentStreamPayload }
+  | { type: 'complete' }
+  | { type: 'error'; error: string }
+
 export interface PlatformAPI {
   listCampaigns(): Promise<Campaign[]>
   getCampaignById(id: string): Promise<Campaign | null>
@@ -40,4 +60,17 @@ export interface PlatformAPI {
   listContentTracking(campaignId: string): Promise<KOLContentTracking[]>
   getPoolKOLs(campaignId: string): Promise<CampaignKOLPoolItem[]>
   sendChatMessage(input: ChatSendInput, onEvent: (event: ChatStreamEvent) => void): void
+
+  // Agent
+  listAgentSessions(): Promise<AgentSessionMeta[]>
+  createAgentSession(input: CreateAgentSessionInput): Promise<AgentSessionMeta>
+  getAgentSession(id: string): Promise<{ session: AgentSessionMeta; messages: AgentMessage[] }>
+  deleteAgentSession(id: string): Promise<void>
+  listAgentWorkspaces(): Promise<AgentWorkspace[]>
+  getWorkspaceCapabilities(slug: string): Promise<WorkspaceCapabilities>
+  sendAgentMessage(
+    sessionId: string,
+    userMessage: string,
+    onEvent: (event: AgentStreamEvent) => void,
+  ): () => void
 }
