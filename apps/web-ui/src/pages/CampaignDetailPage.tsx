@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { ArrowLeft, Plus } from 'lucide-react'
+import { ArrowLeft, Plus, ShieldCheck } from 'lucide-react'
 import { currentCampaignAtom, campaignLoadingAtom, campaignErrorAtom, loadCampaignAtom } from '../store/campaign-atoms.ts'
 import { CampaignBasicInfo } from '../components/CampaignBasicInfo.tsx'
 import { CampaignPhasePlans } from '../components/CampaignPhasePlans.tsx'
@@ -10,6 +10,7 @@ import { ContentTrackingList } from '../components/ContentTrackingList.tsx'
 import { CampaignWorkflowSteps } from '../components/CampaignWorkflowSteps.tsx'
 import { CampaignBriefDialog } from '../components/CampaignBriefDialog.tsx'
 import { ContentAuditDialog } from '../components/ContentAuditDialog.tsx'
+import { BatchContentAuditDialog } from '../components/BatchContentAuditDialog.tsx'
 import { ContentAuditList } from '../components/ContentAuditList.tsx'
 import { ContentTrackingFormDialog, PaidDataDialog, AnalysisDialog } from '../components/ContentTrackingDialogs.tsx'
 import { usePoolKOLs, useContentTracking, useContentAudits } from '../hooks/use-campaign-data.ts'
@@ -52,6 +53,11 @@ export function CampaignDetailPage() {
   const [auditOpen, setAuditOpen] = React.useState(false)
   const [auditKOL, setAuditKOL] = React.useState<CampaignKOLPoolItem | null>(null)
 
+  // 批量审核
+  const [selectedKOLIds, setSelectedKOLIds] = React.useState<string[]>([])
+  const [batchAuditOpen, setBatchAuditOpen] = React.useState(false)
+  const selectedKOLs = React.useMemo(() => pool.filter((item) => selectedKOLIds.includes(item.kolId)), [pool, selectedKOLIds])
+
   // 内容追踪弹窗
   const [trackingFormOpen, setTrackingFormOpen] = React.useState(false)
   const [editingTracking, setEditingTracking] = React.useState<KOLContentTracking | null>(null)
@@ -68,6 +74,11 @@ export function CampaignDetailPage() {
   const handleAudit = (kol: CampaignKOLPoolItem) => {
     setAuditKOL(kol)
     setAuditOpen(true)
+  }
+
+  const handleOpenBatchAudit = () => {
+    if (selectedKOLIds.length === 0) return
+    setBatchAuditOpen(true)
   }
 
   const handleEditTracking = (item: KOLContentTracking) => {
@@ -152,7 +163,28 @@ export function CampaignDetailPage() {
             ) : poolError ? (
               <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700">{poolError}</div>
             ) : (
-              <KOLPoolList pool={pool} onBrief={handleBrief} onAudit={handleAudit} />
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-slate-600">
+                    已选择 <span className="font-medium text-slate-900">{selectedKOLIds.length}</span> 位 KOL
+                  </div>
+                  {selectedKOLIds.length > 0 && (
+                    <button
+                      onClick={handleOpenBatchAudit}
+                      className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg"
+                    >
+                      <ShieldCheck className="w-4 h-4" />
+                      批量审核
+                    </button>
+                  )}
+                </div>
+                <KOLPoolList
+                  pool={pool}
+                  onBrief={handleBrief}
+                  onAudit={handleAudit}
+                  selection={{ selected: selectedKOLIds, onChange: setSelectedKOLIds }}
+                />
+              </div>
             )
           )}
 
@@ -217,6 +249,22 @@ export function CampaignDetailPage() {
             setAuditKOL(null)
           }}
           onAudited={async () => {
+            await refreshAudits()
+            if (activeTab === 'audits') {
+              loadCampaign(campaign.id)
+            }
+          }}
+        />
+      )}
+
+      {campaign && (
+        <BatchContentAuditDialog
+          campaign={campaign}
+          kols={selectedKOLs}
+          open={batchAuditOpen}
+          onClose={() => setBatchAuditOpen(false)}
+          onAudited={async () => {
+            setSelectedKOLIds([])
             await refreshAudits()
             if (activeTab === 'audits') {
               loadCampaign(campaign.id)

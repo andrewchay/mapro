@@ -1,3 +1,4 @@
+import * as React from 'react'
 import type { CampaignKOLPoolItem } from '@ma-proma/shared'
 import { FileText, ShieldCheck } from 'lucide-react'
 
@@ -13,9 +14,38 @@ interface KOLPoolListProps {
   pool: CampaignKOLPoolItem[]
   onBrief?: (kol: CampaignKOLPoolItem) => void
   onAudit?: (kol: CampaignKOLPoolItem) => void
+  selection?: {
+    selected: string[]
+    onChange: (selected: string[]) => void
+  }
 }
 
-export function KOLPoolList({ pool, onBrief, onAudit }: KOLPoolListProps) {
+export function KOLPoolList({ pool, onBrief, onAudit, selection }: KOLPoolListProps) {
+  const isSelectable = !!selection
+  const selectedSet = React.useMemo(() => new Set(selection?.selected ?? []), [selection?.selected])
+  const allSelected = pool.length > 0 && pool.every((item) => selectedSet.has(item.kolId))
+  const someSelected = pool.some((item) => selectedSet.has(item.kolId)) && !allSelected
+
+  const toggleAll = () => {
+    if (!selection) return
+    if (allSelected) {
+      selection.onChange([])
+    } else {
+      selection.onChange(pool.map((item) => item.kolId))
+    }
+  }
+
+  const toggleOne = (kolId: string) => {
+    if (!selection) return
+    const next = new Set(selectedSet)
+    if (next.has(kolId)) {
+      next.delete(kolId)
+    } else {
+      next.add(kolId)
+    }
+    selection.onChange(Array.from(next))
+  }
+
   if (pool.length === 0) {
     return (
       <div className="text-center py-12 text-slate-500 bg-white rounded-xl border border-dashed border-slate-300">
@@ -29,6 +59,19 @@ export function KOLPoolList({ pool, onBrief, onAudit }: KOLPoolListProps) {
       <table className="min-w-full divide-y divide-slate-200">
         <thead className="bg-slate-50">
           <tr>
+            {isSelectable && (
+              <th className="px-4 py-3 text-left w-10">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = someSelected
+                  }}
+                  onChange={toggleAll}
+                  aria-label="全选"
+                />
+              </th>
+            )}
             <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">KOL</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">平台</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">粉丝</th>
@@ -41,6 +84,16 @@ export function KOLPoolList({ pool, onBrief, onAudit }: KOLPoolListProps) {
         <tbody className="divide-y divide-slate-200">
           {pool.map((item) => (
             <tr key={`${item.campaignId}-${item.kolId}`} className="hover:bg-slate-50">
+              {isSelectable && (
+                <td className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedSet.has(item.kolId)}
+                    onChange={() => toggleOne(item.kolId)}
+                    aria-label={`选择 ${item.name}`}
+                  />
+                </td>
+              )}
               <td className="px-4 py-3 text-sm text-slate-900">{item.name}</td>
               <td className="px-4 py-3 text-sm text-slate-600">{item.platform}</td>
               <td className="px-4 py-3 text-sm text-slate-600">{item.followers}</td>
