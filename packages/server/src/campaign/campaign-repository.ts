@@ -32,12 +32,59 @@ import type {
   AddPaidDataInput,
 } from '@ma-proma/shared'
 import type { DbProvider } from '../db/types.ts'
+import type { UserContext } from '../context/types.ts'
+import { BuiltInRoles } from '../auth/rbac-constants.ts'
+
+export interface CampaignRepositoryOptions {
+  db: DbProvider
+  userContext?: UserContext
+}
 
 export class CampaignRepository {
   private db: DbProvider
+  private userContext?: UserContext
 
-  constructor(db: DbProvider) {
-    this.db = db
+  constructor(options: CampaignRepositoryOptions | DbProvider) {
+    if ('db' in options) {
+      this.db = options.db
+      this.userContext = options.userContext
+    } else {
+      this.db = options
+    }
+  }
+
+  /** 是否可访问全部数据（系统账号、super_admin、通配权限） */
+  private canAccessAll(): boolean {
+    if (!this.userContext) return true
+    if (this.userContext.isSystemAccount) return true
+    if (this.userContext.roles.includes(BuiltInRoles.SUPER_ADMIN)) return true
+    if (this.userContext.permissions.includes('*')) return true
+    return false
+  }
+
+  /** 当前用户的 tenant_id */
+  private get tenantId(): string {
+    return this.userContext?.tenantId ?? 'default'
+  }
+
+  /** 当前用户的 owner_id */
+  private get ownerId(): string {
+    return this.userContext?.userId ?? 'legacy'
+  }
+
+  /** 生成 WHERE 子句片段（含 leading space）与参数 */
+  private ownerFilter(tableAlias = ''): { sql: string; params: unknown[] } {
+    if (this.canAccessAll()) return { sql: '', params: [] }
+    const prefix = tableAlias ? `${tableAlias}.` : ''
+    return {
+      sql: ` AND ${prefix}tenant_id = $T AND ${prefix}owner_id = $O`,
+      params: [this.tenantId, this.ownerId],
+    }
+  }
+
+  /** 用占位符序号替换 $T/$O */
+  private applyParamIndex(sql: string, baseIndex: number): string {
+    return sql.replace(/\$T/g, `$${baseIndex}`).replace(/\$O/g, `$${baseIndex + 1}`)
   }
 
   async initSchema(): Promise<void> {
@@ -58,6 +105,8 @@ export class CampaignRepository {
         phase_plans TEXT,
         creative_plan TEXT,
         status TEXT DEFAULT 'draft',
+        owner_id TEXT,
+        tenant_id TEXT DEFAULT 'default' NOT NULL,
         created_at INTEGER,
         updated_at INTEGER
       )
@@ -65,6 +114,7 @@ export class CampaignRepository {
 
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status)`)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_campaigns_brand ON campaigns(brand)`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_campaigns_owner ON campaigns(tenant_id, owner_id)`)
 
     const campaignColumns = await db.listTableColumns('campaigns')
     if (!campaignColumns.includes('phase_plans')) {
@@ -72,6 +122,13 @@ export class CampaignRepository {
     }
     if (!campaignColumns.includes('creative_plan')) {
       await db.exec(`ALTER TABLE campaigns ADD COLUMN creative_plan TEXT`)
+    }
+    if (!campaignColumns.includes('owner_id')) {
+      await db.exec(`ALTER TABLE campaigns ADD COLUMN owner_id TEXT`)
+      await db.exec(`UPDATE campaigns SET owner_id = 'legacy', tenant_id = 'default' WHERE owner_id IS NULL`)
+    }
+    if (!campaignColumns.includes('tenant_id')) {
+      await db.exec(`ALTER TABLE campaigns ADD COLUMN tenant_id TEXT DEFAULT 'default' NOT NULL`)
     }
 
     // Campaign KOL 候选池表
@@ -89,6 +146,8 @@ export class CampaignRepository {
         status TEXT DEFAULT 'candidate',
         notes TEXT,
         added_at INTEGER,
+        owner_id TEXT,
+        tenant_id TEXT DEFAULT 'default' NOT NULL,
         PRIMARY KEY (campaign_id, kol_id),
         FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
       )
@@ -96,6 +155,16 @@ export class CampaignRepository {
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_pool_campaign ON campaign_kol_pool(campaign_id)`)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_pool_status ON campaign_kol_pool(status)`)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_pool_platform ON campaign_kol_pool(platform)`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_pool_owner ON campaign_kol_pool(tenant_id, owner_id)`)
+
+    const poolColumns = await db.listTableColumns('campaign_kol_pool')
+    if (!poolColumns.includes('owner_id')) {
+      await db.exec(`ALTER TABLE campaign_kol_pool ADD COLUMN owner_id TEXT`)
+      await db.exec(`UPDATE campaign_kol_pool SET owner_id = 'legacy', tenant_id = 'default' WHERE owner_id IS NULL`)
+    }
+    if (!poolColumns.includes('tenant_id')) {
+      await db.exec(`ALTER TABLE campaign_kol_pool ADD COLUMN tenant_id TEXT DEFAULT 'default' NOT NULL`)
+    }
 
     // KOL Brief 表（B1 新增）
     await db.exec(`
@@ -107,6 +176,8 @@ export class CampaignRepository {
         content TEXT NOT NULL,
         ai_generated INTEGER DEFAULT 0,
         status TEXT DEFAULT 'draft',
+        owner_id TEXT,
+        tenant_id TEXT DEFAULT 'default' NOT NULL,
         created_at INTEGER,
         updated_at INTEGER,
         UNIQUE(campaign_id, kol_id)
@@ -114,6 +185,16 @@ export class CampaignRepository {
     `)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_briefs_campaign ON campaign_briefs(campaign_id)`)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_briefs_kol ON campaign_briefs(kol_id)`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_briefs_owner ON campaign_briefs(tenant_id, owner_id)`)
+
+    const briefColumns = await db.listTableColumns('campaign_briefs')
+    if (!briefColumns.includes('owner_id')) {
+      await db.exec(`ALTER TABLE campaign_briefs ADD COLUMN owner_id TEXT`)
+      await db.exec(`UPDATE campaign_briefs SET owner_id = 'legacy', tenant_id = 'default' WHERE owner_id IS NULL`)
+    }
+    if (!briefColumns.includes('tenant_id')) {
+      await db.exec(`ALTER TABLE campaign_briefs ADD COLUMN tenant_id TEXT DEFAULT 'default' NOT NULL`)
+    }
 
     // 内容数据追踪表
     await db.exec(`
@@ -153,6 +234,8 @@ export class CampaignRepository {
         note_type TEXT DEFAULT '',
         cost REAL DEFAULT 0,
         is_organic INTEGER DEFAULT 1,
+        owner_id TEXT,
+        tenant_id TEXT DEFAULT 'default' NOT NULL,
         created_at INTEGER,
         updated_at INTEGER
       )
@@ -160,6 +243,16 @@ export class CampaignRepository {
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_tracking_campaign ON kol_content_tracking(campaign_id)`)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_tracking_kol ON kol_content_tracking(kol_id)`)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_tracking_platform ON kol_content_tracking(platform)`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_tracking_owner ON kol_content_tracking(tenant_id, owner_id)`)
+
+    const trackingColumns = await db.listTableColumns('kol_content_tracking')
+    if (!trackingColumns.includes('owner_id')) {
+      await db.exec(`ALTER TABLE kol_content_tracking ADD COLUMN owner_id TEXT`)
+      await db.exec(`UPDATE kol_content_tracking SET owner_id = 'legacy', tenant_id = 'default' WHERE owner_id IS NULL`)
+    }
+    if (!trackingColumns.includes('tenant_id')) {
+      await db.exec(`ALTER TABLE kol_content_tracking ADD COLUMN tenant_id TEXT DEFAULT 'default' NOT NULL`)
+    }
 
     // 数据标准基准表（B1 新增）
     await db.exec(`
@@ -197,12 +290,24 @@ export class CampaignRepository {
         overall_score INTEGER DEFAULT 0,
         audit_report TEXT,
         auditor TEXT,
+        owner_id TEXT,
+        tenant_id TEXT DEFAULT 'default' NOT NULL,
         created_at INTEGER,
         updated_at INTEGER
       )
     `)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_audits_campaign ON content_audits(campaign_id)`)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_audits_kol ON content_audits(kol_id)`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_audits_owner ON content_audits(tenant_id, owner_id)`)
+
+    const auditColumns = await db.listTableColumns('content_audits')
+    if (!auditColumns.includes('owner_id')) {
+      await db.exec(`ALTER TABLE content_audits ADD COLUMN owner_id TEXT`)
+      await db.exec(`UPDATE content_audits SET owner_id = 'legacy', tenant_id = 'default' WHERE owner_id IS NULL`)
+    }
+    if (!auditColumns.includes('tenant_id')) {
+      await db.exec(`ALTER TABLE content_audits ADD COLUMN tenant_id TEXT DEFAULT 'default' NOT NULL`)
+    }
 
     await this.seedContentBenchmarks()
   }
@@ -212,16 +317,22 @@ export class CampaignRepository {
   // =====================================================================
 
   async listCampaigns(): Promise<Campaign[]> {
+    const filter = this.ownerFilter()
+    const sql = `SELECT * FROM campaigns${filter.sql ? ' WHERE 1=1' + filter.sql : ''} ORDER BY created_at DESC`
     const { rows } = await this.db.query<Record<string, unknown>>(
-      `SELECT * FROM campaigns ORDER BY created_at DESC`
+      this.applyParamIndex(sql, 1),
+      filter.params,
     )
     return rows.map((row) => rowToCampaign(row))
   }
 
   async getCampaignById(id: string): Promise<Campaign | null> {
+    const filter = this.ownerFilter()
+    const sql = `SELECT * FROM campaigns WHERE id = $1${filter.sql}`
+    const params = [id, ...filter.params]
     const row = await this.db.queryOne<Record<string, unknown>>(
-      `SELECT * FROM campaigns WHERE id = $1`,
-      [id]
+      this.applyParamIndex(sql, 2),
+      params,
     )
     return row ? rowToCampaign(row) : null
   }
@@ -236,8 +347,8 @@ export class CampaignRepository {
     })
 
     await this.db.execute(
-      `INSERT INTO campaigns (id, name, brand, platform, budget, duration_months, target_city, target_audience, current_phase, phase_plans, creative_plan, status, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+      `INSERT INTO campaigns (id, name, brand, platform, budget, duration_months, target_city, target_audience, current_phase, phase_plans, creative_plan, status, owner_id, tenant_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
       [
         id,
         input.name,
@@ -251,6 +362,8 @@ export class CampaignRepository {
         JSON.stringify(phasePlans),
         JSON.stringify(creativePlan),
         'draft',
+        this.ownerId,
+        this.tenantId,
         now,
         now,
       ]
@@ -300,11 +413,15 @@ export class CampaignRepository {
 
     fields.push('updated_at = $' + (values.length + 1))
     values.push(Date.now())
-    values.push(id)
+
+    const filter = this.ownerFilter()
+    const idIndex = values.length + 1
+    const whereSql = `WHERE id = $${idIndex}${this.applyParamIndex(filter.sql, idIndex + 1)}`
+    const params = [...values, id, ...filter.params]
 
     await this.db.execute(
-      `UPDATE campaigns SET ${fields.join(', ')} WHERE id = $${values.length}`,
-      values
+      `UPDATE campaigns SET ${fields.join(', ')} ${whereSql}`,
+      params,
     )
 
     return this.getCampaignById(id)
@@ -315,17 +432,20 @@ export class CampaignRepository {
   // =====================================================================
 
   async getPoolKOLs(campaignId: string): Promise<CampaignKOLPoolItem[]> {
+    const filter = this.ownerFilter()
+    const sql = `SELECT * FROM campaign_kol_pool WHERE campaign_id = $1${filter.sql} ORDER BY added_at DESC`
+    const params = [campaignId, ...filter.params]
     const { rows } = await this.db.query<Record<string, unknown>>(
-      `SELECT * FROM campaign_kol_pool WHERE campaign_id = $1 ORDER BY added_at DESC`,
-      [campaignId]
+      this.applyParamIndex(sql, 2),
+      params,
     )
     return rows.map(rowToPoolItem)
   }
 
   async addPoolKOL(item: Omit<CampaignKOLPoolItem, 'addedAt' | 'status' | 'notes'> & { status?: CampaignKOLPoolItem['status']; notes?: string }): Promise<void> {
     await this.db.execute(
-      `INSERT INTO campaign_kol_pool (campaign_id, kol_id, name, platform, followers, engagement, category, price, city, status, added_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      `INSERT INTO campaign_kol_pool (campaign_id, kol_id, name, platform, followers, engagement, category, price, city, status, added_at, owner_id, tenant_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         item.campaignId,
         item.kolId,
@@ -338,6 +458,8 @@ export class CampaignRepository {
         item.city,
         item.status ?? 'candidate',
         Date.now(),
+        this.ownerId,
+        this.tenantId,
       ]
     )
   }
@@ -347,26 +469,35 @@ export class CampaignRepository {
   // =====================================================================
 
   async getBrief(campaignId: string, kolId: string): Promise<CampaignBrief | null> {
+    const filter = this.ownerFilter()
+    const sql = `SELECT * FROM campaign_briefs WHERE campaign_id = $1 AND kol_id = $2${filter.sql}`
+    const params = [campaignId, kolId, ...filter.params]
     const row = await this.db.queryOne<Record<string, unknown>>(
-      `SELECT * FROM campaign_briefs WHERE campaign_id = $1 AND kol_id = $2`,
-      [campaignId, kolId]
+      this.applyParamIndex(sql, 3),
+      params,
     )
     return row ? rowToBrief(row) : null
   }
 
   async saveBrief(input: SaveCampaignBriefInput): Promise<CampaignBrief> {
     const now = Date.now()
+    const filter = this.ownerFilter()
+    const existingSql = `SELECT id FROM campaign_briefs WHERE campaign_id = $1 AND kol_id = $2${filter.sql}`
+    const existingParams = [input.campaignId, input.kolId, ...filter.params]
     const existing = await this.db.queryOne<{ id: string }>(
-      `SELECT id FROM campaign_briefs WHERE campaign_id = $1 AND kol_id = $2`,
-      [input.campaignId, input.kolId]
+      this.applyParamIndex(existingSql, 3),
+      existingParams,
     )
 
     if (existing) {
-      await this.db.execute(
-        `UPDATE campaign_briefs
+      const updateFilter = this.ownerFilter()
+      const updateSql = `UPDATE campaign_briefs
          SET content = $1, kol_name = $2, ai_generated = $3, status = $4, updated_at = $5
-         WHERE id = $6`,
-        [input.content, input.kolName, input.aiGenerated ? 1 : 0, 'draft', now, existing.id]
+         WHERE id = $6${updateFilter.sql}`
+      const updateParams = [input.content, input.kolName, input.aiGenerated ? 1 : 0, 'draft', now, existing.id, ...updateFilter.params]
+      await this.db.execute(
+        this.applyParamIndex(updateSql, 7),
+        updateParams,
       )
       const updated = await this.getBrief(input.campaignId, input.kolId)
       return updated!
@@ -374,9 +505,9 @@ export class CampaignRepository {
 
     const id = generateId()
     await this.db.execute(
-      `INSERT INTO campaign_briefs (id, campaign_id, kol_id, kol_name, content, ai_generated, status, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [id, input.campaignId, input.kolId, input.kolName, input.content, input.aiGenerated ? 1 : 0, 'draft', now, now]
+      `INSERT INTO campaign_briefs (id, campaign_id, kol_id, kol_name, content, ai_generated, status, owner_id, tenant_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [id, input.campaignId, input.kolId, input.kolName, input.content, input.aiGenerated ? 1 : 0, 'draft', this.ownerId, this.tenantId, now, now]
     )
 
     const created = await this.getBrief(input.campaignId, input.kolId)
@@ -452,17 +583,23 @@ ${kol.price ? `- **合作报价**：${kol.price}` : ''}
   // =====================================================================
 
   async getContentTracking(id: string): Promise<KOLContentTracking | null> {
+    const filter = this.ownerFilter()
+    const sql = `SELECT * FROM kol_content_tracking WHERE id = $1${filter.sql}`
+    const params = [id, ...filter.params]
     const row = await this.db.queryOne<Record<string, unknown>>(
-      'SELECT * FROM kol_content_tracking WHERE id = $1',
-      [id]
+      this.applyParamIndex(sql, 2),
+      params,
     )
     return row ? rowToContentTracking(row) : null
   }
 
   async listContentTracking(campaignId: string): Promise<KOLContentTracking[]> {
+    const filter = this.ownerFilter()
+    const sql = `SELECT * FROM kol_content_tracking WHERE campaign_id = $1${filter.sql} ORDER BY created_at DESC`
+    const params = [campaignId, ...filter.params]
     const { rows } = await this.db.query<Record<string, unknown>>(
-      `SELECT * FROM kol_content_tracking WHERE campaign_id = $1 ORDER BY created_at DESC`,
-      [campaignId]
+      this.applyParamIndex(sql, 2),
+      params,
     )
     return rows.map(rowToContentTracking)
   }
@@ -487,8 +624,8 @@ ${kol.price ? `- **合作报价**：${kol.price}` : ''}
         exposure, views, likes, saves, comments, shares, completion_rate,
         cpm, cpe, ctr, engagement_rate, data_source, collected_at,
         performance_grade, benchmark_comparison, paid_spend, created_at, updated_at,
-        phase, test_group, note_type, cost, is_organic
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)`,
+        phase, test_group, note_type, cost, is_organic, owner_id, tenant_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)`,
       [
         id,
         input.campaignId,
@@ -521,6 +658,8 @@ ${kol.price ? `- **合作报价**：${kol.price}` : ''}
         input.noteType ?? '',
         input.cost ?? 0,
         input.isOrganic ?? true ? 1 : 0,
+        this.ownerId,
+        this.tenantId,
       ]
     )
 
@@ -544,29 +683,33 @@ ${kol.price ? `- **合作报价**：${kol.price}` : ''}
     })
     const now = Date.now()
 
-    await this.db.execute(
-      `UPDATE kol_content_tracking SET
+    const filter = this.ownerFilter()
+    const updateSql = `UPDATE kol_content_tracking SET
         exposure = $1, views = $2, likes = $3, saves = $4, comments = $5, shares = $6,
         completion_rate = $7, cpm = $8, cpe = $9, ctr = $10, engagement_rate = $11,
         data_source = $12, collected_at = $13, updated_at = $14
-       WHERE id = $15`,
-      [
-        input.exposure,
-        input.views,
-        input.likes,
-        input.saves,
-        input.comments,
-        input.shares,
-        input.completionRate ?? null,
-        metrics.cpm,
-        metrics.cpe,
-        metrics.ctr,
-        metrics.engagementRate,
-        input.dataSource,
-        now,
-        now,
-        input.id,
-      ]
+       WHERE id = $15${filter.sql}`
+    const updateParams = [
+      input.exposure,
+      input.views,
+      input.likes,
+      input.saves,
+      input.comments,
+      input.shares,
+      input.completionRate ?? null,
+      metrics.cpm,
+      metrics.cpe,
+      metrics.ctr,
+      metrics.engagementRate,
+      input.dataSource,
+      now,
+      now,
+      input.id,
+      ...filter.params,
+    ]
+    await this.db.execute(
+      this.applyParamIndex(updateSql, 16),
+      updateParams,
     )
 
     return this.getContentTracking(input.id)
@@ -574,30 +717,39 @@ ${kol.price ? `- **合作报价**：${kol.price}` : ''}
 
   async addPaidData(input: AddPaidDataInput): Promise<KOLContentTracking | null> {
     const now = Date.now()
-    await this.db.execute(
-      `UPDATE kol_content_tracking SET
+    const paidFilter = this.ownerFilter()
+    const paidSql = `UPDATE kol_content_tracking SET
         paid_spend = $1, paid_exposure = $2, paid_views = $3, paid_likes = $4,
         paid_data = $5, updated_at = $6
-       WHERE id = $7`,
-      [input.paidSpend, input.paidExposure, input.paidViews, input.paidLikes, input.paidData, now, input.id]
+       WHERE id = $7${paidFilter.sql}`
+    const paidParams = [input.paidSpend, input.paidExposure, input.paidViews, input.paidLikes, input.paidData, now, input.id, ...paidFilter.params]
+    await this.db.execute(
+      this.applyParamIndex(paidSql, 8),
+      paidParams,
     )
     return this.getContentTracking(input.id)
   }
 
   async updateContentTrackingAnalysis(input: UpdateAnalysisInput): Promise<KOLContentTracking | null> {
     const now = Date.now()
-    await this.db.execute(
-      `UPDATE kol_content_tracking SET
+    const analysisFilter = this.ownerFilter()
+    const analysisSql = `UPDATE kol_content_tracking SET
         performance_grade = $1, benchmark_comparison = $2, ai_analysis = $3,
         recommendations = $4, updated_at = $5
-       WHERE id = $6`,
-      [input.performanceGrade, input.benchmarkComparison, input.aiAnalysis, input.recommendations, now, input.id]
+       WHERE id = $6${analysisFilter.sql}`
+    const analysisParams = [input.performanceGrade, input.benchmarkComparison, input.aiAnalysis, input.recommendations, now, input.id, ...analysisFilter.params]
+    await this.db.execute(
+      this.applyParamIndex(analysisSql, 7),
+      analysisParams,
     )
     return this.getContentTracking(input.id)
   }
 
   async deleteContentTracking(id: string): Promise<boolean> {
-    const result = await this.db.execute('DELETE FROM kol_content_tracking WHERE id = $1', [id])
+    const filter = this.ownerFilter()
+    const sql = `DELETE FROM kol_content_tracking WHERE id = $1${filter.sql}`
+    const params = [id, ...filter.params]
+    const result = await this.db.execute(this.applyParamIndex(sql, 2), params)
     return result.changes > 0
   }
 
@@ -606,17 +758,23 @@ ${kol.price ? `- **合作报价**：${kol.price}` : ''}
   // =====================================================================
 
   async getContentAudit(auditId: string): Promise<ContentAudit | null> {
+    const filter = this.ownerFilter()
+    const sql = `SELECT * FROM content_audits WHERE audit_id = $1${filter.sql}`
+    const params = [auditId, ...filter.params]
     const row = await this.db.queryOne<Record<string, unknown>>(
-      'SELECT * FROM content_audits WHERE audit_id = $1',
-      [auditId]
+      this.applyParamIndex(sql, 2),
+      params,
     )
     return row ? rowToContentAudit(row) : null
   }
 
   async listContentAudits(campaignId: string): Promise<ContentAudit[]> {
+    const filter = this.ownerFilter()
+    const sql = `SELECT * FROM content_audits WHERE campaign_id = $1${filter.sql} ORDER BY created_at DESC`
+    const params = [campaignId, ...filter.params]
     const { rows } = await this.db.query<Record<string, unknown>>(
-      'SELECT * FROM content_audits WHERE campaign_id = $1 ORDER BY created_at DESC',
-      [campaignId]
+      this.applyParamIndex(sql, 2),
+      params,
     )
     return rows.map(rowToContentAudit)
   }
@@ -637,8 +795,8 @@ ${kol.price ? `- **合作报价**：${kol.price}` : ''}
       `INSERT INTO content_audits (
         audit_id, campaign_id, kol_id, kol_name, content_url, platform,
         audit_status, compliance_score, brand_alignment_score, quality_score, overall_score,
-        audit_report, auditor, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+        audit_report, auditor, owner_id, tenant_id, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
       [
         auditId,
         input.campaignId,
@@ -653,6 +811,8 @@ ${kol.price ? `- **合作报价**：${kol.price}` : ''}
         input.overallScore,
         input.auditReport,
         input.auditor,
+        this.ownerId,
+        this.tenantId,
         now,
         now,
       ]

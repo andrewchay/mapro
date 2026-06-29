@@ -11,7 +11,8 @@ import type { Server } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AppContext } from '@ma-proma/server'
+import type { AppContext, UserContext } from '@ma-proma/server'
+import type { RequestWithUserContext } from '../auth-middleware.ts'
 import {
   CampaignRepository,
   CampaignQueryService,
@@ -39,7 +40,7 @@ function createTestContext(dataDir: string): AppContext {
 
 async function createDirectServices(context: AppContext) {
   const db = createDbProvider({ sqlitePath: getCampaignDbPath(context) })
-  const repository = new CampaignRepository(db)
+  const repository = new CampaignRepository({ db })
   await repository.initSchema()
 
   const kolDb = createDbProvider({ sqlitePath: getKolDbPath(context) })
@@ -75,6 +76,11 @@ describe('Campaign Web API 与业务逻辑一致性', () => {
 
     const app = express()
     app.use(express.json())
+    app.use('/campaigns', (req, _res, next) => {
+      const ctx: UserContext = { userId: 'system', sessionId: '', tenantId: 'default', roles: ['system'], permissions: ['*'], isSystemAccount: true }
+      ;(req as unknown as RequestWithUserContext).userContext = ctx
+      next()
+    })
     app.use('/campaigns', await createCampaignRouter(context))
 
     await new Promise<void>((resolve, reject) => {

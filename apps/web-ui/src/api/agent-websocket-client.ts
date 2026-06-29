@@ -7,12 +7,12 @@
 
 import type { AgentStreamPayload } from '@ma-proma/shared'
 import type { AgentStreamEvent } from './platform-api.ts'
-import { getApiToken } from './api-token.ts'
+import { getAccessToken } from '../store/token-store.ts'
 
 const WS_BASE = import.meta.env.VITE_WS_BASE || 'ws://localhost:8081'
 
 function buildWebSocketUrl(base: string): string {
-  const token = getApiToken()
+  const token = getAccessToken()
   if (!token) return base
   const sep = base.includes('?') ? '&' : '?'
   return `${base}${sep}token=${encodeURIComponent(token)}`

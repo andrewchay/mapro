@@ -35,9 +35,17 @@ export interface EventSink {
 /**
  * 用户上下文
  *
- * 阶段 A 单用户部署可固定为匿名用户；阶段 B 多租户时用于隔离。
+ * 阶段 A 单用户部署可固定为匿名用户；阶段 C 多用户/多租户时用于隔离与授权。
  */
 export interface UserContext {
   userId: string
   sessionId: string
+  /** 租户标识，单租户场景默认 'default' */
+  tenantId: string
+  /** 用户所属角色 ID 列表 */
+  roles: string[]
+  /** 用户拥有的权限点列表 */
+  permissions: string[]
+  /** 是否为系统/服务账号 */
+  isSystemAccount?: boolean
 }

@@ -8,6 +8,9 @@
  *
  * 阶段 B：
  * - 新增 Agent REST API 与 WebSocket 消息通道
+ *
+ * 阶段 C：
+ * - 新增多用户 JWT 认证与 RBAC 授权
  */
 
 import { resolve } from 'node:path'
@@ -18,21 +21,22 @@ import cors from 'cors'
 import { WebSocketServer } from 'ws'
 import {
   getApiToken,
-  validateBearerToken,
   parseWebSocketToken,
-  isValidWebSocketToken,
   isLocalOrigin,
   createCorsOptions,
 } from './security.ts'
 import { loadChatConfig } from '@ma-proma/server'
-import { createWebServerContext } from './context.ts'
+import type { UserContext } from '@ma-proma/server'
+import { createWebServerContext, createUserAppContext } from './context.ts'
+import { createAuthRouter } from './routes/auth.ts'
+import { createAuthMiddleware, resolveWebSocketToken } from './auth-middleware.ts'
 import { createCampaignRouter } from './routes/campaign.ts'
 import { createAgentRouter } from './routes/agent.ts'
 import { createAttachmentsRouter } from './routes/attachments.ts'
 import { createWorkspaceFilesRouter } from './routes/workspace-files.ts'
 import { createSettingsRouter } from './routes/settings.ts'
 import { createChannelsRouter } from './routes/channels.ts'
-import { createWebSocketHandler, createWebSocketTransport } from './websocket/index.ts'
+import { createWebSocketHandler, createWebSocketTransport, type AgentOrchestratorFactory } from './websocket/index.ts'
 import { AgentOrchestrator } from './agent/agent-orchestrator.ts'
 import {
   AgentSessionManager,
@@ -41,28 +45,27 @@ import {
 } from '@ma-proma/server'
 
 const app = express()
-const { appContext, fileProvider, secretsStore, agentConfig } = createWebServerContext()
+const { appContext, fileProvider, secretsStore, agentConfig, authService, permissionService } =
+  await createWebServerContext()
 const chatConfig = loadChatConfig()
+const apiToken = getApiToken()
+const authMiddleware = createAuthMiddleware({ authService, permissionService, apiToken })
 
 app.use(cors(createCorsOptions()))
 // 注意：不再挂载全局 express.json()，各 Router 自行按需配置 body limit，
 // 避免大附件 / 大头像请求被默认 limit 提前拦截。
-
-// 安全：若配置了 MAPRO_API_TOKEN，则敏感 API 需要 Bearer Token 鉴权
-function requireAuth(req: Request, res: Response, next: () => void): void {
-  if (validateBearerToken(req.headers.authorization)) {
-    next()
-    return
-  }
-  res.status(401).json({ success: false, error: '未授权：需要有效的 Bearer Token' })
-}
 
 // 健康检查（公开）
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', chatEnabled: chatConfig !== null, agentEnabled: agentConfig !== null })
 })
 
-app.use('/api', requireAuth)
+// 认证路由（公开部分：setup / login / refresh / logout；/me 受保护）
+const authRouter = createAuthRouter({ authService, permissionService })
+app.use('/auth', authRouter)
+
+// API 层统一认证
+app.use('/api', authMiddleware)
 
 // Campaign API（异步初始化 Router）
 const campaignRouter = await createCampaignRouter(appContext, chatConfig)
@@ -88,16 +91,23 @@ app.use('/api', settingsRouter)
 const channelsRouter = createChannelsRouter({ context: appContext, secretsStore })
 app.use('/api/channels', channelsRouter)
 
-// Agent Orchestrator（WebSocket 使用）
-let agentOrchestrator: AgentOrchestrator | undefined
-if (agentConfig) {
-  const chatToolConfigService = new ChatToolConfigService({ context: appContext })
+// Agent Orchestrator 按用户隔离（WebSocket 使用）
+const agentOrchestratorPromises = new Map<string, Promise<AgentOrchestrator>>()
+
+function getUserAppContext(userContext: UserContext): typeof appContext {
+  return userContext.isSystemAccount ? appContext : createUserAppContext(appContext, userContext.userId)
+}
+
+async function createUserAgentOrchestrator(userContext: UserContext): Promise<AgentOrchestrator> {
+  const userAppContext = getUserAppContext(userContext)
+  const chatToolConfigService = new ChatToolConfigService({ context: userAppContext })
   const workspaceManager = new AgentWorkspaceManager({
-    context: appContext,
+    context: userAppContext,
     chatToolConfigService,
   })
+  await workspaceManager.ensureDefaultWorkspace()
   const sessionManager = new AgentSessionManager({
-    context: appContext,
+    context: userAppContext,
     workspaceResolver: {
       getById: (id: string) => {
         const ws = workspaceManager.getAgentWorkspace(id)
@@ -105,13 +115,24 @@ if (agentConfig) {
       },
     },
   })
-  agentOrchestrator = new AgentOrchestrator({
-    context: appContext,
+  return new AgentOrchestrator({
+    context: userAppContext,
     sessionManager,
     workspaceManager,
     chatToolConfigService,
-    config: agentConfig,
+    config: agentConfig!,
   })
+}
+
+async function getAgentOrchestrator(userContext: UserContext): Promise<AgentOrchestrator | undefined> {
+  if (!agentConfig) return undefined
+  const key = `${userContext.tenantId}:${userContext.userId}`
+  let promise = agentOrchestratorPromises.get(key)
+  if (!promise) {
+    promise = createUserAgentOrchestrator(userContext)
+    agentOrchestratorPromises.set(key, promise)
+  }
+  return promise
 }
 
 function serveIndexHtml(staticDir: string): void {
@@ -120,10 +141,10 @@ function serveIndexHtml(staticDir: string): void {
     const indexPath = resolve(staticDir, 'index.html')
     try {
       let html = readFileSync(indexPath, 'utf-8')
-      const apiToken = getApiToken()
-      if (apiToken) {
+      const token = getApiToken()
+      if (token) {
         // 将 token 注入前端运行时，避免用户手动输入；此 token 本身已通过 Authorization 校验
-        const tokenScript = `<script>window.MAPRO_API_TOKEN=${JSON.stringify(apiToken)}</script>`
+        const tokenScript = `<script>window.MAPRO_API_TOKEN=${JSON.stringify(token)}</script>`
         html = html.replace('</head>', `${tokenScript}</head>`)
       }
       res.setHeader('Content-Type', 'text/html; charset=utf-8')
@@ -155,9 +176,9 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`[MAPro Web] 数据目录：${appContext.getConfigDir()}`)
   console.log(`[MAPro Web] Chat 状态：${chatConfig ? `已启用 (${chatConfig.provider})` : '未配置'}`)
   console.log(`[MAPro Web] Agent 状态：${agentConfig ? `已启用 (${agentConfig.provider})` : '未配置'}`)
-  if (HOST === '0.0.0.0' && !getApiToken()) {
+  if (HOST === '0.0.0.0' && !getApiToken() && process.env.MAPRO_AUTH_DISABLED !== '1') {
     console.warn(
-      '[MAPro Web] 安全警告：服务已绑定到 0.0.0.0 但未设置 MAPRO_API_TOKEN，外部网络可直接访问 Chat/Agent API 与 WebSocket。生产环境请务必设置强随机 Token。',
+      '[MAPro Web] 安全警告：服务已绑定到 0.0.0.0 但未启用认证降级或配置服务账号 Token，请确保已启用 JWT 认证或前置反向代理。',
     )
   }
 })
@@ -165,15 +186,19 @@ const server = app.listen(PORT, HOST, () => {
 const wss = new WebSocketServer({
   port: WS_PORT,
   host: HOST,
-  verifyClient: ({ origin, req }, done) => {
+  verifyClient: async ({ origin, req }, done) => {
     const token = parseWebSocketToken(req)
-    if (!isValidWebSocketToken(token)) {
+    const userContext = await resolveWebSocketToken(token, { authService, permissionService, apiToken })
+    if (!userContext) {
       console.log('[WebSocket] 拒绝未授权连接')
       done(false, 401, 'Unauthorized')
       return
     }
-    // 未配置 token 时限制本地 origin，防止任意网页通过 WS 驱动 Chat/Agent
-    if (!getApiToken() && origin && !isLocalOrigin(origin)) {
+    // 将用户上下文附加到 WebSocket 升级请求，供后续 handler 使用
+    ;(req as Request & { userContext?: typeof userContext }).userContext = userContext
+
+    // 未配置 token 且非降级模式时限制本地 origin，防止任意网页通过 WS 驱动 Chat/Agent
+    if (!getApiToken() && process.env.MAPRO_AUTH_DISABLED !== '1' && origin && !isLocalOrigin(origin)) {
       console.log(`[WebSocket] 拒绝非本地 Origin: ${origin}`)
       done(false, 403, 'Forbidden Origin')
       return
@@ -181,14 +206,17 @@ const wss = new WebSocketServer({
     done(true)
   },
 })
-const { handleMessage, handleClose } = createWebSocketHandler(chatConfig, agentOrchestrator, { context: appContext, fileProvider })
+const { handleMessage, handleClose } = createWebSocketHandler(chatConfig, getAgentOrchestrator, { context: appContext, fileProvider })
 
-wss.on('connection', (ws) => {
+wss.on('connection', async (ws, req) => {
   console.log('[WebSocket] 客户端已连接')
 
-  ws.on('message', (message) => {
-    handleMessage(ws, message.toString())
-  })
+  const userContext = (req as Request & { userContext?: UserContext }).userContext
+  if (!userContext) {
+    console.error('[WebSocket] 连接缺少 userContext，断开')
+    ws.close()
+    return
+  }
 
   ws.on('close', () => {
     console.log('[WebSocket] 客户端已断开')
@@ -198,6 +226,16 @@ wss.on('connection', (ws) => {
   ws.on('error', (error) => {
     console.error('[WebSocket] 客户端错误:', error)
   })
+
+  try {
+    const agentOrchestrator = await getAgentOrchestrator(userContext)
+    ws.on('message', (message) => {
+      handleMessage(ws, message.toString(), agentOrchestrator)
+    })
+  } catch (error) {
+    console.error('[WebSocket] 创建 Agent Orchestrator 失败:', error)
+    ws.close()
+  }
 })
 
 console.log(`[MAPro Web] WebSocket 服务已启动：ws://localhost:${WS_PORT}`)
@@ -218,7 +256,11 @@ function shutdown(signal: string): void {
   server.close()
 
   // 释放 Agent 编排器资源（审计日志落盘）
-  agentOrchestrator?.dispose()
+  for (const promise of agentOrchestratorPromises.values()) {
+    promise.then((orchestrator) => orchestrator.dispose()).catch(() => {
+      // 忽略已失败 orchestrator 的 dispose
+    })
+  }
 
   // WS 长连接可能让 server.close() 一直挂起，给一个 grace period 后强制退出
   setTimeout(() => {

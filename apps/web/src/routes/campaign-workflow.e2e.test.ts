@@ -15,7 +15,8 @@ import { get } from 'node:http'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AppContext } from '@ma-proma/server'
+import type { AppContext, UserContext } from '@ma-proma/server'
+import type { RequestWithUserContext } from '../auth-middleware.ts'
 import { createCampaignRouter } from './campaign.ts'
 import { DEFAULT_WORKFLOW_STEPS, STEP_DIR_MAP } from '@ma-proma/server'
 import type { Campaign, CampaignWorkflowStepId } from '@ma-proma/shared'
@@ -68,6 +69,11 @@ describe('Campaign 13 步工作流 E2E', () => {
 
     const app = express()
     app.use(express.json())
+    app.use('/campaigns', (req, _res, next) => {
+      const ctx: UserContext = { userId: 'system', sessionId: '', tenantId: 'default', roles: ['system'], permissions: ['*'], isSystemAccount: true }
+      ;(req as unknown as RequestWithUserContext).userContext = ctx
+      next()
+    })
     app.use('/campaigns', await createCampaignRouter(context))
 
     await new Promise<void>((resolve, reject) => {

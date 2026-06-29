@@ -6,6 +6,7 @@
 
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test'
 import { getApiToken, setApiToken, clearApiToken } from './api-token.ts'
+import { setAccessToken, clearAccessToken } from '../store/token-store.ts'
 
 describe('api-token', () => {
   beforeEach(() => {
@@ -33,14 +34,14 @@ describe('webAPI Authorization header', () => {
   const originalFetch = globalThis.fetch
 
   beforeEach(() => {
-    clearApiToken()
+    clearAccessToken()
     // 恢复可能被 React 组件测试全局 mock 的 web-api 模块
     mock.restore()
   })
 
   afterEach(() => {
     globalThis.fetch = originalFetch
-    clearApiToken()
+    clearAccessToken()
   })
 
   test('未配置 token 时不发送 Authorization', async () => {
@@ -59,10 +60,10 @@ describe('webAPI Authorization header', () => {
     expect(capturedHeaders?.Authorization).toBeUndefined()
   })
 
-  test('配置 token 后 fetch 携带 Bearer Authorization', async () => {
+  test('配置 access token 后 fetch 携带 Bearer Authorization', async () => {
     // @ts-ignore 动态导入带 query 参数用于绕过模块缓存，TypeScript 静态解析会报错
     const { webAPI } = await import('./web-api.ts?no-mock')
-    setApiToken('rest-token')
+    setAccessToken('rest-token')
     let capturedHeaders: Record<string, string> | undefined
     const fetchMock = mock((_url, options) => {
       capturedHeaders = options?.headers as Record<string, string> | undefined

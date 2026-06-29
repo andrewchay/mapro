@@ -18,7 +18,6 @@ import {
   getAgentSessionsDir,
   getAgentSessionMessagesPath,
   getAgentSessionWorkspacePath,
-  getSdkConfigDir,
 } from '../context/config-paths.ts'
 import { readJsonFileSafe, writeJsonFileAtomic } from '../utils/safe-file.ts'
 import type { AppContext } from '../context/types.ts'
@@ -69,9 +68,6 @@ export class AgentSessionManager {
   constructor(deps: AgentSessionManagerDeps) {
     this.context = deps.context
     this.workspaceResolver = deps.workspaceResolver
-    if (typeof process !== 'undefined' && !process.env.CLAUDE_CONFIG_DIR) {
-      process.env.CLAUDE_CONFIG_DIR = getSdkConfigDir(this.context)
-    }
   }
 
   private readIndex(): AgentSessionsIndex {

@@ -8,7 +8,8 @@ import type { Server } from 'node:http'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AppContext, WorkspaceFileEntry } from '@ma-proma/server'
+import type { AppContext, WorkspaceFileEntry, UserContext } from '@ma-proma/server'
+import type { RequestWithUserContext } from '../auth-middleware.ts'
 import { createCampaignRouter } from './campaign.ts'
 import type { Campaign } from '@ma-proma/shared'
 
@@ -39,6 +40,11 @@ describe('Campaign Artifacts API', () => {
 
     const app = express()
     app.use(express.json())
+    app.use('/campaigns', (req, _res, next) => {
+      const ctx: UserContext = { userId: 'system', sessionId: '', tenantId: 'default', roles: ['system'], permissions: ['*'], isSystemAccount: true }
+      ;(req as unknown as RequestWithUserContext).userContext = ctx
+      next()
+    })
     app.use('/campaigns', await createCampaignRouter(context))
 
     await new Promise<void>((resolve, reject) => {

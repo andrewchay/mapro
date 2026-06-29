@@ -18,7 +18,7 @@ import {
   respondAgentExitPlanMode,
   __resetAgentSockets,
 } from './agent-websocket-client.ts'
-import { setApiToken, clearApiToken } from './api-token.ts'
+import { setAccessToken, clearAccessToken } from '../store/token-store.ts'
 
 class MockWebSocket {
   static readonly CONNECTING = 0
@@ -71,7 +71,7 @@ describe('Agent WebSocket Client', () => {
   afterEach(() => {
     globalThis.WebSocket = originalWebSocket
     __resetAgentSockets()
-    clearApiToken()
+    clearAccessToken()
   })
 
   test('sendAgentMessage 按 sessionId 存储独立 WebSocket', async () => {
@@ -148,8 +148,8 @@ describe('Agent WebSocket Client', () => {
     )
   })
 
-  test('配置 API Token 后 WebSocket URL 携带 token query', async () => {
-    setApiToken('ws-ui-token')
+  test('配置 access token 后 WebSocket URL 携带 token query', async () => {
+    setAccessToken('ws-ui-token')
     sendAgentMessage('session-token', 'hello', () => {})
     await new Promise((resolve) => setTimeout(resolve, 10))
 

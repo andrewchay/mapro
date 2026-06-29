@@ -13,7 +13,9 @@
  */
 
 import express, { Router } from 'express'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { CampaignWorkflowStepId } from '@ma-proma/shared'
+import type { UserContext } from '@ma-proma/server'
 import {
   CampaignRepository,
   CampaignQueryService,
@@ -30,28 +32,68 @@ import {
   getKolDbPath,
 } from '@ma-proma/server'
 import type { AppContext, WorkspaceFileEntry, ChatProviderConfig } from '@ma-proma/server'
+import { createUserAppContext } from '../context.ts'
+import type { RequestWithUserContext } from '../auth-middleware.ts'
 
-export async function createCampaignRouter(context: AppContext, chatConfig?: ChatProviderConfig | null) {
+const requestContext = new AsyncLocalStorage<UserContext>()
+
+function createRequestProxy<T extends object>(factory: (userContext: UserContext) => T): T {
+  return new Proxy({} as T, {
+    get(_target, prop) {
+      const userContext = requestContext.getStore()
+      if (!userContext) {
+        throw new Error('Campaign 服务需要在请求上下文中使用')
+      }
+      const instance = factory(userContext)
+      const value = (instance as Record<string | symbol, unknown>)[prop as string]
+      if (typeof value === 'function') {
+        return value.bind(instance)
+      }
+      return value
+    },
+  })
+}
+
+export async function createCampaignRouter(baseContext: AppContext, chatConfig?: ChatProviderConfig | null) {
   const router = Router()
   // 主进程不再挂载全局 express.json()，Campaign 路由自行配置 body 解析
   router.use(express.json({ limit: '1mb' }))
-  const dbPath = getCampaignDbPath(context)
-  const db = createDbProvider({ sqlitePath: dbPath, postgresDbNameSuffix: 'campaign' })
-  const repository = new CampaignRepository(db)
-  await repository.initSchema()
 
-  const kolDbPath = getKolDbPath(context)
+  // 把 userContext 绑定到当前请求，后续服务代理会按用户创建实例
+  router.use((req: RequestWithUserContext, _res, next) => {
+    if (!req.userContext) {
+      next(new Error('Campaign 路由缺少 userContext，请确认 authMiddleware 已挂载'))
+      return
+    }
+    requestContext.run(req.userContext, () => next())
+  })
+
+  const dbPath = getCampaignDbPath(baseContext)
+  const db = createDbProvider({ sqlitePath: dbPath, postgresDbNameSuffix: 'campaign' })
+  const schemaRepository = new CampaignRepository({ db })
+  await schemaRepository.initSchema()
+
+  const kolDbPath = getKolDbPath(baseContext)
   const kolDb = createDbProvider({ sqlitePath: kolDbPath, postgresDbNameSuffix: 'kol' })
   const kolRepository = new KOLDatabaseRepository(kolDb, { seedMockData: process.env.MAPRO_SEED_MOCK_KOLS === '1' })
   await kolRepository.initSchema()
 
-  const queryService = new CampaignQueryService(repository)
   const fileProvider = new LocalFileProvider()
-  const validator = new CampaignArtifactValidator(context, fileProvider)
-  const workflowService = new CampaignWorkflowService(context, fileProvider, validator)
-  const contentAuditService = new ContentAuditService(chatConfig ?? null, repository)
-  const commandService = new CampaignCommandService(repository, kolRepository, workflowService, {}, contentAuditService)
-  const workspaceFileService = new WorkspaceFileService(context, fileProvider)
+
+  const repository = createRequestProxy((userContext) => new CampaignRepository({ db, userContext }))
+  const queryService = createRequestProxy((userContext) => new CampaignQueryService(new CampaignRepository({ db, userContext })))
+  const commandService = createRequestProxy((userContext) => {
+    const userAppContext = userContext.isSystemAccount ? baseContext : createUserAppContext(baseContext, userContext.userId)
+    const scopedRepository = new CampaignRepository({ db, userContext })
+    const validator = new CampaignArtifactValidator(userAppContext, fileProvider)
+    const workflowService = new CampaignWorkflowService(userAppContext, fileProvider, validator)
+    const contentAuditService = new ContentAuditService(chatConfig ?? null, scopedRepository)
+    return new CampaignCommandService(scopedRepository, kolRepository, workflowService, {}, contentAuditService)
+  })
+  const workspaceFileService = createRequestProxy((userContext) => {
+    const userAppContext = userContext.isSystemAccount ? baseContext : createUserAppContext(baseContext, userContext.userId)
+    return new WorkspaceFileService(userAppContext, fileProvider)
+  })
 
   // =====================================================================
   // Campaign 基础

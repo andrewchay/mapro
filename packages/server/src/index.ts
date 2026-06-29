@@ -8,6 +8,28 @@
 
 export type { AppContext, CryptoProvider, EventSink, UserContext } from './context/index.ts'
 export {
+  AuthService,
+  AuthError,
+  AuthRepository,
+  PermissionService,
+  AuthorizationError,
+  createJWTService,
+  defaultPasswordHasher,
+  Permissions,
+  BuiltInRoles,
+  BUILT_IN_ROLES,
+  PERMISSION_DEFINITIONS,
+} from './auth/index.ts'
+export type {
+  UserRecord,
+  RoleRecord,
+  RefreshTokenRecord,
+  JWTPayload,
+  AuthResult,
+  InitialAdminConfig,
+  JWTConfig,
+} from './auth/index.ts'
+export {
   getConfigDir,
   getConfigDirName,
   getCampaignDbPath,
@@ -68,8 +90,8 @@ export {
 } from './workspace/workspace-file-service.ts'
 export type { WorkspaceFileEntry } from '@ma-proma/shared'
 export type { DbProvider, DbQueryResult, DbTransaction } from './db/index.ts'
-export { SqliteDbProvider, PostgresDbProvider, createDbProvider, SqliteMigrationService } from './db/index.ts'
-export type { DbFactoryOptions, DatabaseFileInfo } from './db/index.ts'
+export { SqliteDbProvider, PostgresDbProvider, createDbProvider, SqliteMigrationService, MigrationRunner, loadMigrations } from './db/index.ts'
+export type { DbFactoryOptions, DatabaseFileInfo, Migration, MigrationRunnerOptions } from './db/index.ts'
 export { readJsonFileSafe, writeJsonFileAtomic } from './utils/safe-file.ts'
 export {
   getAppSettings,

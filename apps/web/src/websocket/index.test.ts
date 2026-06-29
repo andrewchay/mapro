@@ -72,7 +72,7 @@ describe('createWebSocketHandler', () => {
   test('JSON 解析失败返回消息格式错误', () => {
     const { handleMessage } = createWebSocketHandler(null, undefined, mockDeps)
     const ws = new MockWebSocket()
-    handleMessage(ws as unknown as WebSocket, 'not-json')
+    handleMessage(ws as unknown as WebSocket, 'not-json', undefined)
 
     expect(ws.sentMessages.length).toBe(1)
     const msg = JSON.parse(ws.sentMessages[0]!)
@@ -83,7 +83,7 @@ describe('createWebSocketHandler', () => {
   test('chat 未配置返回错误', () => {
     const { handleMessage } = createWebSocketHandler(null, undefined, mockDeps)
     const ws = new MockWebSocket()
-    handleMessage(ws as unknown as WebSocket, JSON.stringify({ type: 'chat', payload: { message: 'hi' } }))
+    handleMessage(ws as unknown as WebSocket, JSON.stringify({ type: 'chat', payload: { message: 'hi' } }), undefined)
 
     const msg = JSON.parse(ws.sentMessages[0]!)
     expect(msg.channel).toBe('chat-stream-event')
@@ -99,7 +99,7 @@ describe('createWebSocketHandler', () => {
     try {
       const { handleMessage } = createWebSocketHandler({ provider: 'anthropic', apiKey: 'test', model: 'test' } as never, undefined, mockDeps)
       const ws = new MockWebSocket()
-      handleMessage(ws as unknown as WebSocket, JSON.stringify({ type: 'chat', payload: { message: 'hi', conversationId: 'c-1' } }))
+      handleMessage(ws as unknown as WebSocket, JSON.stringify({ type: 'chat', payload: { message: 'hi', conversationId: 'c-1' } }), undefined)
 
       expect(sendMessageMock).toHaveBeenCalled()
     } finally {
@@ -110,7 +110,7 @@ describe('createWebSocketHandler', () => {
   test('agent:send 未配置返回错误', () => {
     const { handleMessage } = createWebSocketHandler(null, undefined, mockDeps)
     const ws = new MockWebSocket()
-    handleMessage(ws as unknown as WebSocket, JSON.stringify({ type: 'agent:send', payload: { sessionId: 's-1', userMessage: 'hi' } }))
+    handleMessage(ws as unknown as WebSocket, JSON.stringify({ type: 'agent:send', payload: { sessionId: 's-1', userMessage: 'hi' } }), undefined)
 
     const msg = JSON.parse(ws.sentMessages[0]!)
     expect(msg.type).toBe('error')
@@ -122,9 +122,9 @@ describe('createWebSocketHandler', () => {
     const detachMock = mock(() => {})
     orchestrator.attachTransport = mock(() => detachMock)
 
-    const { handleMessage } = createWebSocketHandler(null, orchestrator, mockDeps)
+    const { handleMessage } = createWebSocketHandler(null, () => orchestrator, mockDeps)
     const ws = new MockWebSocket()
-    handleMessage(ws as unknown as WebSocket, JSON.stringify({ type: 'agent:send', payload: { sessionId: 's-1', userMessage: 'hi' } }))
+    handleMessage(ws as unknown as WebSocket, JSON.stringify({ type: 'agent:send', payload: { sessionId: 's-1', userMessage: 'hi' } }), orchestrator)
 
     // 等待 handleSend Promise 完成
     await new Promise((resolve) => setTimeout(resolve, 10))
@@ -136,21 +136,21 @@ describe('createWebSocketHandler', () => {
 
   test('agent:stop 调用 orchestrator.handleStop', () => {
     const orchestrator = createMockOrchestrator()
-    const { handleMessage } = createWebSocketHandler(null, orchestrator, mockDeps)
+    const { handleMessage } = createWebSocketHandler(null, () => orchestrator, mockDeps)
     const ws = new MockWebSocket()
-    handleMessage(ws as unknown as WebSocket, JSON.stringify({ type: 'agent:stop', payload: { sessionId: 's-1' } }))
+    handleMessage(ws as unknown as WebSocket, JSON.stringify({ type: 'agent:stop', payload: { sessionId: 's-1' } }), orchestrator)
 
     expect(orchestrator.handleStop).toHaveBeenCalledWith('s-1')
   })
 
   test('agent:permission:respond 调用 orchestrator.respondPermission', () => {
     const orchestrator = createMockOrchestrator()
-    const { handleMessage } = createWebSocketHandler(null, orchestrator, mockDeps)
+    const { handleMessage } = createWebSocketHandler(null, () => orchestrator, mockDeps)
     const ws = new MockWebSocket()
     handleMessage(ws as unknown as WebSocket, JSON.stringify({
       type: 'agent:permission:respond',
       payload: { sessionId: 's-1', requestId: 'r-1', behavior: 'allow', alwaysAllow: false },
-    }))
+    }), orchestrator)
 
     expect(orchestrator.respondPermission).toHaveBeenCalledWith('s-1', {
       sessionId: 's-1',
@@ -162,12 +162,12 @@ describe('createWebSocketHandler', () => {
 
   test('agent:ask-user:respond 调用 orchestrator.respondAskUser', () => {
     const orchestrator = createMockOrchestrator()
-    const { handleMessage } = createWebSocketHandler(null, orchestrator, mockDeps)
+    const { handleMessage } = createWebSocketHandler(null, () => orchestrator, mockDeps)
     const ws = new MockWebSocket()
     handleMessage(ws as unknown as WebSocket, JSON.stringify({
       type: 'agent:ask-user:respond',
       payload: { sessionId: 's-1', requestId: 'r-2', answers: { q1: 'a1' } },
-    }))
+    }), orchestrator)
 
     expect(orchestrator.respondAskUser).toHaveBeenCalledWith('s-1', {
       sessionId: 's-1',
@@ -178,12 +178,12 @@ describe('createWebSocketHandler', () => {
 
   test('agent:exit-plan-mode:respond 调用 orchestrator.respondExitPlanMode', () => {
     const orchestrator = createMockOrchestrator()
-    const { handleMessage } = createWebSocketHandler(null, orchestrator, mockDeps)
+    const { handleMessage } = createWebSocketHandler(null, () => orchestrator, mockDeps)
     const ws = new MockWebSocket()
     handleMessage(ws as unknown as WebSocket, JSON.stringify({
       type: 'agent:exit-plan-mode:respond',
       payload: { sessionId: 's-1', requestId: 'r-3', action: 'approve_auto' },
-    }))
+    }), orchestrator)
 
     expect(orchestrator.respondExitPlanMode).toHaveBeenCalledWith('s-1', {
       sessionId: 's-1',
@@ -195,7 +195,7 @@ describe('createWebSocketHandler', () => {
   test('未知消息类型返回错误', () => {
     const { handleMessage } = createWebSocketHandler(null, undefined, mockDeps)
     const ws = new MockWebSocket()
-    handleMessage(ws as unknown as WebSocket, JSON.stringify({ type: 'unknown', payload: {} }))
+    handleMessage(ws as unknown as WebSocket, JSON.stringify({ type: 'unknown', payload: {} }), undefined)
 
     const msg = JSON.parse(ws.sentMessages[0]!)
     expect(msg.type).toBe('error')
@@ -209,9 +209,9 @@ describe('createWebSocketHandler', () => {
     orchestrator.attachTransport = mock(() => detachMock)
     orchestrator.handleSend = mock(() => new Promise<void>(() => {}))
 
-    const { handleMessage, handleClose } = createWebSocketHandler(null, orchestrator, mockDeps)
+    const { handleMessage, handleClose } = createWebSocketHandler(null, () => orchestrator, mockDeps)
     const ws = new MockWebSocket()
-    handleMessage(ws as unknown as WebSocket, JSON.stringify({ type: 'agent:send', payload: { sessionId: 's-1', userMessage: 'hi' } }))
+    handleMessage(ws as unknown as WebSocket, JSON.stringify({ type: 'agent:send', payload: { sessionId: 's-1', userMessage: 'hi' } }), orchestrator)
 
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(detachMock).not.toHaveBeenCalled()

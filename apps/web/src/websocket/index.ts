@@ -3,13 +3,14 @@
  *
  * 阶段 A 支持 Chat 流式消息。
  * 阶段 B 扩展为通用 RendererTransport，用于 Agent 事件、权限请求等。
+ * 阶段 C1：Agent Orchestrator 按连接用户隔离，避免会话/工作区数据串户。
  */
 
 import type { WebSocket } from 'ws'
 import type { ChatSendInput, ChatStreamEvent, RendererTransport } from '@ma-proma/server'
 import { ChatService } from '@ma-proma/server'
 import type { ChatProviderConfig } from '@ma-proma/server'
-import type { AppContext, FileProvider } from '@ma-proma/server'
+import type { AppContext, FileProvider, UserContext } from '@ma-proma/server'
 import type { PermissionResponse, AskUserResponse, ExitPlanModeResponse } from '@ma-proma/shared'
 import type { AgentOrchestrator } from '../agent/agent-orchestrator.ts'
 
@@ -33,9 +34,11 @@ export interface WebSocketHandlerDeps {
   fileProvider: FileProvider
 }
 
+export type AgentOrchestratorFactory = (userContext: UserContext) => Promise<AgentOrchestrator | undefined> | AgentOrchestrator | undefined
+
 export function createWebSocketHandler(
   chatConfig: ChatProviderConfig | null,
-  agentOrchestrator: AgentOrchestrator | undefined,
+  getAgentOrchestrator: AgentOrchestratorFactory | undefined,
   deps: WebSocketHandlerDeps,
 ) {
   const chatService = chatConfig ? new ChatService(chatConfig, deps) : null
@@ -59,7 +62,7 @@ export function createWebSocketHandler(
     }
   }
 
-  function handleMessage(ws: WebSocket, raw: string) {
+  function handleMessage(ws: WebSocket, raw: string, agentOrchestrator: AgentOrchestrator | undefined) {
     let message: WebSocketMessage
     try {
       message = JSON.parse(raw)

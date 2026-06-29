@@ -42,6 +42,7 @@ import {
   AgentEventBus,
   buildAgentEnvironment,
   getAgentWorkspacePath,
+  getSdkConfigDir,
   AgentPermissionService,
   AgentAskUserService,
   AgentExitPlanService,
@@ -357,6 +358,9 @@ export class AgentOrchestrator {
           apiKey: this.config.apiKey,
           baseUrl: this.config.baseUrl,
           proxyUrl: this.config.proxyUrl,
+          extra: {
+            CLAUDE_CONFIG_DIR: getSdkConfigDir(this.context),
+          },
         }),
         sdkPermissionMode: initialPermissionMode === 'bypassPermissions'
           ? 'auto'

@@ -49,21 +49,39 @@ import {
   respondAgentAskUser,
   respondAgentExitPlanMode,
 } from './agent-websocket-client.ts'
-import { getApiToken } from './api-token.ts'
+import { getAccessToken, setAccessToken, clearAccessToken } from '../store/token-store.ts'
+import { authAPI } from './auth-api.ts'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const WS_BASE = import.meta.env.VITE_WS_BASE || 'ws://localhost:8081'
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = getApiToken()
+  return fetchWithAuth<T>(path, options, false)
+}
+
+async function fetchWithAuth<T>(path: string, options?: RequestInit, isRetry = false): Promise<T> {
+  const token = getAccessToken()
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options?.headers,
     },
   })
+
+  if (res.status === 401 && !isRetry) {
+    try {
+      const refreshResult = await authAPI.refresh()
+      setAccessToken(refreshResult.accessToken)
+      return fetchWithAuth<T>(path, options, true)
+    } catch {
+      clearAccessToken()
+      throw new Error('HTTP 401: 登录已过期，请重新登录')
+    }
+  }
+
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`HTTP ${res.status}: ${text}`)
@@ -72,7 +90,7 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 function buildWebSocketUrl(base: string): string {
-  const token = getApiToken()
+  const token = getAccessToken()
   if (!token) return base
   const sep = base.includes('?') ? '&' : '?'
   return `${base}${sep}token=${encodeURIComponent(token)}`
