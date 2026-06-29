@@ -1,8 +1,9 @@
 import type { CampaignKOLPoolItem } from '@ma-proma/shared'
+import { FileText, ShieldCheck } from 'lucide-react'
 
 const POOL_STATUS_LABEL: Record<string, string> = {
   candidate: '候选',
-  shortlisted: ' shortlisted',
+  shortlisted: 'shortlisted',
   contacted: '已联系',
   confirmed: '已确认',
   rejected: '已拒绝',
@@ -10,9 +11,11 @@ const POOL_STATUS_LABEL: Record<string, string> = {
 
 interface KOLPoolListProps {
   pool: CampaignKOLPoolItem[]
+  onBrief?: (kol: CampaignKOLPoolItem) => void
+  onAudit?: (kol: CampaignKOLPoolItem) => void
 }
 
-export function KOLPoolList({ pool }: KOLPoolListProps) {
+export function KOLPoolList({ pool, onBrief, onAudit }: KOLPoolListProps) {
   if (pool.length === 0) {
     return (
       <div className="text-center py-12 text-slate-500 bg-white rounded-xl border border-dashed border-slate-300">
@@ -32,6 +35,7 @@ export function KOLPoolList({ pool }: KOLPoolListProps) {
             <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">互动</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">报价</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">状态</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">操作</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200">
@@ -46,6 +50,26 @@ export function KOLPoolList({ pool }: KOLPoolListProps) {
                 <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">
                   {POOL_STATUS_LABEL[item.status] ?? item.status}
                 </span>
+              </td>
+              <td className="px-4 py-3">
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => onBrief?.(item)}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-md"
+                    title="Brief"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    Brief
+                  </button>
+                  <button
+                    onClick={() => onAudit?.(item)}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 rounded-md"
+                    title="审核"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    审核
+                  </button>
+                </div>
               </td>
             </tr>
           ))}

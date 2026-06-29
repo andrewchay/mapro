@@ -1,6 +1,6 @@
 {
   "name": "@ma-proma/server",
-  "version": "0.1.13",
+  "version": "0.1.25",
   "license": "UNLICENSED",
   "description": "MAPro shared server-side business logic",
   "type": "module",
@@ -17,8 +17,10 @@
   "dependencies": {
     "@ma-proma/core": "workspace:*",
     "@ma-proma/shared": "workspace:*",
-    "better-sqlite3": "^12.10.0",
     "pg": "^8.22.0"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^12.10.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

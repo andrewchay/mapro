@@ -9,6 +9,7 @@
  */
 
 import type { ChildProcess } from 'node:child_process'
+import type { AgentResourceLimits } from './agent-resource-limits.ts'
 
 /** Agent 运行环境配置 */
 export interface AgentRunEnv {
@@ -40,6 +41,8 @@ export interface AgentRunOptions {
   timeoutMs?: number
   /** AbortSignal */
   signal?: AbortSignal
+  /** 资源限制（Docker / Native 按各自方式实现） */
+  resourceLimits?: AgentResourceLimits
 }
 
 /** Agent 运行回调 */

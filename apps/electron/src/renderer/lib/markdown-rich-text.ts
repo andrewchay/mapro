@@ -251,6 +251,9 @@ function preprocessMarkdown(markdown: string): string {
 function enhanceMarkdownHtml(html: string): string {
   if (typeof document === 'undefined') return html
 
+  // 没有任务列表标记时直接返回原 HTML，避免 DOM 解析/序列化改变属性转义（如 &quot; → "）
+  if (!/<li\b[^>]*>\s*\[[ xX]\]/.test(html)) return html
+
   const root = document.createElement('div')
   root.innerHTML = html
 

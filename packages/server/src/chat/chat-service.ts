@@ -11,20 +11,65 @@
  */
 
 import { getAdapter, streamSSE } from '@ma-proma/core'
-import type { StreamEvent } from '@ma-proma/core'
-import type { ChatMessage, ProviderType } from '@ma-proma/shared'
+import type { StreamEvent, ImageAttachmentData } from '@ma-proma/core'
+import type { ChatMessage, ProviderType, FileAttachment } from '@ma-proma/shared'
 import type { RendererTransport } from '../transport/types.ts'
 import type { ChatProviderConfig, ChatSendInput, ChatStreamEvent } from './types.ts'
+import { AttachmentService } from '../files/attachment-service.ts'
+import type { FileProvider } from '../files/types.ts'
+import type { AppContext } from '../context/types.ts'
+
+/** 支持的图片 MIME 类型 */
+const IMAGE_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+])
+
+function isImageAttachment(mediaType: string): boolean {
+  return IMAGE_MIME_TYPES.has(mediaType)
+}
+
+export interface ChatServiceDeps {
+  context: AppContext
+  fileProvider: FileProvider
+}
 
 export class ChatService {
   private config: ChatProviderConfig
+  private attachmentService: AttachmentService
 
-  constructor(config: ChatProviderConfig) {
+  constructor(config: ChatProviderConfig, deps: ChatServiceDeps) {
     this.config = config
+    this.attachmentService = new AttachmentService(deps.context, deps.fileProvider)
   }
 
   async sendMessage(input: ChatSendInput, transport: RendererTransport, signal?: AbortSignal): Promise<void> {
     const adapter = getAdapter(this.config.provider as ProviderType)
+
+    const readImageAttachments = (attachments?: FileAttachment[]): ImageAttachmentData[] => {
+      if (!attachments || attachments.length === 0) return []
+      const imageAttachments = attachments.filter((a) => isImageAttachment(a.mediaType))
+      return imageAttachments.map((a) => {
+        const parts = a.localPath.split('/')
+        const fileId = parts[parts.length - 1]
+        const id = parts[parts.length - 2]
+        const scope = parts[parts.length - 3]
+        if (!scope || !id || !fileId) {
+          console.warn(`[ChatService] 附件路径格式异常，跳过读取: ${a.localPath}`)
+          return { mediaType: a.mediaType, data: '' }
+        }
+        try {
+          const data = this.attachmentService.readAsBase64Sync(scope, id, fileId)
+          return { mediaType: a.mediaType, data }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          console.warn(`[ChatService] 读取图片附件失败: ${a.localPath}`, message)
+          return { mediaType: a.mediaType, data: '' }
+        }
+      })
+    }
 
     const request = adapter.buildStreamRequest({
       baseUrl: this.config.baseUrl,
@@ -33,8 +78,8 @@ export class ChatService {
       history: input.messages,
       userMessage: input.userMessage,
       systemMessage: input.systemMessage,
-      attachments: [],
-      readImageAttachments: () => [],
+      attachments: input.attachments,
+      readImageAttachments,
       thinkingEnabled: input.thinkingEnabled,
     })
 

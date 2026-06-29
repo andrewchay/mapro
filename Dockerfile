@@ -8,21 +8,21 @@ WORKDIR /app
 # 先复制 workspace 清单，利用 Docker 缓存依赖层
 COPY package.json bun.lock ./
 COPY packages/shared/package.json ./packages/shared/
+COPY packages/ui/package.json ./packages/ui/
 COPY packages/core/package.json ./packages/core/
 COPY packages/server/package.json ./packages/server/
 COPY apps/web/package.json ./apps/web/
 COPY apps/web-ui/package.json ./apps/web-ui/
-COPY apps/electron/package.json ./apps/electron/
 
 RUN bun install
 
 # 复制源码并构建
 COPY packages/shared ./packages/shared
+COPY packages/ui ./packages/ui
 COPY packages/core ./packages/core
 COPY packages/server ./packages/server
 COPY apps/web ./apps/web
 COPY apps/web-ui ./apps/web-ui
-COPY apps/electron/src/main/lib/config-paths.ts ./apps/electron/src/main/lib/config-paths.ts
 COPY tsconfig.json ./
 
 RUN bun run --filter='@ma-proma/server' typecheck
@@ -50,4 +50,4 @@ RUN mkdir -p /app/data
 
 EXPOSE 3000 8081
 
-CMD ["bun", "run", "--filter='@ma-proma/web'", "start"]
+CMD ["bun", "run", "--filter=@ma-proma/web", "start"]

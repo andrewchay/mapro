@@ -17,6 +17,8 @@ export {
   getConversationsDir,
   getConversationMessagesPath,
   getAttachmentsDir,
+  getAttachmentDirForScope,
+  resolveAttachmentPathForScope,
   getAgentSessionsIndexPath,
   getAgentSessionsDir,
   getAgentSessionMessagesPath,
@@ -31,6 +33,10 @@ export {
   getSdkConfigDir,
   parseSkillVersion,
   getResourcesPath,
+  getAgentAuditLogsDir,
+  getAgentAuditLogPath,
+  getSettingsPath,
+  getUserProfilePath,
 } from './context/config-paths.ts'
 export { SqliteDatabase } from './context/sqlite-adapter.ts'
 export {
@@ -39,6 +45,8 @@ export {
   CampaignCommandService,
   CampaignWorkflowService,
   CampaignArtifactValidator,
+  ContentAuditService,
+  STEP_DIR_MAP,
 } from './campaign/index.ts'
 export { KOLDatabaseRepository } from './kol/index.ts'
 export type { ChatProviderConfig, ChatSendInput, ChatStreamEvent } from './chat/index.ts'
@@ -50,10 +58,36 @@ export { WebSocketTransport } from './transport/index.ts'
 export type { SecretsStore } from './secrets/index.ts'
 export { ServerSecretsStore } from './secrets/index.ts'
 export type { FileProvider, FileEntry, FileFilter, FileReadResult, PickedFile } from './files/index.ts'
-export { LocalFileProvider } from './files/index.ts'
+export { LocalFileProvider, AttachmentService } from './files/index.ts'
+export type { SaveAttachmentInput, AttachmentMeta } from './files/index.ts'
+export {
+  WorkspaceFileService,
+  WorkspaceFileError,
+  type WorkspaceScope,
+} from './workspace/workspace-file-service.ts'
+export type { WorkspaceFileEntry } from '@ma-proma/shared'
 export type { DbProvider, DbQueryResult, DbTransaction } from './db/index.ts'
 export { SqliteDbProvider, PostgresDbProvider } from './db/index.ts'
 export { readJsonFileSafe, writeJsonFileAtomic } from './utils/safe-file.ts'
+export {
+  getAppSettings,
+  updateAppSettings,
+  validateSettingsPatch,
+  type SettingsPatchResult,
+} from './settings/settings-service.ts'
+export { getUserProfile, updateUserProfile } from './settings/user-profile-service.ts'
+export {
+  listChannels,
+  getChannelById,
+  createChannel,
+  updateChannel,
+  deleteChannel,
+  testChannel,
+  testChannelDirect,
+  fetchModels,
+  type FetchFn,
+} from './channels/channel-service.ts'
+export { validateChannelBaseUrl } from './channels/url-safety.ts'
 export {
   AgentSessionManager,
   type AgentSessionManagerDeps,
@@ -78,3 +112,36 @@ export {
   type AgentRunCallbacks,
   type AgentRunner,
 } from './agent/agent-runner.ts'
+
+// Agent 权限与交互服务
+export {
+  AgentPermissionService,
+  AgentAskUserService,
+  AgentExitPlanService,
+  validateToolInput,
+  estimateTokenCount,
+  WRITE_CONTENT_TOKEN_THRESHOLD,
+  AgentAuditLogger,
+  sanitizeToolInput,
+  type AgentAuditEntry,
+  type AgentAuditEventType,
+  type AgentAuditLoggerOptions,
+  resolveAgentResourceLimits,
+  buildDockerResourceArgs,
+  buildNativeUlimitCommand,
+  parseMemoryString,
+  DEFAULT_AGENT_RESOURCE_LIMITS,
+  type AgentResourceLimits,
+  type ResolvedAgentResourceLimits,
+  AgentToolBlocklist,
+  agentToolBlocklist,
+  type ToolBlocklistConfig,
+  type ToolBlocklistResult,
+} from './agent/index.ts'
+export type {
+  PermissionResult,
+  CanUseToolOptions,
+  PermissionUpdate,
+  ExitPlanPermissionResult,
+  ExitPlanModeCallbacks,
+} from './agent/index.ts'

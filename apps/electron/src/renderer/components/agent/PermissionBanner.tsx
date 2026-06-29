@@ -63,8 +63,19 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps): React.Re
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [request?.requestId])
 
-  /** 关闭权限请求 & 终止 Agent */
-  const handleDismiss = (): void => {
+  /** 关闭权限请求：明确拒绝并清理 UI */
+  const handleDismiss = async (): Promise<void> => {
+    if (request) {
+      try {
+        await window.electronAPI.respondPermission({
+          requestId: request.requestId,
+          behavior: 'deny',
+          alwaysAllow: false,
+        })
+      } catch (error) {
+        console.error('[PermissionBanner] 拒绝响应失败:', error)
+      }
+    }
     setStreamingStates((prev) => {
       const current = prev.get(sessionId)
       if (!current || !current.running) return prev
@@ -81,7 +92,6 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps): React.Re
       map.delete(sessionId)
       return map
     })
-    window.electronAPI.stopAgent(sessionId).catch(console.error)
   }
 
   if (!request) return null

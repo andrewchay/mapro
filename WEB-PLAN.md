@@ -1,10 +1,12 @@
 # MAPro Web 化方向规划
 
-> 性质：**方向规划**，不是可直接执行的实施脚本。
+> 性质：**方向规划 + 进度对照**。
 >
 > 目标：将 MAPro 桌面版扩展为「桌面 + Web 服务端」双端并行，核心服务层共享，UI 层按需复刻。
 >
 > 策略：采用**两阶段推进**，先做最小 MVP 验证架构与需求，再决定是否投入全功能迁移。
+>
+> **进度基线**：阶段 A（A0/A1/A2）已完成，阶段 B（Agent 服务端化）核心已落地。本文件最后一章「实施进度对照」按 v0.1.14 实际代码逐项核对，标注已完成 / 部分完成 / 待办。
 
 ---
 
@@ -12,15 +14,15 @@
 
 这个规划的大方向是理性的，尤其是「**桌面保留完整功能、Web 先做单用户 MVP、阶段 A 不碰 Agent**」这个边界非常关键。
 
-但在真正开工前，有几处工程成本被低估了：
+开工前曾被低估的几处工程成本，截至 v0.1.14 已多数解决：
 
-1. **Chat MVP 不能随手加上**。现有 `chat-service.ts` 依赖 `listChannels` / `decryptApiKey`，而渠道密钥当前绑定 Electron `safeStorage`。Web 版必须先定义一种最小渠道方案，否则 Chat 跑不起来。
-2. **服务层不能直接搬 `campaign-manager.ts`**。该文件除了 SQLite CRUD，还引入了 workspace、Agent、KOL 服务、内容审核等依赖。阶段 A 应该先抽纯数据服务。
-3. **UI 复用成本比预期高**。`packages/ui` 目前只有 `CodeBlock`、`MermaidBlock` 和 `useSmoothStream`，Campaign 组件大量直接调用 `window.electronAPI`。复用需要「抽纯展示组件 + 注入数据操作」。
-4. **Docker 草案不可直接执行**。根 `package.json` 目前没有 `build:server` / `build:web` 脚本；workspace 项目 Dockerfile 需要先复制各 workspace 的 `package.json`；`MAPRO_DATA_DIR` 也还未真正注入到 `config-paths.ts`。
-5. **阶段 B 周期需加限定语**。如果只是内部单用户/小团队 Web 版，8–12 周可能成立；如果是 SaaS 级多租户 Agent，那不是「迁移」，而是一次平台安全架构重建，周期大概率更长。
+1. **Chat 渠道密钥** —— 部分解决。Chat 流式已跑通（`apps/web-ui/src/pages/ChatPage.tsx`），采用环境变量单 Provider 方案（`MAPRO_CHAT_PROVIDER` / `MAPRO_CHAT_API_KEY` / `MAPRO_CHAT_BASE_URL` / `MAPRO_CHAT_MODEL`）。但 Web 端仍无渠道 CRUD UI，多渠道切换需进一步设计。
+2. **服务层抽离** —— 已解决。`campaign-manager.ts` 的纯数据部分已抽到 `packages/server`：`CampaignRepository` / `CampaignQueryService` / `CampaignCommandService` / `CampaignWorkflowService` / `CampaignArtifactValidator`，不再整文件搬运。
+3. **UI 复用** —— 已解决。`apps/web-ui` 已复刻 Campaign 列表 / 详情 / 内容追踪看板、Agent 面板、三个审批 Banner（Permission / AskUser / ExitPlanMode），并各自带 BDD 测试。
+4. **Docker 部署** —— 已解决。根目录已有可执行多阶段 `Dockerfile`（COPY package.json → bun install → typecheck + build → 生产镜像）与 `docker-compose.yml`；`MAPRO_DATA_DIR` 已在 `apps/web/src/context.ts` 注入；`/health` 端点已有；SIGTERM 优雅关闭已补。
+5. **阶段 B 周期** —— 仍然成立。内部单用户/小团队 Web 版 8–12 周可能成立；SaaS 级多租户 Agent 是一次平台安全架构重建，周期更长。
 
-因此，本文件从「实施脚本」降级为「方向规划」。具体脚本、依赖版本、package scripts 需要在开工前单独调研和制定。
+本文件保留「方向规划」定位：指明边界与优先级，具体脚本与依赖版本以代码为准。
 
 ---
 
@@ -33,16 +35,16 @@
 - 桌面端数据存储在 `~/.mapro/`。
 - 复杂工作流、Agent 执行、系统设置、语音听写、桥接集成等核心能力继续在桌面端提供。
 
-### 阶段 A：Web MVP（再收窄，建议分 A0/A1/A2）
+### 阶段 A：Web MVP（已完成，分 A0/A1/A2）
 
-阶段 A 的核心目标是：**验证「桌面业务逻辑能在服务端跑起来」**，而不是交付一个功能丰富的 Web 版。
+阶段 A 的核心目标是：**验证「桌面业务逻辑能在服务端跑起来」**。截至 v0.1.14，A0/A1/A2 均已交付。
 
-| 子阶段 | 范围 | 估算 | 目标 |
+| 子阶段 | 范围 | 估算 | 状态 |
 |--------|------|------|------|
-| **A0** | `packages/server` 最小抽离 + Campaign `list` / `get` / `create` API | 1–1.5 周 | 验证抽象层可行 |
-| **A1** | Web UI 只读 Campaign + 内容追踪展示 | 1.5–2 周 | 验证前端复用模式 |
-| **A2** | Chat 流式 + 最小渠道密钥方案 | 2–3 周 | 验证非 Agent 的 AI 调用链路 |
-| **合计** | | **5–6.5 周** | 按需决定是否进入 A2 |
+| **A0** | `packages/server` 最小抽离 + Campaign `list` / `get` / `create` API | 1–1.5 周 | ✅ 已完成 |
+| **A1** | Web UI 只读 Campaign + 内容追踪展示 | 1.5–2 周 | ✅ 已完成 |
+| **A2** | Chat 流式 + 最小渠道密钥方案（环境变量单 Provider） | 2–3 周 | ✅ 已完成 |
+| **合计** | | **5–6.5 周** | 架构验证通过，已进入阶段 B |
 
 #### A0 范围（最小化）
 
@@ -92,16 +94,16 @@
 | 内部单用户/小团队 Web 版 | 8–12 周 | 不强制多租户，重点补齐 Agent 和工作流 |
 | SaaS 级多租户 Agent | 12–18 周或更长 | 涉及进程隔离、资源隔离、命令审计、平台安全架构重建 |
 
-阶段 B 关键工作：
+阶段 B 关键工作（含 v0.1.14 现状）：
 
-| 模块 | 复杂度 | 说明 |
-|------|--------|------|
-| Agent 服务端化 | 🔴 最高 | Agent SDK 在服务端运行，必须解决进程隔离、资源隔离、命令审计 |
-| IPC 全量迁移 | 🔴 高 | 287 个端点，很多是文件对话框、截图、托盘、剪贴板等 Electron 专属能力 |
-| 工作区文件系统 Web 化 | 🟠 高 | `~/.mapro/agent-workspaces/{slug}/` 映射为按用户隔离的虚拟文件系统 |
-| 多用户 / 认证 / 授权 | 🟠 高 | 从单用户本地应用升级为多租户服务端应用 |
-| PostgreSQL 迁移 | 🟡 中高 | 替换 SQLite，处理方言差异、事务、数据迁移 |
-| 前端补齐 | 🟡 中高 | 权限弹窗、AskUser、文件预览、拖拽上传等 Web 下重新设计 |
+| 模块 | 复杂度 | 现状 | 说明 |
+|------|--------|------|------|
+| Agent 服务端化 | 🔴 最高 | 🟡 核心已落地 | `agent-orchestrator.ts` / 权限 / AskUser / ExitPlan / WebSocket / Docker runner / native runner 均已实现并有测试；**待办**：命令审计日志、资源限制（CPU/内存/网络）、危险工具禁用清单、沙箱专项测试 |
+| IPC 全量迁移 | 🔴 高 | 🟡 部分 | Web 端已有 `agent.ts` + `campaign.ts` 两组路由；**待办**：文件附件、设置/用户档案、渠道 CRUD、系统能力（截图/快捷键/语音）的 Web 策略 |
+| 工作区文件系统 Web 化 | 🟠 高 | 🟡 部分 | `FileProvider` 接口已定义（`packages/server/src/files/types.ts`）+ `LocalFileProvider` 实现；**待办**：按 session/user 隔离路径、Web 上传下载 API、产物在线预览 |
+| 多用户 / 认证 / 授权 | 🟠 高 | ⬜ 未开始 | 阶段 A 单用户匿名；**待办**：JWT + 用户/角色/权限模型（SaaS 化时启动） |
+| PostgreSQL 迁移 | 🟡 中高 | 🟡 部分 | `PostgresDbProvider` 已是真实 `pg.Pool` 实现（非骨架），但默认仍用 SQLite（`campaign.ts` 用 `SqliteDbProvider`）；**待办**：配置开关、迁移脚本、方言差异测试、数据导入导出工具 |
+| 前端补齐 | 🟡 中高 | 🟡 部分 | Agent 面板 + 三个审批 Banner + Campaign 只读视图已交付并带测试；**待办**：13 步工作流执行 UI、设置面板、文件预览、拖拽上传、Brief/审核/追踪录入 |
 
 ### 维护策略：避免两套业务逻辑
 
@@ -172,7 +174,7 @@ Web SPA           ←──HTTP/WS──→ apps/web  ←──调用──→ p
 
 ## 五、实施路径
 
-### 阶段 A0：服务层最小抽离（1–1.5 周）
+### 阶段 A0：服务层最小抽离（1–1.5 周）✅ 已完成
 
 1. 新建 `packages/server`
    - 抽象 `AppContext` / `CryptoProvider` / `EventSink`。
@@ -183,7 +185,7 @@ Web SPA           ←──HTTP/WS──→ apps/web  ←──调用──→ p
 3. 新建 `apps/web/` Express 骨架，暴露最小 REST API。
 4. 验证 `bun run typecheck`，确认 `packages/server` 无 Electron 依赖。
 
-### 阶段 A1：只读 Web UI（1.5–2 周）
+### 阶段 A1：只读 Web UI（1.5–2 周）✅ 已完成
 
 1. 新建 `apps/web-ui/`，Vite + React + Jotai。
 2. 建立 `PlatformAPI` 抽象接口。
@@ -191,7 +193,7 @@ Web SPA           ←──HTTP/WS──→ apps/web  ←──调用──→ p
 4. 实现 Campaign 列表 / 详情 / 内容追踪看板（只读）。
 5. 工作流面板展示为只读，执行按钮隐藏或禁用。
 
-### 阶段 A2：Chat 流式（可选，2–3 周）
+### 阶段 A2：Chat 流式（可选，2–3 周）✅ 已完成（采用方案 A 环境变量单 Provider）
 
 1. 定义最小渠道密钥方案：
    - 方案 A：环境变量单 Provider（最简单，适合自托管）。
@@ -200,145 +202,207 @@ Web SPA           ←──HTTP/WS──→ apps/web  ←──调用──→ p
 2. 迁移 Chat 流式调用到 Web（WebSocket 主通道）。
 3. 不迁移完整渠道管理 UI。
 
-### 阶段 B：全功能迁移
+### 阶段 B：全功能迁移（进行中）
 
-阶段 B 的具体方案需在阶段 A 验证后再细化。关键方向：
+阶段 A 验证通过，已进入阶段 B。`agent-orchestrator.ts` 已迁移到服务端（`apps/web/src/agent/`），权限 / AskUser / ExitPlan 审批链已打通，Docker runner 与 native runner 均已实现。剩余关键方向：
 
-1. **Agent 服务端化**：确定隔离方案（容器/受限进程/chroot），迁移 `agent-orchestrator.ts`。
-2. **IPC 全量迁移**：补齐 287 个端点的 REST/WebSocket 映射。
-3. **多租户与数据库迁移**：设计用户/角色/权限模型，迁移 SQLite → PostgreSQL。
-4. **前端补齐**：Agent 模式、权限弹窗、AskUser、工作流执行、渠道管理、系统设置。
-5. **双端测试覆盖**：同一业务逻辑覆盖 Electron 路径和 Web 路径。
+1. **Agent 安全加固**：命令审计日志、资源限制（Docker `--cpus/--memory/--network`、native ulimit）、危险工具/命令禁用清单、沙箱隔离专项测试。
+2. **IPC 增量迁移**：在现有 `agent.ts` + `campaign.ts` 基础上补齐文件附件、设置/用户档案、渠道 CRUD、系统能力 Web 策略。
+3. **多租户与数据库迁移**：设计用户/角色/权限模型，迁移 SQLite → PostgreSQL（`PostgresDbProvider` 已就绪，待接入与方言测试）。
+4. **前端补齐**：13 步工作流执行 UI、设置面板、文件预览、拖拽上传、Brief/审核/追踪录入。
+5. **双端测试覆盖**：同一业务逻辑覆盖 Electron IPC 路径和 Web HTTP/WS 路径（当前 Web 侧 Banner / AgentPage / orchestrator / websocket 测试已较全，Electron↔Web 一致性专项仍缺）。
 
 ---
 
 ## 六、关键前置决策
 
-在真正开工前，必须先确定以下事项：
+阶段 A 的前置决策均已落地，阶段 B 决策按需推进：
 
-| 决策项 | 阶段 A 建议 | 阶段 B 再定 |
+| 决策项 | 阶段 A（已落地） | 阶段 B（待定） |
 |--------|------------|------------|
-| 数据目录 | 通过 `AppContext` 注入，支持环境变量覆盖（如 `MAPRO_DATA_DIR`） | 是否需要按用户分目录 |
-| 渠道密钥 | 环境变量单 Provider 或服务端配置文件 | 完整渠道管理 + 多用户隔离 |
-| 数据库 | SQLite 沿用 | PostgreSQL + 多租户策略 |
-| 加密 | AES-256-GCM + 服务器密钥 | KMS / HashiCorp Vault 等 |
-| 用户认证 | 阶段 A 可不做，或简单密码/token | JWT + 用户/角色/权限模型 |
-| Agent 隔离 | 不做 | 容器 / 受限进程 / chroot |
+| 数据目录 | ✅ `AppContext` 注入，`MAPRO_DATA_DIR` 环境变量覆盖（`apps/web/src/context.ts`） | 是否需要按用户分目录 |
+| 渠道密钥 | ✅ 环境变量单 Provider（`MAPRO_CHAT_*`） | 完整渠道管理 + 多用户隔离 |
+| 数据库 | ✅ SQLite 沿用，`DbProvider` 抽象就绪 | PostgreSQL 切主 + 多租户策略 |
+| 加密 | ✅ `CryptoProvider` 抽象 + 服务端密钥 | KMS / HashiCorp Vault 等 |
+| 用户认证 | ✅ 单用户匿名 | JWT + 用户/角色/权限模型 |
+| Agent 隔离 | 🟡 Docker runner / native runner 已实现（含超时） | 资源限制（CPU/内存/网络）+ 命令审计 + 沙箱加固 |
 
-> 当前 `config-paths.ts` 使用 `homedir()` 和 `~/.mapro` 逻辑，阶段 A 必须把 data dir 变成注入项，否则 Docker 数据目录不会真正生效。
+> `config-paths.ts` 已改为通过 `AppContext.getConfigDir()` 获取目录，不再硬编码 `homedir()`；`apps/web/src/context.ts` 读取 `MAPRO_DATA_DIR`，Docker 数据目录已真正生效。
 
 ---
 
 ## 七、风险与应对
 
-| 风险 | 可能性 | 影响 | 应对 |
-|------|--------|------|------|
-| 阶段 A 范围膨胀 | 中 | 高 | 严格冻结 A0/A1/A2 边界，A2 可选 |
-| Chat 渠道密钥方案未定 | 高 | 高 | A0/A1 不做 Chat，A2 必须先定最小方案 |
-| `campaign-manager.ts` 依赖过重 | 高 | 高 | 阶段 A 只抽 Repository/QueryService，不搬整文件 |
-| UI 复用成本超预期 | 中 | 中 | 按「抽纯展示组件 + 注入数据操作」估算 |
-| `MAPRO_DATA_DIR` 未真正注入 | 高 | 中 | 阶段 A0 必须改造 `config-paths.ts` 的目录获取逻辑 |
-| Docker 草案直接执行失败 | 高 | 低 | 文档明确为草案，开工前单独制定可执行版本 |
-| 依赖版本冲突 | 中 | 中 | 不写死版本号，开工前按项目规则搜索/测试确定 |
-| 阶段 B 周期低估 | 高 | 高 | 阶段 B 估算加限定语，SaaS 级需单独评估 |
+| 风险 | 可能性 | 影响 | 应对 | 状态 |
+|------|--------|------|------|------|
+| 阶段 A 范围膨胀 | 中 | 高 | 严格冻结 A0/A1/A2 边界，A2 可选 | ✅ 已控制 |
+| Chat 渠道密钥方案未定 | 高 | 高 | A0/A1 不做 Chat，A2 必须先定最小方案 | ✅ 已定（环境变量单 Provider） |
+| `campaign-manager.ts` 依赖过重 | 高 | 高 | 阶段 A 只抽 Repository/QueryService，不搬整文件 | ✅ 已抽离 |
+| UI 复用成本超预期 | 中 | 中 | 按「抽纯展示组件 + 注入数据操作」估算 | ✅ 已复刻 |
+| `MAPRO_DATA_DIR` 未真正注入 | 高 | 中 | 阶段 A0 必须改造 `config-paths.ts` 的目录获取逻辑 | ✅ 已注入 |
+| Docker 草案直接执行失败 | 高 | 低 | 文档明确为草案，开工前单独制定可执行版本 | ✅ 已有可执行版 |
+| 依赖版本冲突 | 中 | 中 | 不写死版本号，开工前按项目规则搜索/测试确定 | ✅ 已验证 |
+| 阶段 B 周期低估 | 高 | 高 | 阶段 B 估算加限定语，SaaS 级需单独评估 | ⚠️ 仍需关注 |
+| Web 端无鉴权即暴露端口 | 高 | 高 | 阶段 A 单用户可不做认证，但部署须绑定 localhost 或前置反向代理鉴权 | ⚠️ 待文档约束 |
+| Agent 服务端命令无审计 | 高 | 高 | 阶段 B 必须补命令审计日志 + 危险工具禁用清单 | ⬜ 待办 |
 
 ---
 
-## 八、Docker / 启动草案（不可直接执行）
+## 八、Docker / 部署（已可执行）
 
-以下 Dockerfile 和启动脚本仅为**方向示意**，用于说明部署形态。具体实现需要在开工前根据 workspace 结构、package scripts、数据目录注入策略、密钥方案等重新制定。
+根目录已有真实可执行的 `Dockerfile` 与 `docker-compose.yml`，无需再从草案制定。多阶段构建：builder 阶段复制各 workspace `package.json` → `bun install` → typecheck + 前端 build；生产镜像只复制运行所需文件，`ENV MAPRO_DATA_DIR=/app/data`、`ENV MAPRO_WEB_UI_DIR=/app/web-ui-dist`，由 `apps/web` 托管静态资源。
 
-```dockerfile
-# 草案：阶段 A 单容器部署
-FROM oven/bun:1.2.5
+### 关键实现点（均已落地）
 
-WORKDIR /app
+| 项 | 实现 | 位置 |
+|----|------|------|
+| 数据目录注入 | `process.env.MAPRO_DATA_DIR ?? join(cwd(), '.mapro')` | `apps/web/src/context.ts:34` |
+| 健康检查 | `GET /health` 返回 `{ status, chatEnabled, agentEnabled }` | `apps/web/src/index.ts:38` |
+| 优雅关闭 | `SIGTERM`/`SIGINT` → 关闭 wss + HTTP server → 1s grace period 后退出 | `apps/web/src/index.ts`（本次补齐） |
+| 构建脚本 | 无具名 `build:server`/`build:web`，Dockerfile 用 `bun run --filter='@ma-proma/*'` 直接 typecheck/build，不阻塞 | 根 `Dockerfile` |
+| 端口 | HTTP `3000`、WebSocket `8081` | `docker-compose.yml` |
 
-# TODO: 需要先复制根 package.json 和各 workspace package.json，再 bun install
-# COPY package.json bun.lock ./
-# COPY packages/shared/package.json ./packages/shared/
-# COPY packages/server/package.json ./packages/server/
-# COPY apps/web/package.json ./apps/web/
-# RUN bun install
-
-# TODO: 复制源码并构建
-# COPY packages/shared ./packages/shared
-# COPY packages/server ./packages/server
-# COPY apps/web ./apps/web
-# RUN bun run build:server && bun run build:web
-
-EXPOSE 3000 8081
-# CMD ["bun", "run", "start:web"]
-```
-
-```yaml
-# docker-compose.yml 草案
-version: '3.8'
-
-services:
-  web:
-    build: .
-    ports:
-      - "3000:3000"
-      - "8081:8081"
-    environment:
-      # TODO: 需先在 config-paths.ts 中支持 MAPRO_DATA_DIR 注入
-      - MAPRO_DATA_DIR=/app/data
-      - MAPRO_ENCRYPTION_KEY=${MAPRO_ENCRYPTION_KEY}
-    volumes:
-      - mapro-data:/app/data
-
-volumes:
-  mapro-data:
-```
-
-### 快速启动脚本草案（不可直接执行）
+### 启动命令
 
 ```bash
-#!/usr/bin/env bash
-# 草案：阶段 A0 骨架创建思路
-# 以下命令仅为示意，依赖版本、目录结构、脚本名需在开工前调研确定。
+# 本地开发（前后端热重载）
+bun run web:dev
 
-set -e
-cd /Users/chaihao/LLM/ma-proma
-
-# TODO: 新建 packages/server
-# mkdir -p packages/server/src/{context,campaign,chat,agent,kol,auth,tools}
-# cd packages/server
-# cat > package.json << 'PKG'
-# {
-#   "name": "@ma-proma/server",
-#   "version": "0.1.0",
-#   "type": "module",
-#   "main": "dist/index.js",
-#   "scripts": { "build": "tsc", "typecheck": "tsc --noEmit" },
-#   "dependencies": { "@ma-proma/shared": "workspace:*" },
-#   "devDependencies": { "typescript": "^5.0.0" }
-# }
-# PKG
-
-# TODO: 新建 apps/web
-# mkdir -p apps/web/src/{routes,middleware,websocket}
-# cd apps/web
-# 依赖版本需调研后确定，不要直接复制固定版本号
-
-# TODO: 安装依赖并验证
-# bun install
-# bun run typecheck
+# 生产 Docker 部署
+docker compose up --build -d
+# 健康检查
+curl http://localhost:3000/health
 ```
+
+### ⚠️ 部署安全约束（阶段 A 单用户）
+
+`docker-compose.yml` 将 `3000`/`8081` 映射到宿主机。阶段 A 不做认证，**生产部署必须**：
+- 绑定 `127.0.0.1` 仅本地访问；或
+- 前置反向代理（nginx/Caddy）加 Basic Auth / mTLS；或
+- 不映射到公网端口。
+
+否则 Agent WebSocket 与 Campaign API 会裸奔公网。阶段 B 接入 JWT 鉴权后解除该约束。
+
+### 环境变量清单
+
+| 变量 | 必需 | 说明 |
+|------|------|------|
+| `MAPRO_DATA_DIR` | 生产必填 | 数据根目录（SQLite/JSONL/工作区），Docker 默认 `/app/data` |
+| `MAPRO_WEB_UI_DIR` | 生产必填 | 前端静态产物目录，Docker 默认 `/app/web-ui-dist` |
+| `MAPRO_WEB_PORT` | 可选 | HTTP 端口，默认 `3000` |
+| `MAPRO_WS_PORT` | 可选 | WebSocket 端口，默认 `8081` |
+| `MAPRO_CHAT_PROVIDER` | 用 Chat 时必填 | 单 Provider（如 `deepseek`/`openai`/`anthropic`） |
+| `MAPRO_CHAT_API_KEY` | 用 Chat 时必填 | 对应 Provider 的 API Key |
+| `MAPRO_CHAT_BASE_URL` | 可选 | 自定义端点 |
+| `MAPRO_CHAT_MODEL` | 可选 | 模型名 |
+| `MAPRO_AGENT_*` | 用 Agent 时必填 | Agent 渠道配置（同 Chat 命名空间） |
+| `MAPRO_ENCRYPTION_KEY` | 推荐 | 服务端密钥（AES-256-GCM），不设则用默认 |
+| `MAPRO_DEV` | 可选 | `=1` 时用 `.mapro-dev` 目录 |
 
 ---
 
 ## 九、建议的下一步
 
-1. **召开一次范围冻结会**：明确阶段 A0/A1 必须交付什么，A2 做不做。
-2. **制定前置决策清单**：数据目录注入、渠道密钥方案、Chat 最小方案。
-3. **调研依赖版本**：Express、ws、jsonwebtoken、bcryptjs、tsx 等按项目规则确定版本。
-4. **先做 A0 原型**：抽出 `CampaignRepository`，验证 `packages/server` 无 Electron 依赖。
-5. **A0 验证通过后再写 Dockerfile**：那时 package scripts、workspace manifests、`MAPRO_DATA_DIR` 都已确定。
+1. **实测 Docker 闭环**：`docker compose up --build`，验证数据目录挂载、SQLite 落盘、`/health`、SIGTERM 优雅关闭（`docker stop` 应在 ~1s 内退出）。
+2. **Agent 安全加固（阶段 B 核心）**：命令审计日志、Docker `--cpus/--memory/--network` 资源限制、危险工具/命令禁用清单、沙箱隔离专项测试。
+3. **工作流执行 UI**：`CampaignWorkflowService` / `CampaignArtifactValidator` 已在 server 实现，补 Web 路由 + 13 步执行/校验/重置按钮（Campaign 主线价值所在）。
+4. **Web 文件能力**：基于已就绪的 `FileProvider` 接口补上传下载 API + 文件预览组件 + 拖拽上传。
+5. **PostgreSQL 切主**：`PostgresDbProvider` 已就绪，补配置开关 + 迁移脚本 + 方言差异测试（SaaS 化前启动）。
+6. **测试补齐**：E2E smoke-test 接入 CI（脚本已有）、Electron↔Web 双端一致性专项、Docker runner 沙箱隔离测试。
 
 ---
 
-*文档版本：v3.0（方向规划版）*
-*最后更新：2026-06-26*
+## 十、实施进度对照（v0.1.14）
+
+按部署 / 安全 / 映射 / 文件 / 数据 / 前端 / 测试 / 文档分组，逐项对照真实代码状态。
+
+### P0 部署与运行闭环
+
+| 项 | 状态 |
+|---|---|
+| 可执行 Dockerfile + docker-compose.yml | ✅ |
+| 构建脚本（`--filter` 方式，无具名 build:server/build:web 但不阻塞） | ✅ |
+| `MAPRO_DATA_DIR` 注入 | ✅ |
+| `/health` 端点 | ✅ |
+| SIGTERM 优雅关闭 | ✅ 本次补齐 |
+| Docker 实测闭环（build + 落盘 + 健康检查 + stop） | ⬜ 待实测 |
+
+### P1 Agent 服务端化安全与隔离
+
+| 项 | 状态 |
+|---|---|
+| 编排器 / 权限 / AskUser / ExitPlan 审批链 | ✅ |
+| Docker runner + native runner（均含超时 SIGKILL） | ✅ |
+| 命令审计日志（持久化） | ⬜ |
+| 资源限制（Docker `--cpus/--memory/--network`、native ulimit） | ⬜ |
+| 危险工具 / 命令禁用清单（现有允许白名单 + `agent-tool-input-validator`，无可配置禁用） | ⬜ |
+| 沙箱隔离专项测试（容器内无法访问宿主 `~/.mapro`） | ⬜ |
+
+### P2 IPC 增量映射
+
+| 项 | 状态 |
+|---|---|
+| `agent.ts` + `campaign.ts` 路由 | ✅ |
+| 文件附件 API（上传 / 预览） | ⬜ |
+| 设置 / 用户档案 API | ⬜ |
+| 渠道 CRUD（Chat 流式已通，无渠道管理） | ⬜ |
+| 系统能力 Web 策略（截图 / 快捷键 / 语音 → 明确不支持或替代） | ⬜ |
+
+### P3 工作区文件系统 Web 化
+
+| 项 | 状态 |
+|---|---|
+| `FileProvider` 接口 + `LocalFileProvider` 实现 | ✅ |
+| 按 session/user 隔离路径 | ⬜ |
+| Web 上传下载 API | ⬜ |
+| 产物在线预览（Campaign 工作流 `.md` 内联渲染） | ⬜ |
+
+### P4 数据库与数据层
+
+| 项 | 状态 |
+|---|---|
+| `DbProvider` 抽象 + `SqliteDbProvider`（默认） | ✅ |
+| `PostgresDbProvider`（真实 `pg.Pool`，非骨架） | ✅ |
+| PG 切主配置开关 | ⬜ |
+| SQLite/PostgreSQL 方言差异测试 | ⬜ |
+| 数据迁移工具（`~/.mapro/*.sqlite` 导入导出） | ⬜ |
+
+### P5 前端功能补齐
+
+| 项 | 状态 |
+|---|---|
+| Agent 面板 + 三个审批 Banner（带 BDD 测试） | ✅ |
+| Campaign 列表 / 详情 / 内容追踪（只读） | ✅ |
+| Chat 流式（环境变量单 Provider） | ✅ |
+| 13 步工作流执行 / 校验 / 重置 UI | ⬜ |
+| 设置面板（General / Appearance / Channel / Agent） | ⬜ |
+| 文件预览组件（图片 / PDF / Markdown） | ⬜ |
+| 拖拽上传 | ⬜ |
+| Brief 生成 / 内容审核 / 内容追踪录入 | ⬜ |
+
+### P6 测试覆盖对齐
+
+| 项 | 状态 |
+|---|---|
+| Banner 测试（关闭=拒绝 / planMode 隔离 / AskUser every 校验 / 连接断开错误） | ✅ |
+| AgentPage 测试（文本不重复累加 / 切换会话停流） | ✅ |
+| orchestrator 测试（权限 / AskUser / ExitPlan 全 action / 并发守卫 / plan 模式 Bash deny） | ✅ |
+| websocket 测试（路由 / sessionId 隔离） | ✅ |
+| E2E smoke-test 脚本（`scripts/smoke-test.ts`） | ✅ |
+| E2E 接入 CI（配测试用 Provider key） | ⬜ |
+| Electron↔Web 双端一致性专项 | ⬜ |
+
+### P7 文档与工程规范
+
+| 项 | 状态 |
+|---|---|
+| WEB-PLAN.md 同步至 v0.1.14 | ✅ 本次更新 |
+| 环境变量清单 | ✅ |
+| README Web 部署说明 | ⬜ |
+
+---
+
+*文档版本：v4.0（方向规划 + 进度对照版）*
+*最后更新：2026-06-28*
+*对应代码版本：MAPro v0.1.14*
 *对应代码版本：MAPro v0.1.10*

@@ -28,6 +28,11 @@ import type { CanUseToolOptions, PermissionResult } from '../agent-permission-se
 import { TRANSIENT_NETWORK_PATTERN } from '../error-patterns'
 import { spawn as spawnChild, execFileSync } from 'node:child_process'
 import { loadClaudeAgentSdk } from '../claude-sdk-loader'
+import {
+  resolveAgentResourceLimits,
+  buildNativeUlimitCommand,
+  type AgentResourceLimits,
+} from '../agent-resource-limits.ts'
 
 /** SDK Query 对象类型（从动态导入中推断） */
 type SDKQuery = ReturnType<typeof import('@anthropic-ai/claude-agent-sdk').query>
@@ -184,6 +189,8 @@ export interface ClaudeAgentQueryOptions extends AgentQueryInput {
   sdkSessionId?: string
   /** 附加的外部目录（SDK additionalDirectories） */
   additionalDirectories?: string[]
+  /** Agent 资源限制（仅 native 模式生效；Docker 模式请使用 DockerAgentRunner） */
+  resourceLimits?: AgentResourceLimits
 }
 
 // ============================================================================
@@ -711,7 +718,13 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
         // 注意：一旦提供 spawnClaudeCodeProcess，SDK 会完全绕过 spawnLocalProcess，
         // 因此 options.stderr 回调需要在这里手动转发，否则 extractApiError / 重试判断全部失效
         spawnClaudeCodeProcess: (spawnOpts: import('@anthropic-ai/claude-agent-sdk').SpawnOptions) => {
-          const child = spawnChild(spawnOpts.command, spawnOpts.args, {
+          const resolvedLimits = resolveAgentResourceLimits(options.resourceLimits)
+          const { command, args } = buildNativeUlimitCommand(
+            resolvedLimits,
+            spawnOpts.command,
+            spawnOpts.args,
+          )
+          const child = spawnChild(command, args, {
             cwd: spawnOpts.cwd,
             env: spawnOpts.env,
             signal: spawnOpts.signal,

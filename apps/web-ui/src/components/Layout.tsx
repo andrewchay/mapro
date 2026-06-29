@@ -1,13 +1,17 @@
 import { Link, useLocation } from 'react-router-dom'
-import { MessageSquare, LayoutGrid, Bot } from 'lucide-react'
+import { useAtom } from 'jotai'
+import { MessageSquare, LayoutGrid, Bot, Settings } from 'lucide-react'
+import { userProfileAtom } from '../store/user-profile-atoms.ts'
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
+  const [profile] = useAtom(userProfileAtom)
 
   const navItems = [
     { to: '/', icon: LayoutGrid, label: 'Campaign' },
     { to: '/agent', icon: Bot, label: 'Agent' },
     { to: '/chat', icon: MessageSquare, label: 'Chat' },
+    { to: '/settings', icon: Settings, label: '设置' },
   ]
 
   return (
@@ -32,6 +36,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 {item.label}
               </Link>
             ))}
+            <Link
+              to="/settings"
+              className="ml-2 flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900"
+              title="用户档案"
+            >
+              <span className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-sm">
+                {profile.avatar.startsWith('data:image') ? (
+                  <img src={profile.avatar} alt="" className="w-full h-full rounded-full object-cover" />
+                ) : (
+                  profile.avatar
+                )}
+              </span>
+              <span className="hidden sm:inline max-w-[80px] truncate">{profile.userName}</span>
+            </Link>
           </nav>
         </div>
       </header>

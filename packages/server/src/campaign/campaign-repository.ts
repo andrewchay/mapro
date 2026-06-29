@@ -19,9 +19,11 @@ import type {
   CampaignCreativePlan,
   CampaignKOLPoolItem,
   CampaignPhasePlan,
+  ContentAudit,
   ContentBenchmark,
   CreateBenchmarkInput,
   CreateCampaignInput,
+  CreateContentAuditInput,
   CreateContentTrackingInput,
   KOLContentTracking,
   SaveCampaignBriefInput,
@@ -178,6 +180,29 @@ export class CampaignRepository {
     `)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_benchmarks_platform ON content_benchmarks(platform)`)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_benchmarks_tier ON content_benchmarks(price_tier)`)
+
+    // 内容审核表（B1 新增）
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS content_audits (
+        audit_id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL,
+        kol_id TEXT NOT NULL,
+        kol_name TEXT NOT NULL,
+        content_url TEXT,
+        platform TEXT NOT NULL,
+        audit_status TEXT DEFAULT 'pending',
+        compliance_score INTEGER DEFAULT 0,
+        brand_alignment_score INTEGER DEFAULT 0,
+        quality_score INTEGER DEFAULT 0,
+        overall_score INTEGER DEFAULT 0,
+        audit_report TEXT,
+        auditor TEXT,
+        created_at INTEGER,
+        updated_at INTEGER
+      )
+    `)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_audits_campaign ON content_audits(campaign_id)`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_audits_kol ON content_audits(kol_id)`)
 
     await this.seedContentBenchmarks()
   }
@@ -577,6 +602,67 @@ ${kol.price ? `- **合作报价**：${kol.price}` : ''}
   }
 
   // =====================================================================
+  // 内容审核
+  // =====================================================================
+
+  async getContentAudit(auditId: string): Promise<ContentAudit | null> {
+    const row = await this.db.queryOne<Record<string, unknown>>(
+      'SELECT * FROM content_audits WHERE audit_id = $1',
+      [auditId]
+    )
+    return row ? rowToContentAudit(row) : null
+  }
+
+  async listContentAudits(campaignId: string): Promise<ContentAudit[]> {
+    const { rows } = await this.db.query<Record<string, unknown>>(
+      'SELECT * FROM content_audits WHERE campaign_id = $1 ORDER BY created_at DESC',
+      [campaignId]
+    )
+    return rows.map(rowToContentAudit)
+  }
+
+  async createContentAudit(input: CreateContentAuditInput & {
+    auditStatus: ContentAudit['auditStatus']
+    complianceScore: number
+    brandAlignmentScore: number
+    qualityScore: number
+    overallScore: number
+    auditReport: string
+    auditor: string
+  }): Promise<ContentAudit> {
+    const now = Date.now()
+    const auditId = generateAuditId()
+
+    await this.db.execute(
+      `INSERT INTO content_audits (
+        audit_id, campaign_id, kol_id, kol_name, content_url, platform,
+        audit_status, compliance_score, brand_alignment_score, quality_score, overall_score,
+        audit_report, auditor, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+      [
+        auditId,
+        input.campaignId,
+        input.kolId,
+        input.kolName,
+        input.contentUrl ?? '',
+        input.platform,
+        input.auditStatus,
+        input.complianceScore,
+        input.brandAlignmentScore,
+        input.qualityScore,
+        input.overallScore,
+        input.auditReport,
+        input.auditor,
+        now,
+        now,
+      ]
+    )
+
+    const created = await this.getContentAudit(auditId)
+    return created!
+  }
+
+  // =====================================================================
   // 数据标准基准
   // =====================================================================
 
@@ -809,6 +895,10 @@ function generateBenchmarkId(): string {
   return `bm_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
 }
 
+function generateAuditId(): string {
+  return `ca_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+}
+
 function calculateMetrics(input: {
   exposure: number
   views: number
@@ -936,6 +1026,26 @@ function rowToContentTracking(row: Record<string, unknown>): KOLContentTracking 
     noteType: String(row.note_type ?? ''),
     cost: Number(row.cost ?? 0),
     isOrganic: Boolean(row.is_organic ?? 1),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  }
+}
+
+function rowToContentAudit(row: Record<string, unknown>): ContentAudit {
+  return {
+    auditId: String(row.audit_id),
+    campaignId: String(row.campaign_id),
+    kolId: String(row.kol_id),
+    kolName: String(row.kol_name),
+    contentUrl: String(row.content_url ?? ''),
+    platform: String(row.platform),
+    auditStatus: String(row.audit_status ?? 'pending') as ContentAudit['auditStatus'],
+    complianceScore: Number(row.compliance_score ?? 0),
+    brandAlignmentScore: Number(row.brand_alignment_score ?? 0),
+    qualityScore: Number(row.quality_score ?? 0),
+    overallScore: Number(row.overall_score ?? 0),
+    auditReport: String(row.audit_report ?? ''),
+    auditor: String(row.auditor ?? ''),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
   }

@@ -9,6 +9,12 @@ services:
     environment:
       - NODE_ENV=production
       - MAPRO_DATA_DIR=/app/data
+      # 安全：默认监听容器内所有接口，外部访问必须设置 MAPRO_API_TOKEN
+      - MAPRO_WEB_HOST=0.0.0.0
+      # 安全：生产部署 / 暴露端口时务必设置强随机 Token，并配合 HTTPS / 反向代理使用
+      # - MAPRO_API_TOKEN=change-me-to-a-random-token
+      # 如需跨域访问，可显式配置允许的 Origin
+      # - MAPRO_ALLOWED_ORIGINS=https://app.example.com
       # 阶段 A 最小 Chat 配置（按需启用）
       # - MAPRO_CHAT_PROVIDER=deepseek
       # - MAPRO_CHAT_API_KEY=your-api-key

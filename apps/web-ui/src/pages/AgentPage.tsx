@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { Plus, Send, Square, Bot, User, Loader2 } from 'lucide-react'
-import type { AgentSessionMeta, AgentWorkspace, AgentMessage, AgentStreamPayload } from '@ma-proma/shared'
+import type { AgentSessionMeta, AgentWorkspace, AgentMessage, AgentStreamPayload, MAProEvent } from '@ma-proma/shared'
 import {
   agentSessionsAtom,
   agentWorkspacesAtom,
@@ -11,8 +11,15 @@ import {
   refreshAgentWorkspacesAtom,
   createAgentSessionAtom,
   loadAgentSessionMessagesAtom,
+  agentPermissionRequestsAtom,
+  agentAskUserRequestsAtom,
+  agentExitPlanRequestsAtom,
+  agentPlanModeSessionsAtom,
 } from '../store/agent-atoms.ts'
 import { webAPI } from '../api/web-api.ts'
+import { PermissionBanner } from '../components/agent/PermissionBanner.tsx'
+import { AskUserBanner } from '../components/agent/AskUserBanner.tsx'
+import { ExitPlanModeBanner } from '../components/agent/ExitPlanModeBanner.tsx'
 
 interface StreamedMessage {
   role: 'user' | 'assistant' | 'tool'
@@ -20,7 +27,7 @@ interface StreamedMessage {
   toolName?: string
 }
 
-function extractTextFromPayload(payload: AgentStreamPayload): string {
+export function extractTextFromPayload(payload: AgentStreamPayload): string {
   if (payload.kind !== 'sdk_message') return ''
   const msg = payload.message as Record<string, unknown>
   if (msg.type === 'assistant') {
@@ -43,6 +50,89 @@ function extractTextFromPayload(payload: AgentStreamPayload): string {
   return ''
 }
 
+function handleMaproEvent(
+  event: MAProEvent,
+  sessionId: string,
+  setPermissionRequests: React.Dispatch<React.SetStateAction<Map<string, import('@ma-proma/shared').PermissionRequest[]>>>,
+  setAskUserRequests: React.Dispatch<React.SetStateAction<Map<string, import('@ma-proma/shared').AskUserRequest[]>>>,
+  setExitPlanRequests: React.Dispatch<React.SetStateAction<Map<string, import('@ma-proma/shared').ExitPlanModeRequest[]>>>,
+  setPlanModeSessions: React.Dispatch<React.SetStateAction<Set<string>>>,
+): void {
+  switch (event.type) {
+    case 'permission_request': {
+      setPermissionRequests((prev) => {
+        const map = new Map(prev)
+        const current = map.get(sessionId) ?? []
+        map.set(sessionId, [...current, event.request])
+        return map
+      })
+      break
+    }
+    case 'permission_resolved': {
+      setPermissionRequests((prev) => {
+        const map = new Map(prev)
+        const current = map.get(sessionId) ?? []
+        const next = current.filter((r) => r.requestId !== event.requestId)
+        if (next.length === 0) map.delete(sessionId)
+        else map.set(sessionId, next)
+        return map
+      })
+      break
+    }
+    case 'ask_user_request': {
+      setAskUserRequests((prev) => {
+        const map = new Map(prev)
+        const current = map.get(sessionId) ?? []
+        map.set(sessionId, [...current, event.request])
+        return map
+      })
+      break
+    }
+    case 'ask_user_resolved': {
+      setAskUserRequests((prev) => {
+        const map = new Map(prev)
+        const current = map.get(sessionId) ?? []
+        const next = current.filter((r) => r.requestId !== event.requestId)
+        if (next.length === 0) map.delete(sessionId)
+        else map.set(sessionId, next)
+        return map
+      })
+      break
+    }
+    case 'exit_plan_mode_request': {
+      setExitPlanRequests((prev) => {
+        const map = new Map(prev)
+        const current = map.get(sessionId) ?? []
+        map.set(sessionId, [...current, event.request])
+        return map
+      })
+      break
+    }
+    case 'exit_plan_mode_resolved': {
+      setExitPlanRequests((prev) => {
+        const map = new Map(prev)
+        const current = map.get(sessionId) ?? []
+        const next = current.filter((r) => r.requestId !== event.requestId)
+        if (next.length === 0) map.delete(sessionId)
+        else map.set(sessionId, next)
+        return map
+      })
+      setPlanModeSessions((prev) => {
+        const next = new Set(prev)
+        next.delete(sessionId)
+        return next
+      })
+      break
+    }
+    case 'enter_plan_mode': {
+      setPlanModeSessions((prev) => new Set(prev).add(sessionId))
+      break
+    }
+    default:
+      break
+  }
+}
+
 export function AgentPage() {
   const sessions = useAtomValue(agentSessionsAtom)
   const workspaces = useAtomValue(agentWorkspacesAtom)
@@ -52,6 +142,27 @@ export function AgentPage() {
   const refreshWorkspaces = useSetAtom(refreshAgentWorkspacesAtom)
   const createSession = useSetAtom(createAgentSessionAtom)
   const loadMessages = useSetAtom(loadAgentSessionMessagesAtom)
+  const setPermissionRequests = useSetAtom(agentPermissionRequestsAtom)
+  const setAskUserRequests = useSetAtom(agentAskUserRequestsAtom)
+  const setExitPlanRequests = useSetAtom(agentExitPlanRequestsAtom)
+  const setPlanModeSessions = useSetAtom(agentPlanModeSessionsAtom)
+  const planModeSessions = useAtomValue(agentPlanModeSessionsAtom)
+  const permissionRequests = useAtomValue(agentPermissionRequestsAtom)
+  const askUserRequests = useAtomValue(agentAskUserRequestsAtom)
+  const exitPlanRequests = useAtomValue(agentExitPlanRequestsAtom)
+
+  const getSessionPendingCount = React.useCallback((sessionId: string): number => {
+    return (
+      (permissionRequests.get(sessionId)?.length ?? 0) +
+      (askUserRequests.get(sessionId)?.length ?? 0) +
+      (exitPlanRequests.get(sessionId)?.length ?? 0)
+    )
+  }, [permissionRequests, askUserRequests, exitPlanRequests])
+
+  const totalPendingCount = React.useMemo(() => {
+    return [...permissionRequests.values(), ...askUserRequests.values(), ...exitPlanRequests.values()]
+      .reduce((sum, arr) => sum + arr.length, 0)
+  }, [permissionRequests, askUserRequests, exitPlanRequests])
 
   const [selectedSession, setSelectedSession] = React.useState<AgentSessionMeta | null>(null)
   const [messages, setMessages] = React.useState<StreamedMessage[]>([])
@@ -66,6 +177,11 @@ export function AgentPage() {
   }, [refreshSessions, refreshWorkspaces])
 
   React.useEffect(() => {
+    // 切换会话时先停止上一个会话的流，防止旧 onEvent 回调把内容写入当前会话
+    stopRef.current?.()
+    stopRef.current = null
+    setStreaming(false)
+
     if (!selectedSession) {
       setMessages([])
       return
@@ -91,6 +207,7 @@ export function AgentPage() {
     if (!selectedSession || !input.trim() || streaming) return
 
     const userMessage = input.trim()
+    const sessionId = selectedSession.id
     setInput('')
     setMessages((prev) => [...prev, { role: 'user', content: userMessage }])
     setStreaming(true)
@@ -98,11 +215,12 @@ export function AgentPage() {
     let assistantContent = ''
     let currentToolName: string | undefined
 
-    stopRef.current = webAPI.sendAgentMessage(selectedSession.id, userMessage, (event) => {
+    stopRef.current = webAPI.sendAgentMessage(sessionId, userMessage, (event) => {
       if (event.type === 'payload') {
         const text = extractTextFromPayload(event.payload)
         if (text) {
-          assistantContent += text
+          // extractTextFromPayload 返回当前 SDK 消息的完整文本，直接覆盖避免重复累加
+          assistantContent = text
           setMessages((prev) => {
             const last = prev[prev.length - 1]
             if (last?.role === 'assistant') {
@@ -124,6 +242,15 @@ export function AgentPage() {
             }
           }
         }
+      } else if (event.type === 'mapro_event') {
+        handleMaproEvent(
+          event.event,
+          sessionId,
+          setPermissionRequests,
+          setAskUserRequests,
+          setExitPlanRequests,
+          setPlanModeSessions,
+        )
       } else if (event.type === 'complete') {
         setStreaming(false)
         stopRef.current = null
@@ -147,6 +274,15 @@ export function AgentPage() {
       handleSend()
     }
   }
+
+  const isPlanMode = selectedSession ? planModeSessions.has(selectedSession.id) : false
+
+  const getActiveBannerType = React.useCallback((sessionId: string): 'exit' | 'ask' | 'permission' | null => {
+    if (exitPlanRequests.get(sessionId)?.length) return 'exit'
+    if (askUserRequests.get(sessionId)?.length) return 'ask'
+    if (permissionRequests.get(sessionId)?.length) return 'permission'
+    return null
+  }, [exitPlanRequests, askUserRequests, permissionRequests])
 
   return (
     <div className="flex h-[calc(100vh-120px)] gap-4">
@@ -181,20 +317,30 @@ export function AgentPage() {
             {loading && sessions.length === 0 && (
               <div className="text-center py-8 text-slate-500 text-sm">加载中...</div>
             )}
-            {sessions.map((session) => (
-              <button
-                key={session.id}
-                onClick={() => setSelectedSession(session)}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm mb-1 ${
-                  selectedSession?.id === session.id
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <div className="font-medium truncate">{session.title}</div>
-                <div className="text-xs text-slate-400 truncate">{new Date(session.updatedAt).toLocaleString()}</div>
-              </button>
-            ))}
+            {sessions.map((session) => {
+              const pendingCount = getSessionPendingCount(session.id)
+              return (
+                <button
+                  key={session.id}
+                  onClick={() => setSelectedSession(session)}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-sm mb-1 ${
+                    selectedSession?.id === session.id
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium truncate flex-1">{session.title}</div>
+                    {pendingCount > 0 && (
+                      <span className="ml-1.5 shrink-0 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-medium">
+                        {pendingCount > 99 ? '99+' : pendingCount}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-400 truncate">{new Date(session.updatedAt).toLocaleString()}</div>
+                </button>
+              )
+            })}
           </div>
         </div>
       </div>
@@ -202,8 +348,13 @@ export function AgentPage() {
       {/* 右侧聊天区 */}
       <div className="flex-1 bg-white rounded-xl border border-slate-200 flex flex-col overflow-hidden">
         {!selectedSession ? (
-          <div className="flex-1 flex items-center justify-center text-slate-500">
-            选择一个会话或创建新会话开始对话
+          <div className="flex-1 flex flex-col items-center justify-center text-slate-500 gap-3">
+            <span>选择一个会话或创建新会话开始对话</span>
+            {totalPendingCount > 0 && (
+              <div className="px-3 py-2 rounded-lg bg-amber-50 text-amber-700 text-xs border border-amber-100">
+                你有 {totalPendingCount} 个待处理的 Agent 请求，请选择对应会话处理
+              </div>
+            )}
           </div>
         ) : (
           <>
@@ -212,7 +363,17 @@ export function AgentPage() {
                 <div className="font-medium text-slate-900">{selectedSession.title}</div>
                 <div className="text-xs text-slate-500">{selectedSession.id}</div>
               </div>
-              {streaming && <Loader2 className="w-4 h-4 animate-spin text-blue-600" />}
+              <div className="flex items-center gap-2">
+                {isPlanMode && (
+                  <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700">计划模式</span>
+                )}
+                {getSessionPendingCount(selectedSession.id) > 0 && (
+                  <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-700">
+                    {getSessionPendingCount(selectedSession.id)} 个待处理
+                  </span>
+                )}
+                {streaming && <Loader2 className="w-4 h-4 animate-spin text-blue-600" />}
+              </div>
             </div>
 
             <div className="flex-1 overflow-auto p-4 space-y-4">
@@ -239,6 +400,18 @@ export function AgentPage() {
                 </div>
               ))}
             </div>
+
+            {/* 交互横幅：按优先级只展示一个，避免多横幅堆叠 */}
+            {(() => {
+              const bannerType = getActiveBannerType(selectedSession.id)
+              return (
+                <>
+                  {bannerType === 'permission' && <PermissionBanner sessionId={selectedSession.id} />}
+                  {bannerType === 'ask' && <AskUserBanner sessionId={selectedSession.id} />}
+                  {bannerType === 'exit' && <ExitPlanModeBanner sessionId={selectedSession.id} />}
+                </>
+              )
+            })()}
 
             <div className="p-4 border-t border-slate-100">
               {error && (

@@ -2,7 +2,7 @@ import * as React from 'react'
 import type { CampaignKOLPoolItem, KOLContentTracking } from '@ma-proma/shared'
 import { webAPI } from '../api/web-api.ts'
 
-export function usePoolKOLs(campaignId: string | undefined) {
+export function usePoolKOLs(campaignId: string | undefined, refreshToken = 0) {
   const [pool, setPool] = React.useState<CampaignKOLPoolItem[]>([])
   const [loading, setLoading] = React.useState(false)
 
@@ -13,12 +13,12 @@ export function usePoolKOLs(campaignId: string | undefined) {
       .then(setPool)
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [campaignId])
+  }, [campaignId, refreshToken])
 
   return { pool, loading }
 }
 
-export function useContentTracking(campaignId: string | undefined) {
+export function useContentTracking(campaignId: string | undefined, refreshToken = 0) {
   const [tracking, setTracking] = React.useState<KOLContentTracking[]>([])
   const [loading, setLoading] = React.useState(false)
 
@@ -29,7 +29,7 @@ export function useContentTracking(campaignId: string | undefined) {
       .then(setTracking)
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [campaignId])
+  }, [campaignId, refreshToken])
 
   return { tracking, loading }
 }

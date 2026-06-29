@@ -20,15 +20,18 @@ import {
   CampaignCommandService,
   CampaignWorkflowService,
   CampaignArtifactValidator,
+  ContentAuditService,
   KOLDatabaseRepository,
   LocalFileProvider,
   SqliteDbProvider,
+  WorkspaceFileService,
+  STEP_DIR_MAP,
   getCampaignDbPath,
   getKolDbPath,
 } from '@ma-proma/server'
-import type { AppContext } from '@ma-proma/server'
+import type { AppContext, WorkspaceFileEntry, ChatProviderConfig } from '@ma-proma/server'
 
-export async function createCampaignRouter(context: AppContext) {
+export async function createCampaignRouter(context: AppContext, chatConfig?: ChatProviderConfig | null) {
   const router = Router()
   const dbPath = getCampaignDbPath(context)
   const db = new SqliteDbProvider(dbPath)
@@ -44,7 +47,9 @@ export async function createCampaignRouter(context: AppContext) {
   const fileProvider = new LocalFileProvider()
   const validator = new CampaignArtifactValidator(context, fileProvider)
   const workflowService = new CampaignWorkflowService(context, fileProvider, validator)
-  const commandService = new CampaignCommandService(repository, kolRepository, workflowService)
+  const contentAuditService = new ContentAuditService(chatConfig ?? null, repository)
+  const commandService = new CampaignCommandService(repository, kolRepository, workflowService, {}, contentAuditService)
+  const workspaceFileService = new WorkspaceFileService(context, fileProvider)
 
   // =====================================================================
   // Campaign 基础
@@ -366,6 +371,52 @@ export async function createCampaignRouter(context: AppContext) {
   })
 
   // =====================================================================
+  // 内容审核
+  // =====================================================================
+
+  router.get('/:id/content-audits', async (req, res) => {
+    try {
+      const audits = await commandService.listContentAudits(req.params.id)
+      res.json({ success: true, audits })
+    } catch (error) {
+      console.error('[Campaign API] 内容审核列表获取失败:', error)
+      res.status(500).json({ success: false, error: '获取内容审核列表失败' })
+    }
+  })
+
+  router.post('/:id/content-audits', async (req, res) => {
+    try {
+      const { kolId, kolName, brand, product, platform, contentType, contentDescription, contentUrl } = req.body
+      if (!kolId || !kolName || !brand || !product || !contentDescription) {
+        res.status(400).json({ success: false, error: '缺少必填字段：kolId, kolName, brand, product, contentDescription' })
+        return
+      }
+
+      const audit = await commandService.createContentAudit({
+        campaignId: req.params.id,
+        kolId,
+        kolName,
+        brand,
+        product,
+        platform: platform ?? 'xiaohongshu',
+        contentType: contentType ?? '图文',
+        contentDescription,
+        contentUrl,
+      })
+
+      res.status(201).json({ success: true, audit })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error('[Campaign API] 内容审核失败:', error)
+      if (message.includes('未注入')) {
+        res.status(503).json({ success: false, error: message })
+        return
+      }
+      res.status(500).json({ success: false, error: '内容审核失败' })
+    }
+  })
+
+  // =====================================================================
   // 工作流（阶段 B2）
   // =====================================================================
 
@@ -465,5 +516,57 @@ export async function createCampaignRouter(context: AppContext) {
     }
   })
 
+  // =====================================================================
+  // 工作流产物预览
+  // =====================================================================
+
+  router.get('/:id/workflow/artifacts/:stepId', async (req, res) => {
+    try {
+      const { id, stepId } = req.params
+      const dirName = STEP_DIR_MAP[stepId as CampaignWorkflowStepId]
+      if (!dirName) {
+        res.status(400).json({ success: false, error: '未知步骤 ID' })
+        return
+      }
+      const files = await workspaceFileService.listFiles('campaign', id, dirName, true)
+      res.json({ success: true, files })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '获取产物列表失败'
+      console.error('[Campaign API] 产物列表获取失败:', error)
+      res.status(500).json({ success: false, error: message })
+    }
+  })
+
+  router.get('/:id/workflow/artifacts/:stepId/*', async (req, res) => {
+    try {
+      const { id, stepId } = req.params
+      const dirName = STEP_DIR_MAP[stepId as CampaignWorkflowStepId]
+      if (!dirName) {
+        res.status(400).json({ success: false, error: '未知步骤 ID' })
+        return
+      }
+      const filePath = normalizeRelativePath((req.params as Record<string, string>)['0'])
+      const relativePath = `${dirName}/${filePath}`
+      const format = req.query.format === 'base64' ? 'base64' : 'text'
+
+      if (format === 'base64') {
+        const data = await workspaceFileService.readFileAsBase64('campaign', id, relativePath)
+        res.json({ success: true, data, encoding: 'base64' })
+        return
+      }
+      const content = await workspaceFileService.readTextFile('campaign', id, relativePath)
+      res.json({ success: true, content })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '读取产物失败'
+      console.error('[Campaign API] 产物读取失败:', error)
+      res.status(500).json({ success: false, error: message })
+    }
+  })
+
   return router
+}
+
+function normalizeRelativePath(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  return value.replace(/^\/+/, '')
 }

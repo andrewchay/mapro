@@ -5,7 +5,7 @@
  * 不迁移完整的 channels.json / 渠道管理 UI。
  */
 
-import type { ProviderType, ChatMessage } from '@ma-proma/shared'
+import type { ProviderType, ChatMessage, FileAttachment } from '@ma-proma/shared'
 
 export interface ChatProviderConfig {
   provider: ProviderType
@@ -20,6 +20,8 @@ export interface ChatSendInput {
   userMessage: string
   systemMessage?: string
   thinkingEnabled?: boolean
+  /** 文件附件列表 */
+  attachments?: FileAttachment[]
 }
 
 export interface ChatStreamEvent {

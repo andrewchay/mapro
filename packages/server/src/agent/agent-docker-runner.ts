@@ -9,6 +9,11 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync } from 'node:fs'
 import type { AgentRunner, AgentRunOptions, AgentRunResult, AgentRunCallbacks } from './agent-runner.ts'
 import { buildAgentEnvironment } from './agent-runner.ts'
+import {
+  resolveAgentResourceLimits,
+  buildDockerResourceArgs,
+  type AgentResourceLimits,
+} from './agent-resource-limits.ts'
 
 export interface DockerAgentRunnerOptions {
   /** 容器镜像名（默认 mapro-agent:latest） */
@@ -17,17 +22,21 @@ export interface DockerAgentRunnerOptions {
   containerCwd?: string
   /** 单次运行超时（毫秒，默认 120000） */
   defaultTimeoutMs?: number
+  /** 默认资源限制 */
+  resourceLimits?: AgentResourceLimits
 }
 
 export class DockerAgentRunner implements AgentRunner {
   private imageName: string
   private containerCwd: string
   private defaultTimeoutMs: number
+  private resourceLimits?: AgentResourceLimits
 
   constructor(options: DockerAgentRunnerOptions = {}) {
     this.imageName = options.imageName ?? 'mapro-agent:latest'
     this.containerCwd = options.containerCwd ?? '/workspace'
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? 120_000
+    this.resourceLimits = options.resourceLimits
   }
 
   async run(options: AgentRunOptions, callbacks?: AgentRunCallbacks): Promise<AgentRunResult> {
@@ -40,6 +49,7 @@ export class DockerAgentRunner implements AgentRunner {
       containerCwd = this.containerCwd,
       timeoutMs = this.defaultTimeoutMs,
       signal,
+      resourceLimits = this.resourceLimits,
     } = options
 
     if (!existsSync(sdkCliPath)) {
@@ -58,9 +68,13 @@ export class DockerAgentRunner implements AgentRunner {
       }
     }
 
+    const resolvedLimits = resolveAgentResourceLimits(resourceLimits)
+    const resourceArgs = buildDockerResourceArgs(resolvedLimits)
+
     const dockerArgs = [
       'run',
       '--rm',
+      ...resourceArgs,
       '-v',
       `${workspacePath}:${containerCwd}`,
       '-v',

@@ -1,15 +1,21 @@
 import * as React from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Plus } from 'lucide-react'
 import { currentCampaignAtom, campaignLoadingAtom, campaignErrorAtom, loadCampaignAtom } from '../store/campaign-atoms.ts'
 import { CampaignBasicInfo } from '../components/CampaignBasicInfo.tsx'
 import { CampaignPhasePlans } from '../components/CampaignPhasePlans.tsx'
 import { KOLPoolList } from '../components/KOLPoolList.tsx'
 import { ContentTrackingList } from '../components/ContentTrackingList.tsx'
+import { CampaignWorkflowSteps } from '../components/CampaignWorkflowSteps.tsx'
+import { CampaignBriefDialog } from '../components/CampaignBriefDialog.tsx'
+import { ContentAuditDialog } from '../components/ContentAuditDialog.tsx'
+import { ContentTrackingFormDialog, PaidDataDialog, AnalysisDialog } from '../components/ContentTrackingDialogs.tsx'
 import { usePoolKOLs, useContentTracking } from '../hooks/use-campaign-data.ts'
+import type { CampaignKOLPoolItem, KOLContentTracking } from '@ma-proma/shared'
+import { webAPI } from '../api/web-api.ts'
 
-type Tab = 'phases' | 'kol-pool' | 'tracking'
+type Tab = 'phases' | 'workflow' | 'kol-pool' | 'tracking'
 
 export function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -18,9 +24,11 @@ export function CampaignDetailPage() {
   const error = useAtomValue(campaignErrorAtom)
   const loadCampaign = useSetAtom(loadCampaignAtom)
   const [activeTab, setActiveTab] = React.useState<Tab>('phases')
+  const [poolRefresh, setPoolRefresh] = React.useState(0)
+  const [trackingRefresh, setTrackingRefresh] = React.useState(0)
 
-  const { pool, loading: poolLoading } = usePoolKOLs(id)
-  const { tracking, loading: trackingLoading } = useContentTracking(id)
+  const { pool, loading: poolLoading } = usePoolKOLs(id, poolRefresh)
+  const { tracking, loading: trackingLoading } = useContentTracking(id, trackingRefresh)
 
   React.useEffect(() => {
     if (id) {
@@ -30,9 +38,66 @@ export function CampaignDetailPage() {
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'phases', label: '三阶段计划' },
+    { key: 'workflow', label: '工作流' },
     { key: 'kol-pool', label: 'KOL 候选池' },
     { key: 'tracking', label: '内容追踪' },
   ]
+
+  // Brief 弹窗
+  const [briefOpen, setBriefOpen] = React.useState(false)
+  const [briefKOL, setBriefKOL] = React.useState<CampaignKOLPoolItem | null>(null)
+
+  // 审核弹窗
+  const [auditOpen, setAuditOpen] = React.useState(false)
+  const [auditKOL, setAuditKOL] = React.useState<CampaignKOLPoolItem | null>(null)
+
+  // 内容追踪弹窗
+  const [trackingFormOpen, setTrackingFormOpen] = React.useState(false)
+  const [editingTracking, setEditingTracking] = React.useState<KOLContentTracking | null>(null)
+  const [paidOpen, setPaidOpen] = React.useState(false)
+  const [paidItem, setPaidItem] = React.useState<KOLContentTracking | null>(null)
+  const [analysisOpen, setAnalysisOpen] = React.useState(false)
+  const [analysisItem, setAnalysisItem] = React.useState<KOLContentTracking | null>(null)
+
+  const handleBrief = (kol: CampaignKOLPoolItem) => {
+    setBriefKOL(kol)
+    setBriefOpen(true)
+  }
+
+  const handleAudit = (kol: CampaignKOLPoolItem) => {
+    setAuditKOL(kol)
+    setAuditOpen(true)
+  }
+
+  const handleEditTracking = (item: KOLContentTracking) => {
+    setEditingTracking(item)
+    setTrackingFormOpen(true)
+  }
+
+  const handleAddTracking = () => {
+    setEditingTracking(null)
+    setTrackingFormOpen(true)
+  }
+
+  const handleAddPaid = (item: KOLContentTracking) => {
+    setPaidItem(item)
+    setPaidOpen(true)
+  }
+
+  const handleAnalyze = (item: KOLContentTracking) => {
+    setAnalysisItem(item)
+    setAnalysisOpen(true)
+  }
+
+  const handleDeleteTracking = async (trackingId: string) => {
+    if (!confirm('确定删除该条内容追踪数据？')) return
+    try {
+      await webAPI.deleteContentTracking(trackingId)
+      setTrackingRefresh((v) => v + 1)
+    } catch (error) {
+      console.error('[CampaignDetailPage] 删除内容追踪失败:', error)
+    }
+  }
 
   return (
     <div>
@@ -78,11 +143,13 @@ export function CampaignDetailPage() {
 
           {activeTab === 'phases' && <CampaignPhasePlans campaign={campaign} />}
 
+          {activeTab === 'workflow' && id && <CampaignWorkflowSteps campaignId={id} />}
+
           {activeTab === 'kol-pool' && (
             poolLoading ? (
               <div className="text-center py-12 text-slate-500">加载中...</div>
             ) : (
-              <KOLPoolList pool={pool} />
+              <KOLPoolList pool={pool} onBrief={handleBrief} onAudit={handleAudit} />
             )
           )}
 
@@ -90,18 +157,90 @@ export function CampaignDetailPage() {
             trackingLoading ? (
               <div className="text-center py-12 text-slate-500">加载中...</div>
             ) : (
-              <ContentTrackingList tracking={tracking} />
+              <>
+                <div className="flex justify-end mb-3">
+                  <button
+                    onClick={handleAddTracking}
+                    className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg"
+                  >
+                    <Plus className="w-4 h-4" />
+                    添加数据
+                  </button>
+                </div>
+                <ContentTrackingList
+                  tracking={tracking}
+                  onEdit={handleEditTracking}
+                  onAddPaid={handleAddPaid}
+                  onAnalyze={handleAnalyze}
+                  onDelete={handleDeleteTracking}
+                />
+              </>
             )
           )}
-
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-            <p className="text-sm text-amber-800">
-              <span className="font-medium">阶段 A 提示：</span>
-              工作流执行、KOL 智能匹配/导入、Brief 生成、内容审核等能力尚未在 Web 端启用，请使用桌面端 MAPro 进行操作。
-            </p>
-          </div>
         </div>
       )}
+
+      {campaign && briefKOL && (
+        <CampaignBriefDialog
+          campaign={campaign}
+          kol={briefKOL}
+          open={briefOpen}
+          onClose={() => {
+            setBriefOpen(false)
+            setBriefKOL(null)
+          }}
+        />
+      )}
+
+      {campaign && auditKOL && (
+        <ContentAuditDialog
+          campaign={campaign}
+          kol={auditKOL}
+          open={auditOpen}
+          onClose={() => {
+            setAuditOpen(false)
+            setAuditKOL(null)
+          }}
+        />
+      )}
+
+      {id && (
+        <ContentTrackingFormDialog
+          open={trackingFormOpen}
+          onClose={() => {
+            setTrackingFormOpen(false)
+            setEditingTracking(null)
+          }}
+          campaignId={id}
+          editingItem={editingTracking}
+          onSaved={() => {
+            setTrackingRefresh((v) => v + 1)
+            if (activeTab === 'kol-pool') {
+              setPoolRefresh((v) => v + 1)
+            }
+          }}
+        />
+      )}
+
+      <PaidDataDialog
+        item={paidItem}
+        open={paidOpen}
+        onClose={() => {
+          setPaidOpen(false)
+          setPaidItem(null)
+        }}
+        onSaved={() => setTrackingRefresh((v) => v + 1)}
+      />
+
+      <AnalysisDialog
+        item={analysisItem}
+        open={analysisOpen}
+        onClose={() => {
+          setAnalysisOpen(false)
+          setAnalysisItem(null)
+        }}
+        onSaved={() => setTrackingRefresh((v) => v + 1)}
+      />
     </div>
   )
 }

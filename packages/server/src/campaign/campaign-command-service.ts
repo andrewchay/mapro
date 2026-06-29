@@ -17,6 +17,8 @@ import type {
   CampaignWorkflow,
   CampaignWorkflowStep,
   CampaignWorkflowStepId,
+  ContentAudit,
+  CreateContentAuditInput,
   CreateContentTrackingInput,
   ImportKOLsToPoolInput,
   KOLContentTracking,
@@ -30,6 +32,7 @@ import type { CampaignRepository } from './campaign-repository.ts'
 import type { KOLDatabaseRepository } from '../kol/kol-database-repository.ts'
 import type { CampaignWorkflowService } from './campaign-workflow-service.ts'
 import type { ArtifactValidationResult } from './campaign-artifact-validator.ts'
+import type { ContentAuditService } from './content-audit-service.ts'
 
 export interface CampaignCommandServiceOptions {
   /** 创建内容追踪时是否自动从 KOL 数据库读取报价估算 */
@@ -40,6 +43,7 @@ export class CampaignCommandService {
   private repository: CampaignRepository
   private kolRepository: KOLDatabaseRepository | null
   private workflowService: CampaignWorkflowService | null
+  private contentAuditService: ContentAuditService | null
   private options: CampaignCommandServiceOptions
 
   constructor(
@@ -47,10 +51,12 @@ export class CampaignCommandService {
     kolRepository: KOLDatabaseRepository | null = null,
     workflowService: CampaignWorkflowService | null = null,
     options: CampaignCommandServiceOptions = {},
+    contentAuditService: ContentAuditService | null = null,
   ) {
     this.repository = repository
     this.kolRepository = kolRepository
     this.workflowService = workflowService
+    this.contentAuditService = contentAuditService
     this.options = { estimatePriceFromKOLDatabase: true, ...options }
   }
 
@@ -234,6 +240,24 @@ export class CampaignCommandService {
 
   async deleteContentTracking(id: string): Promise<boolean> {
     return this.repository.deleteContentTracking(id)
+  }
+
+  // =====================================================================
+  // 内容审核
+  // =====================================================================
+
+  async createContentAudit(input: CreateContentAuditInput): Promise<ContentAudit> {
+    if (!this.contentAuditService) {
+      throw new Error('ContentAuditService 未注入，无法执行内容审核')
+    }
+    return this.contentAuditService.audit(input)
+  }
+
+  async listContentAudits(campaignId: string): Promise<ContentAudit[]> {
+    if (!this.contentAuditService) {
+      return this.repository.listContentAudits(campaignId)
+    }
+    return this.contentAuditService.listAudits(campaignId)
   }
 
   // =====================================================================

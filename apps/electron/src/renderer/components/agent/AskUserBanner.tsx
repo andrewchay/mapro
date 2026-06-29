@@ -139,8 +139,15 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [request?.requestId])
 
-  /** 关闭问题 & 终止 Agent */
-  const handleDismiss = (): void => {
+  /** 关闭问题：发送空答案取消并清理 UI */
+  const handleDismiss = async (): Promise<void> => {
+    if (request) {
+      try {
+        await window.electronAPI.respondAskUser({ requestId: request.requestId, answers: {} })
+      } catch (error) {
+        console.error('[AskUserBanner] 取消响应失败:', error)
+      }
+    }
     // 立即标记 streaming 停止，避免 UI 残留
     setStreamingStates((prev) => {
       const current = prev.get(sessionId)
@@ -159,8 +166,6 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
       map.delete(sessionId)
       return map
     })
-    // 终止 Agent
-    window.electronAPI.stopAgent(sessionId).catch(console.error)
   }
 
   if (!request) return null
@@ -222,7 +227,7 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
 
   submitRef.current = handleSubmit
 
-  const hasValidAnswers = questions.some((_, idx) => {
+  const hasValidAnswers = questions.every((_, idx) => {
     const a = getAnswer(idx)
     return a.selected.length > 0 || (a.showCustom && a.customText.trim().length > 0)
   })

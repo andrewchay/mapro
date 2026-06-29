@@ -1,11 +1,27 @@
 import { atom } from 'jotai'
 import { webAPI } from '../api/web-api.ts'
-import type { AgentSessionMeta, AgentWorkspace, AgentMessage } from '@ma-proma/shared'
+import type {
+  AgentSessionMeta,
+  AgentWorkspace,
+  AgentMessage,
+  PermissionRequest,
+  AskUserRequest,
+  ExitPlanModeRequest,
+} from '@ma-proma/shared'
 
 export const agentSessionsAtom = atom<AgentSessionMeta[]>([])
 export const agentWorkspacesAtom = atom<AgentWorkspace[]>([])
 export const agentLoadingAtom = atom(false)
 export const agentErrorAtom = atom<string | null>(null)
+
+/** 按 sessionId 分组的待处理权限请求 */
+export const agentPermissionRequestsAtom = atom<Map<string, PermissionRequest[]>>(new Map())
+/** 按 sessionId 分组的待处理 AskUser 请求 */
+export const agentAskUserRequestsAtom = atom<Map<string, AskUserRequest[]>>(new Map())
+/** 按 sessionId 分组的待处理 ExitPlanMode 请求 */
+export const agentExitPlanRequestsAtom = atom<Map<string, ExitPlanModeRequest[]>>(new Map())
+/** 处于计划模式的会话集合 */
+export const agentPlanModeSessionsAtom = atom<Set<string>>(new Set<string>())
 
 export const refreshAgentSessionsAtom = atom(null, async (_get, set) => {
   set(agentLoadingAtom, true)

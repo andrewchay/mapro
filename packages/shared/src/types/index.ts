@@ -53,3 +53,12 @@ export * from './wechat'
 
 // Campaign 项目管理相关类型
 export * from './campaign'
+
+// 应用设置相关类型
+export * from './settings'
+
+// 用户档案相关类型
+export * from './user-profile'
+
+// 工作区文件相关类型
+export * from './workspace-file'

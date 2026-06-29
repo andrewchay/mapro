@@ -72,6 +72,20 @@ export function getConversationMessagesPath(context: AppContext, id: string): st
 }
 
 /**
+ * 获取应用设置文件路径
+ */
+export function getSettingsPath(context: AppContext): string {
+  return join(getConfigDir(context), 'settings.json')
+}
+
+/**
+ * 获取用户档案文件路径
+ */
+export function getUserProfilePath(context: AppContext): string {
+  return join(getConfigDir(context), 'user-profile.json')
+}
+
+/**
  * 获取附件存储根目录路径
  */
 export function getAttachmentsDir(context: AppContext): string {
@@ -80,6 +94,29 @@ export function getAttachmentsDir(context: AppContext): string {
     mkdirSync(dir, { recursive: true })
   }
   return dir
+}
+
+/**
+ * 获取指定 scope 与 id 的附件目录路径
+ *
+ * 调用方应自行校验 scope / id 不包含路径分隔符或特殊字符。
+ */
+export function getAttachmentDirForScope(context: AppContext, scope: string, id: string): string {
+  return join(getAttachmentsDir(context), scope, id)
+}
+
+/**
+ * 解析附件相对路径为完整路径
+ *
+ * 调用方应自行校验 scope / id / fileId 不包含路径分隔符或特殊字符。
+ */
+export function resolveAttachmentPathForScope(
+  context: AppContext,
+  scope: string,
+  id: string,
+  fileId: string,
+): string {
+  return join(getAttachmentDirForScope(context, scope, id), fileId)
 }
 
 /**
@@ -245,4 +282,23 @@ export function getSdkConfigDir(context: AppContext): string {
     mkdirSync(dir, { recursive: true })
   }
   return dir
+}
+
+/**
+ * 获取 Agent 审计日志目录路径
+ */
+export function getAgentAuditLogsDir(context: AppContext): string {
+  const dir = join(getConfigDir(context), 'logs')
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+  return dir
+}
+
+/**
+ * 获取指定日期的 Agent 审计日志文件路径
+ */
+export function getAgentAuditLogPath(context: AppContext, date: Date = new Date()): string {
+  const dateStr = date.toISOString().slice(0, 10)
+  return join(getAgentAuditLogsDir(context), `agent-audit-${dateStr}.jsonl`)
 }

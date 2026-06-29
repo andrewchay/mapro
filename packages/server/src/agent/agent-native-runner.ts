@@ -9,21 +9,30 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync } from 'node:fs'
 import type { AgentRunner, AgentRunOptions, AgentRunResult, AgentRunCallbacks } from './agent-runner.ts'
 import { buildAgentEnvironment } from './agent-runner.ts'
+import {
+  resolveAgentResourceLimits,
+  buildNativeUlimitCommand,
+  type AgentResourceLimits,
+} from './agent-resource-limits.ts'
 
 export interface NativeAgentRunnerOptions {
   /** 单次运行超时（毫秒，默认 120000） */
   defaultTimeoutMs?: number
   /** 工作目录（默认 options.workspacePath） */
   cwd?: string
+  /** 默认资源限制 */
+  resourceLimits?: AgentResourceLimits
 }
 
 export class NativeAgentRunner implements AgentRunner {
   private defaultTimeoutMs: number
   private cwd?: string
+  private resourceLimits?: AgentResourceLimits
 
   constructor(options: NativeAgentRunnerOptions = {}) {
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? 120_000
     this.cwd = options.cwd
+    this.resourceLimits = options.resourceLimits
   }
 
   async run(options: AgentRunOptions, callbacks?: AgentRunCallbacks): Promise<AgentRunResult> {
@@ -34,6 +43,7 @@ export class NativeAgentRunner implements AgentRunner {
       env,
       timeoutMs = this.defaultTimeoutMs,
       signal,
+      resourceLimits = this.resourceLimits,
     } = options
 
     if (!existsSync(sdkCliPath)) {
@@ -49,9 +59,11 @@ export class NativeAgentRunner implements AgentRunner {
     delete environment.HOME
 
     const cwd = this.cwd ?? workspacePath
+    const resolvedLimits = resolveAgentResourceLimits(resourceLimits)
+    const { command, args } = buildNativeUlimitCommand(resolvedLimits, sdkCliPath, ['query', prompt])
 
     return new Promise((resolve, reject) => {
-      const child = spawn(sdkCliPath, ['query', prompt], {
+      const child = spawn(command, args, {
         cwd,
         env: { ...process.env, ...environment } as NodeJS.ProcessEnv,
         stdio: ['ignore', 'pipe', 'pipe'],

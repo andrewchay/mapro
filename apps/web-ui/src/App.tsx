@@ -4,6 +4,7 @@ import { CampaignListPage } from './pages/CampaignListPage.tsx'
 import { CampaignDetailPage } from './pages/CampaignDetailPage.tsx'
 import { ChatPage } from './pages/ChatPage.tsx'
 import { AgentPage } from './pages/AgentPage.tsx'
+import { SettingsPage } from './pages/SettingsPage.tsx'
 
 export function App() {
   return (
@@ -14,6 +15,7 @@ export function App() {
           <Route path="/campaigns/:id" element={<CampaignDetailPage />} />
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/agent" element={<AgentPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </Layout>
     </BrowserRouter>

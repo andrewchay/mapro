@@ -120,8 +120,15 @@ export function ExitPlanModeBanner({ sessionId }: ExitPlanModeBannerProps): Reac
 
   handleActionRef.current = handleAction
 
-  /** 关闭计划审批 & 终止 Agent */
-  const handleDismiss = (): void => {
+  /** 关闭计划审批：明确拒绝并清理 UI */
+  const handleDismiss = async (): Promise<void> => {
+    if (request) {
+      try {
+        await window.electronAPI.respondExitPlanMode({ requestId: request.requestId, action: 'deny' })
+      } catch (error) {
+        console.error('[ExitPlanModeBanner] 拒绝响应失败:', error)
+      }
+    }
     setStreamingStates((prev) => {
       const current = prev.get(sessionId)
       if (!current || !current.running) return prev
@@ -138,7 +145,6 @@ export function ExitPlanModeBanner({ sessionId }: ExitPlanModeBannerProps): Reac
       map.delete(sessionId)
       return map
     })
-    window.electronAPI.stopAgent(sessionId).catch(console.error)
   }
 
   // 键盘导航：只在 requestId 变化时重建 handler，内部通过 ref 读取最新值

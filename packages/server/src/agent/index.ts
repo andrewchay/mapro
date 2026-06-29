@@ -32,3 +32,25 @@ export {
   type AgentWorkspaceManagerDeps,
 } from './agent-workspace-manager.ts'
 export { ChatToolConfigService, type ChatToolConfigServiceDeps } from './chat-tool-config.ts'
+export {
+  AgentAuditLogger,
+  sanitizeToolInput,
+  type AgentAuditEntry,
+  type AgentAuditEventType,
+  type AgentAuditLoggerOptions,
+} from './agent-audit-logger.ts'
+export {
+  resolveAgentResourceLimits,
+  buildDockerResourceArgs,
+  buildNativeUlimitCommand,
+  parseMemoryString,
+  DEFAULT_AGENT_RESOURCE_LIMITS,
+  type AgentResourceLimits,
+  type ResolvedAgentResourceLimits,
+} from './agent-resource-limits.ts'
+export {
+  AgentToolBlocklist,
+  agentToolBlocklist,
+  type ToolBlocklistConfig,
+  type ToolBlocklistResult,
+} from './agent-tool-blocklist.ts'
