@@ -23,18 +23,18 @@ Bun workspace monorepo：
 ```
 proma-v2/
 ├── packages/
-│   ├── shared/     # 共享类型、IPC 通道常量、配置、工具函数 (v0.1.23)
+│   ├── shared/     # 共享类型、IPC 通道常量、配置、工具函数 (v0.1.26)
 │   ├── core/       # AI Provider 适配器、代码高亮服务 (v0.2.9)
-│   ├── ui/         # 共享 UI 组件 (CodeBlock, MermaidBlock) (v0.1.3)
-│   └── server/     # 服务端共享业务逻辑与跨平台抽象 (v0.1.8)
+│   ├── ui/         # 共享 React UI 组件 (CodeBlock, MermaidBlock) (v0.1.3)
+│   └── server/     # 服务端共享业务逻辑与跨平台抽象 (v0.1.25)
 └── apps/
     ├── electron/   # Electron 桌面应用 (v0.1.12)
     │   └── src/
     │       ├── main/       # 主进程 + 服务层 (main/lib/)
     │       ├── preload/    # IPC 上下文桥接
     │       └── renderer/   # React UI (Vite + Tailwind + Radix UI)
-    ├── web/        # Web 服务端入口 (Express + WebSocket) (v0.1.8)
-    └── web-ui/     # Web 端 React SPA (v0.1.4)
+    ├── web/        # Web 服务端入口 (Express + WebSocket) (v0.1.24)
+    └── web-ui/     # Web 端 React SPA (v0.1.19)
 ```
 
 **包命名规范**：`@ma-proma/*` 作用域（`@ma-proma/core`、`@ma-proma/shared`、`@ma-proma/ui`、`@ma-proma/server`、`@ma-proma/electron`）
@@ -43,9 +43,9 @@ proma-v2/
 
 ### 包职责详解
 
-#### @ma-proma/shared (v0.1.23)
+#### @ma-proma/shared (v0.1.26)
 - **导出模块**：`./types`、`./config`、`./utils`、`./constants/permission-rules`
-- **关键类型**：`AgentMessage`、`ChatMessage`、`Channel`、`PermissionRequest`、`FeishuConfig`
+- **关键类型**：`AgentMessage`、`ChatMessage`、`Channel`、`PermissionRequest`、`FeishuConfig`、`Campaign`、`ContentAudit`
 - **依赖**：无运行时依赖（仅 TypeScript）
 
 #### @ma-proma/core (v0.2.9)
@@ -59,15 +59,36 @@ proma-v2/
 - **依赖**：`@ma-proma/core`、`beautiful-mermaid`、`shiki`、Radix UI
 - **Peer 依赖**：`react@^18.3.0`、`react-dom@^18.3.0`
 
-#### @ma-proma/server (v0.1.8)
+#### @ma-proma/server (v0.1.25)
 - **导出模块**：`./campaign`、`./chat`、`./context`、`./db`、`./files`、`./kol`、`./secrets`、`./transport`
 - **关键功能**：
   - `CampaignRepository` / `CampaignQueryService` / `CampaignCommandService`：Campaign 项目 CRUD 与业务协调
   - `CampaignWorkflowService`：13 步标准工作流状态机（JSON 持久化、Workspace 文件同步）
   - `CampaignArtifactValidator`：产物校验引擎（目录/文件/字数/语义锚点）与 Agent 兜底落盘
+  - `ContentAuditRepository` / `ContentAuditService`：内容审核 SQLite 持久化与 LLM 三维度评分
   - `KOLDatabaseRepository`：KOL 主数据库访问
   - 跨平台抽象：`DbProvider`、`FileProvider`、`SecretsStore`、`RendererTransport`
 - **依赖**：`@ma-proma/shared`、`@ma-proma/core`、`better-sqlite3`
+
+#### @ma-proma/web (v0.1.24)
+- **职责**：Web 服务端入口，基于 Express + WebSocket 暴露 REST / WS API
+- **关键模块**：
+  - `routes/campaign.ts`：Campaign / KOL 候选池 / Brief / 内容审核 / 内容追踪 REST 路由
+  - `routes/channels.ts` / `routes/settings.ts` / `routes/attachments.ts` / `routes/workspace-files.ts`：通用 REST 路由
+  - `websocket/index.ts`：Chat 与 Agent 的 WebSocket 处理器
+  - `agent/agent-orchestrator.ts`：与 Electron 共享同一套 Agent 编排逻辑的服务端实现
+  - `security.ts`：CORS、API Token、本地 Origin 保护
+- **依赖**：`@ma-proma/server`、`@ma-proma/shared`、`@ma-proma/core`
+
+#### @ma-proma/web-ui (v0.1.19)
+- **职责**：Web 端 React SPA，复用 Electron 渲染层交互设计
+- **关键模块**：
+  - `api/platform-api.ts` / `web-api.ts`：`PlatformAPI` 抽象与 REST 实现，自动携带 Bearer Token
+  - `api/agent-websocket-client.ts`：按 `sessionId` 隔离的 Agent WebSocket 客户端
+  - `pages/CampaignDetailPage.tsx`：Campaign 详情 + KOL 候选池 + 内容追踪
+  - `components/CampaignBriefDialog.tsx` / `ContentAuditDialog.tsx` / `ContentTrackingManager.tsx`
+  - `components/agent/PermissionBanner.tsx` / `AskUserBanner.tsx` / `ExitPlanModeBanner.tsx`
+- **依赖**：`@ma-proma/shared`、`@ma-proma/ui`、`@ma-proma/core`、Jotai、Radix UI、Tailwind CSS
 
 #### @ma-proma/electron (v0.1.12)
 - **职责**：Electron 桌面应用主体，集成所有包
@@ -299,7 +320,7 @@ bun run generate:icons    # 生成应用图标
 
 - **`app-shell/`**：三面板布局（LeftSidebar | NavigatorPanel | MainContentPanel），侧边栏含模式切换、置顶对话、日期分组列表、Campaign 列表、流式指示器
 - **`chat/`**：聊天核心 — ChatView（消息加载/流式订阅）、ChatHeader（模型选择/上下文设置）、ChatInput（Tiptap 富文本编辑器）、ChatMessages（消息列表/自动滚动）、ParallelChatMessages（并排模式）
-- **`agent/`**：Agent 模式 — AgentView（纯展示 + 交互，IPC 监听已提升到全局）、AgentHeader（渠道/模型选择）、AgentMessages（消息列表 + 工具活动）、ToolActivityItem（工具调用展示）、WorkspaceSelector（工作区切换）、PermissionBanner/AskUserBanner（权限/问答请求 UI）；**Campaign 子模块**：CampaignList、CampaignDetail（基本信息 + 三阶段 + 候选池）、CampaignWorkflowSteps（9 步工作流执行/校验/重置）、CampaignCreateDialog、CampaignKOLImportDialog、CampaignBriefDialog、ContentAuditDialog、FilePreviewDialog
+- **`agent/`**：Agent 模式 — AgentView（纯展示 + 交互，IPC 监听已提升到全局）、AgentHeader（渠道/模型选择）、AgentMessages（消息列表 + 工具活动）、ToolActivityItem（工具调用展示）、WorkspaceSelector（工作区切换）、PermissionBanner/AskUserBanner/ExitPlanModeBanner（权限/问答/计划审批请求 UI）；**Campaign 子模块**：CampaignList、CampaignDetail（基本信息 + 三阶段 + 候选池 + 内容追踪）、CampaignWorkflowSteps（13 步工作流执行/校验/重置）、CampaignCreateDialog、CampaignKOLImportDialog、CampaignBriefDialog、ContentAuditDialog、ContentTrackingManager、ContentTrackingList、FilePreviewDialog
 - **`settings/`**：设置面板 — GeneralSettings（用户档案）、AppearanceSettings（主题）、ChannelSettings（渠道管理）、ChannelForm（Provider 配置）、AgentSettings（Agent 渠道/工作区/MCP）、McpServerForm（MCP 服务器配置）、AboutSettings（版本/更新）、FeishuSettings（飞书集成）；含 `primitives/` 可复用表单组件
 - **`file-browser/`**：文件浏览器 — FileBrowser（工作区文件树浏览）
 - **`diff/`**：Git Diff 展示
@@ -361,7 +382,7 @@ bun run generate:icons    # 生成应用图标
 **关键设计**：
 - JSON 配置 + JSONL 追加日志为默认存储方案，文件可移植
 - Campaign / KOL 等需要关系查询的业务数据使用 SQLite，双引擎适配（Bun 环境用 `bun:sqlite`，Electron 环境用 `better-sqlite3`，见 `campaign-manager.ts:loadEngine`）
-- Agent 工作区按 slug 隔离，每个会话独立目录；Campaign 工作区 slug 形如 `campaign-{id}`，内含 9 步工作流标准产物目录
+- Agent 工作区按 slug 隔离，每个会话独立目录；Campaign 工作区 slug 形如 `campaign-{id}`，内含 13 步工作流标准产物目录
 - MCP 配置和 Skills 按工作区管理
 
 ## 构建工具
@@ -416,6 +437,16 @@ bun run generate:icons    # 生成应用图标
   - ✅ 优点：避免遗漏子依赖，简化 electron-builder 配置
   - ❌ 如果标记为 external：必须在 `electron-builder.yml` 的 `files` 中手动列出所有子依赖
 - **常见错误**：将普通 npm 包标记为 external 但忘记在 `files` 中包含，导致打包后找不到模块（如 `Cannot find module 'universalify'`）
+
+## 测试
+
+- 运行所有测试：`bun test`（根目录）
+- Web UI 组件测试依赖 `happy-dom` 提供 DOM 全局环境；`bunfig.toml` 通过 `preload` 在测试文件导入 React / `@testing-library/react` 之前完成 polyfill：
+  - 根配置：`bunfig.toml` → `"./apps/web-ui/src/test-setup.ts"`
+  - 包内配置：`apps/web-ui/bunfig.toml` → `"./src/test-setup.ts"`
+- `apps/web-ui/src/test-setup.ts` 负责初始化 `globalThis.window / document / navigator / Event` 等 happy-dom 实例。
+- Web UI 组件测试统一使用 `apps/web-ui/src/test-utils/mock-web-api.ts` 共享的 `mockWebAPI` 对象，再调用 `mock.module('../../api/web-api.ts', () => ({ webAPI: mockWebAPI }))`；这样可以避免不同测试文件的 `mock.module` 互相覆盖导致 `webAPI` 方法缺失。
+- `apps/electron/src/renderer/lib/markdown-rich-text.ts` 中的 `enhanceMarkdownHtml` 会检测 `document` 是否存在；存在时才走 DOM 解析，且仅在识别到任务列表标记 `[ ]`/`[x]` 时进行解析/序列化，避免非任务列表场景下 DOM 往返改变属性转义。
 
 ## 代码风格
 
@@ -494,6 +525,19 @@ React UI 更新
 - **全局 IPC 监听**：`useGlobalAgentListeners`（`renderer/hooks/`）在 `main.tsx` 顶层挂载，通过 `useStore()` 直接操作 atoms，永不销毁。确保页面切换（如设置页）时流式输出、权限请求不丢失
 - **权限请求排队**：权限/AskUser 请求按 sessionId 入队到 Map atoms（`allPendingPermissionRequestsAtom` / `allPendingAskUserRequestsAtom`），不区分当前/后台会话，SDK Promise 等待用户回来响应
 - **工作区隔离**：每个工作区独立的 MCP Server 配置和 cwd，Agent 会话按工作区过滤
+
+### 权限 / 交互审批链安全约定（Web 与 Electron 行为一致）
+
+Agent 权限请求、用户追问（AskUserQuestion）、计划模式审批（ExitPlanMode）都是会阻塞 SDK Promise 的交互点。Web 端与 Electron 端共享同一套底层权限服务，渲染层独立实现，但行为必须保持同步。
+
+| 约定 | 说明 |
+|------|------|
+| **并发守卫** | 同一会话只能有一个 `handleSend` 在运行。再次发送时返回明确错误，避免覆盖 `abortController` / transport。 |
+| **权限模式清理** | 请求结束后必须清理 `sessionPermissionModes`（Web）或 `activeSessions` + `sessionPermissionModes`（Electron），防止残留模式影响下一轮对话。 |
+| **Plan 模式 Bash 默认拒绝** | `plan` 模式下只允许只读工具、`.md` 的 `Write/Edit`、MCP 工具；`Bash` 默认拒绝，不再维护脆弱的 Shell 命令正则白名单。 |
+| **Banner 关闭 = 明确拒绝** | Electron 三个 Banner（Permission / AskUser / ExitPlanMode）的关闭按钮不再只停止 Agent，而是**先向服务端发送 `deny` / 空 `answers` 响应，再停止 Agent**，防止服务端 Promise 挂起。Web 端 Banner 关闭同理，通过 WebSocket 发送拒绝响应。 |
+| **AskUser 全必填校验** | 多问题场景下，必须 `every` 个问题都有答案才允许提交，避免 `some` 导致的部分问题漏答。 |
+| **会话级请求隔离** | Web 端 WebSocket 按 `sessionId` 绑定独立连接；Electron 端通过 IPC `requestId` + `sessionId` 区分，后台会话的 pending 请求不丢失。 |
 
 ### SDK 版本升级注意事项
 
