@@ -107,6 +107,9 @@ export class AttachmentService {
   async save(input: SaveAttachmentInput): Promise<FileAttachment> {
     const { scope, id, filename, mediaType, data } = input
 
+    assertSafeName(scope, 'scope')
+    assertSafeName(id, 'id')
+
     if (!filename || !mediaType || !data) {
       throw new Error('filename、mediaType、data 为必填项')
     }

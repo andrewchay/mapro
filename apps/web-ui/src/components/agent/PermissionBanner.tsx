@@ -65,13 +65,19 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps): React.Re
   const handleDismiss = async (): Promise<void> => {
     if (responding || !request) return
     setResponding(true)
+
     try {
       webAPI.respondAgentPermission(sessionId, request.requestId, 'deny', false)
+      // 只移除当前请求，保留同一会话的其他 pending 请求
       setAllRequests((prev) => {
         const map = new Map(prev)
-        map.delete(sessionId)
+        const current = map.get(sessionId) ?? []
+        const newValue = current.filter((r) => r.requestId !== request.requestId)
+        if (newValue.length === 0) map.delete(sessionId)
+        else map.set(sessionId, newValue)
         return map
       })
+      setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : '发送失败')
     } finally {

@@ -116,6 +116,33 @@ describe('PermissionBanner', () => {
     })
   })
 
+  describe('多请求队列', () => {
+    it('Given 会话有 2 个 pending 请求 when 点击关闭按钮 then 只移除第一个并对第一个发送 deny（回归 Bug 2）', async () => {
+      const request2: PermissionRequest = {
+        requestId: 'req-002',
+        sessionId,
+        toolName: 'Bash',
+        description: '执行 pwd 命令',
+        command: 'pwd',
+        dangerLevel: 'normal',
+        toolInput: { command: 'pwd' },
+      }
+      const initialRequests = new Map([[sessionId, [request, request2]]])
+      const { store, getByTitle } = renderWithStore(<PermissionBanner sessionId={sessionId} />, { initialRequests })
+
+      const closeButton = getByTitle('关闭')
+      fireEvent.click(closeButton)
+
+      await waitFor(() => {
+        expect(mockWebAPI.respondAgentPermission).toHaveBeenCalledWith(sessionId, request.requestId, 'deny', false)
+      })
+
+      const remaining = store.get(agentPermissionRequestsAtom).get(sessionId) ?? []
+      expect(remaining.length).toBe(1)
+      expect(remaining[0]?.requestId).toBe(request2.requestId)
+    })
+  })
+
   describe('响应权限请求', () => {
     it('Given 允许按钮 when 点击 then 发送 allow', async () => {
       const initialRequests = new Map([[sessionId, [request]]])

@@ -106,7 +106,7 @@ export class ContentAuditService {
     const complianceScore = Math.max(0, 100 - riskCount * 15)
 
     // 品牌契合：品牌名出现次数与产品关联
-    const brandCount = (desc.match(new RegExp(brand, 'g')) ?? []).length
+    const brandCount = brand ? (desc.match(new RegExp(escapeRegExp(brand), 'g')) ?? []).length : 0
     const brandAlignmentScore = Math.min(100, 40 + brandCount * 20 + (desc.includes(input.product) ? 20 : 0))
 
     // 内容质量：基于长度与结构
@@ -189,6 +189,10 @@ function buildAuditPrompt(input: CreateContentAuditInput): string {
   parts.push(`请从合规性、品牌契合度、内容质量三个维度进行详细审核，给出评分和具体修改建议。`)
 
   return parts.join('\n')
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function normalizeScore(value: unknown): number {
