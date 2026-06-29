@@ -10,12 +10,13 @@ import { ContentTrackingList } from '../components/ContentTrackingList.tsx'
 import { CampaignWorkflowSteps } from '../components/CampaignWorkflowSteps.tsx'
 import { CampaignBriefDialog } from '../components/CampaignBriefDialog.tsx'
 import { ContentAuditDialog } from '../components/ContentAuditDialog.tsx'
+import { ContentAuditList } from '../components/ContentAuditList.tsx'
 import { ContentTrackingFormDialog, PaidDataDialog, AnalysisDialog } from '../components/ContentTrackingDialogs.tsx'
-import { usePoolKOLs, useContentTracking } from '../hooks/use-campaign-data.ts'
+import { usePoolKOLs, useContentTracking, useContentAudits } from '../hooks/use-campaign-data.ts'
 import type { CampaignKOLPoolItem, KOLContentTracking } from '@ma-proma/shared'
 import { webAPI } from '../api/web-api.ts'
 
-type Tab = 'phases' | 'workflow' | 'kol-pool' | 'tracking'
+type Tab = 'phases' | 'workflow' | 'kol-pool' | 'tracking' | 'audits'
 
 export function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -24,11 +25,10 @@ export function CampaignDetailPage() {
   const error = useAtomValue(campaignErrorAtom)
   const loadCampaign = useSetAtom(loadCampaignAtom)
   const [activeTab, setActiveTab] = React.useState<Tab>('phases')
-  const [poolRefresh, setPoolRefresh] = React.useState(0)
-  const [trackingRefresh, setTrackingRefresh] = React.useState(0)
 
-  const { pool, loading: poolLoading } = usePoolKOLs(id, poolRefresh)
-  const { tracking, loading: trackingLoading } = useContentTracking(id, trackingRefresh)
+  const { pool, loading: poolLoading, error: poolError, refresh: refreshPool } = usePoolKOLs(id)
+  const { tracking, loading: trackingLoading, error: trackingError, refresh: refreshTracking } = useContentTracking(id)
+  const { audits, loading: auditsLoading, error: auditsError, refresh: refreshAudits } = useContentAudits(id)
 
   React.useEffect(() => {
     if (id) {
@@ -41,6 +41,7 @@ export function CampaignDetailPage() {
     { key: 'workflow', label: '工作流' },
     { key: 'kol-pool', label: 'KOL 候选池' },
     { key: 'tracking', label: '内容追踪' },
+    { key: 'audits', label: '内容审核' },
   ]
 
   // Brief 弹窗
@@ -93,7 +94,7 @@ export function CampaignDetailPage() {
     if (!confirm('确定删除该条内容追踪数据？')) return
     try {
       await webAPI.deleteContentTracking(trackingId)
-      setTrackingRefresh((v) => v + 1)
+      await refreshTracking()
     } catch (error) {
       console.error('[CampaignDetailPage] 删除内容追踪失败:', error)
     }
@@ -148,6 +149,8 @@ export function CampaignDetailPage() {
           {activeTab === 'kol-pool' && (
             poolLoading ? (
               <div className="text-center py-12 text-slate-500">加载中...</div>
+            ) : poolError ? (
+              <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700">{poolError}</div>
             ) : (
               <KOLPoolList pool={pool} onBrief={handleBrief} onAudit={handleAudit} />
             )
@@ -156,6 +159,8 @@ export function CampaignDetailPage() {
           {activeTab === 'tracking' && (
             trackingLoading ? (
               <div className="text-center py-12 text-slate-500">加载中...</div>
+            ) : trackingError ? (
+              <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700">{trackingError}</div>
             ) : (
               <>
                 <div className="flex justify-end mb-3">
@@ -175,6 +180,16 @@ export function CampaignDetailPage() {
                   onDelete={handleDeleteTracking}
                 />
               </>
+            )
+          )}
+
+          {activeTab === 'audits' && (
+            auditsLoading ? (
+              <div className="text-center py-12 text-slate-500">加载中...</div>
+            ) : auditsError ? (
+              <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700">{auditsError}</div>
+            ) : (
+              <ContentAuditList audits={audits} />
             )
           )}
         </div>
@@ -201,6 +216,12 @@ export function CampaignDetailPage() {
             setAuditOpen(false)
             setAuditKOL(null)
           }}
+          onAudited={async () => {
+            await refreshAudits()
+            if (activeTab === 'audits') {
+              loadCampaign(campaign.id)
+            }
+          }}
         />
       )}
 
@@ -212,11 +233,12 @@ export function CampaignDetailPage() {
             setEditingTracking(null)
           }}
           campaignId={id}
+          pool={pool}
           editingItem={editingTracking}
-          onSaved={() => {
-            setTrackingRefresh((v) => v + 1)
+          onSaved={async () => {
+            await refreshTracking()
             if (activeTab === 'kol-pool') {
-              setPoolRefresh((v) => v + 1)
+              await refreshPool()
             }
           }}
         />
@@ -229,7 +251,7 @@ export function CampaignDetailPage() {
           setPaidOpen(false)
           setPaidItem(null)
         }}
-        onSaved={() => setTrackingRefresh((v) => v + 1)}
+        onSaved={refreshTracking}
       />
 
       <AnalysisDialog
@@ -239,7 +261,7 @@ export function CampaignDetailPage() {
           setAnalysisOpen(false)
           setAnalysisItem(null)
         }}
-        onSaved={() => setTrackingRefresh((v) => v + 1)}
+        onSaved={refreshTracking}
       />
     </div>
   )

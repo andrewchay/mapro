@@ -1,7 +1,8 @@
 import * as React from 'react'
 import { Plus, Pencil, Megaphone, Sparkles, Save, X } from 'lucide-react'
 import { webAPI } from '../api/web-api.ts'
-import type { KOLContentTracking, CreateContentTrackingInput, UpdateContentTrackingDataInput, AddPaidDataInput, UpdateAnalysisInput } from '@ma-proma/shared'
+import { KOLSelector } from './KOLSelector.tsx'
+import type { CampaignKOLPoolItem, KOLContentTracking, CreateContentTrackingInput, UpdateContentTrackingDataInput, AddPaidDataInput, UpdateAnalysisInput } from '@ma-proma/shared'
 
 const inputClass = 'w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:outline-none'
 
@@ -9,11 +10,12 @@ interface ContentTrackingFormDialogProps {
   open: boolean
   onClose: () => void
   campaignId: string
+  pool: CampaignKOLPoolItem[]
   editingItem: KOLContentTracking | null
   onSaved: () => void
 }
 
-export function ContentTrackingFormDialog({ open, onClose, campaignId, editingItem, onSaved }: ContentTrackingFormDialogProps) {
+export function ContentTrackingFormDialog({ open, onClose, campaignId, pool, editingItem, onSaved }: ContentTrackingFormDialogProps) {
   const isEditing = !!editingItem
   const [form, setForm] = React.useState<Partial<CreateContentTrackingInput>>({
     campaignId,
@@ -34,9 +36,11 @@ export function ContentTrackingFormDialog({ open, onClose, campaignId, editingIt
     paidSpend: undefined,
   })
   const [submitting, setSubmitting] = React.useState(false)
+  const [formError, setFormError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (!open) return
+    setFormError(null)
     if (editingItem) {
       setForm({
         campaignId: editingItem.campaignId,
@@ -80,8 +84,12 @@ export function ContentTrackingFormDialog({ open, onClose, campaignId, editingIt
   if (!open) return null
 
   const handleSubmit = async () => {
-    if (!form.kolName?.trim() || !form.contentUrl?.trim()) return
+    if (!form.kolId?.trim() || !form.kolName?.trim() || !form.contentUrl?.trim()) {
+      setFormError('请填写 KOL ID、达人名和内容链接')
+      return
+    }
     setSubmitting(true)
+    setFormError(null)
     try {
       if (isEditing && editingItem) {
         const updateInput: UpdateContentTrackingDataInput = {
@@ -102,6 +110,8 @@ export function ContentTrackingFormDialog({ open, onClose, campaignId, editingIt
       onSaved()
       onClose()
     } catch (error) {
+      const message = error instanceof Error ? error.message : '提交失败'
+      setFormError(message)
       console.error('[ContentTrackingFormDialog] 提交失败:', error)
     } finally {
       setSubmitting(false)
@@ -122,28 +132,74 @@ export function ContentTrackingFormDialog({ open, onClose, campaignId, editingIt
         </div>
 
         <div className="px-6 py-4 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          {formError && (
+            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+              {formError}
+            </div>
+          )}
+          {isEditing ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="tracking-kol-name" className="block text-sm font-medium text-slate-700 mb-1">达人名</label>
+                <input
+                  id="tracking-kol-name"
+                  type="text"
+                  value={form.kolName ?? ''}
+                  className={inputClass}
+                  disabled
+                />
+              </div>
+              <div>
+                <label htmlFor="tracking-kol-id" className="block text-sm font-medium text-slate-700 mb-1">KOL ID</label>
+                <input
+                  id="tracking-kol-id"
+                  type="text"
+                  value={form.kolId ?? ''}
+                  className={inputClass}
+                  disabled
+                />
+              </div>
+            </div>
+          ) : pool.length > 0 ? (
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">达人名 <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                value={form.kolName ?? ''}
-                onChange={(e) => setForm((prev) => ({ ...prev, kolName: e.target.value }))}
-                className={inputClass}
-                disabled={isEditing}
+              <label className="block text-sm font-medium text-slate-700 mb-1">选择 KOL <span className="text-red-500">*</span></label>
+              <KOLSelector
+                pool={pool}
+                value={form.kolId || null}
+                onChange={(kolId, kol) => {
+                  setForm((prev) => ({
+                    ...prev,
+                    kolId: kolId ?? '',
+                    kolName: kol?.name ?? '',
+                    platform: kol?.platform ?? prev.platform,
+                  }))
+                }}
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">KOL ID</label>
-              <input
-                type="text"
-                value={form.kolId ?? ''}
-                onChange={(e) => setForm((prev) => ({ ...prev, kolId: e.target.value }))}
-                className={inputClass}
-                disabled={isEditing}
-              />
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="tracking-kol-name" className="block text-sm font-medium text-slate-700 mb-1">达人名 <span className="text-red-500">*</span></label>
+                <input
+                  id="tracking-kol-name"
+                  type="text"
+                  value={form.kolName ?? ''}
+                  onChange={(e) => setForm((prev) => ({ ...prev, kolName: e.target.value }))}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label htmlFor="tracking-kol-id" className="block text-sm font-medium text-slate-700 mb-1">KOL ID <span className="text-red-500">*</span></label>
+                <input
+                  id="tracking-kol-id"
+                  type="text"
+                  value={form.kolId ?? ''}
+                  onChange={(e) => setForm((prev) => ({ ...prev, kolId: e.target.value }))}
+                  className={inputClass}
+                />
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -152,7 +208,7 @@ export function ContentTrackingFormDialog({ open, onClose, campaignId, editingIt
                 value={form.platform ?? 'xiaohongshu'}
                 onChange={(e) => setForm((prev) => ({ ...prev, platform: e.target.value }))}
                 className={inputClass}
-                disabled={isEditing}
+                disabled={isEditing || (pool.length > 0 && !!form.kolId)}
               >
                 <option value="xiaohongshu">小红书</option>
                 <option value="douyin">抖音</option>
@@ -176,8 +232,9 @@ export function ContentTrackingFormDialog({ open, onClose, campaignId, editingIt
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">内容链接 <span className="text-red-500">*</span></label>
+            <label htmlFor="tracking-content-url" className="block text-sm font-medium text-slate-700 mb-1">内容链接 <span className="text-red-500">*</span></label>
             <input
+              id="tracking-content-url"
               type="text"
               value={form.contentUrl ?? ''}
               onChange={(e) => setForm((prev) => ({ ...prev, contentUrl: e.target.value }))}
@@ -205,8 +262,9 @@ export function ContentTrackingFormDialog({ open, onClose, campaignId, editingIt
               { key: 'shares', label: '转发' },
             ] as const).map(({ key, label }) => (
               <div key={key}>
-                <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
+                <label htmlFor={`tracking-${key}`} className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
                 <input
+                  id={`tracking-${key}`}
                   type="number"
                   min={0}
                   value={form[key] ?? 0}
@@ -366,20 +424,20 @@ export function PaidDataDialog({ item, open, onClose, onSaved }: PaidDataDialogP
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">投放金额 (¥)</label>
-              <input type="number" min={0} value={paidSpend} onChange={(e) => setPaidSpend(Number(e.target.value) || 0)} className={inputClass} />
+              <label htmlFor="paid-spend" className="block text-sm font-medium text-slate-700 mb-1">投放金额 (¥)</label>
+              <input id="paid-spend" type="number" min={0} value={paidSpend} onChange={(e) => setPaidSpend(Number(e.target.value) || 0)} className={inputClass} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">投流曝光</label>
-              <input type="number" min={0} value={paidExposure} onChange={(e) => setPaidExposure(Number(e.target.value) || 0)} className={inputClass} />
+              <label htmlFor="paid-exposure" className="block text-sm font-medium text-slate-700 mb-1">投流曝光</label>
+              <input id="paid-exposure" type="number" min={0} value={paidExposure} onChange={(e) => setPaidExposure(Number(e.target.value) || 0)} className={inputClass} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">投流浏览</label>
-              <input type="number" min={0} value={paidViews} onChange={(e) => setPaidViews(Number(e.target.value) || 0)} className={inputClass} />
+              <label htmlFor="paid-views" className="block text-sm font-medium text-slate-700 mb-1">投流浏览</label>
+              <input id="paid-views" type="number" min={0} value={paidViews} onChange={(e) => setPaidViews(Number(e.target.value) || 0)} className={inputClass} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">投流点赞</label>
-              <input type="number" min={0} value={paidLikes} onChange={(e) => setPaidLikes(Number(e.target.value) || 0)} className={inputClass} />
+              <label htmlFor="paid-likes" className="block text-sm font-medium text-slate-700 mb-1">投流点赞</label>
+              <input id="paid-likes" type="number" min={0} value={paidLikes} onChange={(e) => setPaidLikes(Number(e.target.value) || 0)} className={inputClass} />
             </div>
           </div>
 

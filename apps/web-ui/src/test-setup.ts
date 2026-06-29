@@ -23,3 +23,6 @@ globalThis.Event = window.Event as unknown as typeof globalThis.Event
 globalThis.MessageEvent = window.MessageEvent as unknown as typeof globalThis.MessageEvent
 globalThis.CloseEvent = window.CloseEvent as unknown as typeof globalThis.CloseEvent
 globalThis.DataTransfer = window.DataTransfer as unknown as typeof globalThis.DataTransfer
+
+globalThis.requestAnimationFrame = globalThis.requestAnimationFrame ?? ((callback: FrameRequestCallback) => setTimeout(callback, 16))
+globalThis.cancelAnimationFrame = globalThis.cancelAnimationFrame ?? ((id: number) => clearTimeout(id))
