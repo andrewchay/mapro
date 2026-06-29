@@ -7,8 +7,10 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 import express from 'express'
-import type { AppContext, SecretsStore } from '@ma-proma/server'
+import type { AppContext, SecretsStore, UserContext } from '@ma-proma/server'
 import type { FetchFn } from '@ma-proma/server'
+import type { RequestWithUserContext } from '../auth-middleware.ts'
+import { createUserAppContext } from '../context.ts'
 import {
   listChannels,
   getChannelById,
@@ -33,6 +35,10 @@ export interface ChannelsRouterDeps {
   context: AppContext
   secretsStore: SecretsStore
   fetchFn?: FetchFn
+}
+
+function getRequestContext(baseContext: AppContext, userContext: UserContext): AppContext {
+  return userContext.isSystemAccount ? baseContext : createUserAppContext(baseContext, userContext.userId)
 }
 
 const VALID_PROVIDERS = new Set<string>(Object.keys(PROVIDER_DEFAULT_URLS))
@@ -190,15 +196,23 @@ function validateFetchModelsInput(body: unknown): { valid: true; input: FetchMod
 
 export function createChannelsRouter(deps: ChannelsRouterDeps): Router {
   const router = Router()
-  const { context, secretsStore } = deps
+  const { context: baseContext, secretsStore } = deps
   const fetchFn: FetchFn = deps.fetchFn ?? (globalThis.fetch as FetchFn)
 
   router.use(express.json({ limit: '2mb' }))
 
+  function resolveContext(req: Request): AppContext {
+    const userContext = (req as RequestWithUserContext).userContext
+    if (!userContext) {
+      throw new Error('Channels 路由缺少 userContext，请确认 authMiddleware 已挂载')
+    }
+    return getRequestContext(baseContext, userContext)
+  }
+
   // GET /api/channels
-  router.get('/', (_req: Request, res: Response) => {
+  router.get('/', (req: Request, res: Response) => {
     try {
-      const channels = listChannels(context, secretsStore)
+      const channels = listChannels(resolveContext(req), secretsStore)
       res.json({ success: true, channels })
     } catch (error) {
       const message = error instanceof Error ? error.message : '获取渠道列表失败'
@@ -216,7 +230,7 @@ export function createChannelsRouter(deps: ChannelsRouterDeps): Router {
         return
       }
 
-      const channel = createChannel(context, secretsStore, validation.input)
+      const channel = createChannel(resolveContext(req), secretsStore, validation.input)
       res.status(201).json({ success: true, channel })
     } catch (error) {
       const message = error instanceof Error ? error.message : '创建渠道失败'
@@ -233,7 +247,7 @@ export function createChannelsRouter(deps: ChannelsRouterDeps): Router {
         res.status(400).json({ success: false, error: '缺少渠道 ID' })
         return
       }
-      const channel = getChannelById(context, secretsStore, id)
+      const channel = getChannelById(resolveContext(req), secretsStore, id)
       if (!channel) {
         res.status(404).json({ success: false, error: '渠道不存在' })
         return
@@ -261,7 +275,7 @@ export function createChannelsRouter(deps: ChannelsRouterDeps): Router {
         return
       }
 
-      const channel = updateChannel(context, secretsStore, id, validation.input)
+      const channel = updateChannel(resolveContext(req), secretsStore, id, validation.input)
       res.json({ success: true, channel })
     } catch (error) {
       const message = error instanceof Error ? error.message : '更新渠道失败'
@@ -278,7 +292,7 @@ export function createChannelsRouter(deps: ChannelsRouterDeps): Router {
         res.status(400).json({ success: false, error: '缺少渠道 ID' })
         return
       }
-      deleteChannel(context, secretsStore, id)
+      deleteChannel(resolveContext(req), secretsStore, id)
       res.json({ success: true })
     } catch (error) {
       const message = error instanceof Error ? error.message : '删除渠道失败'
@@ -295,7 +309,7 @@ export function createChannelsRouter(deps: ChannelsRouterDeps): Router {
         res.status(400).json({ success: false, error: '缺少渠道 ID' })
         return
       }
-      const result = await testChannel(context, secretsStore, fetchFn, id)
+      const result = await testChannel(resolveContext(req), secretsStore, fetchFn, id)
       res.json({ success: true, result })
     } catch (error) {
       const message = error instanceof Error ? error.message : '测试连接失败'
@@ -313,7 +327,7 @@ export function createChannelsRouter(deps: ChannelsRouterDeps): Router {
         return
       }
 
-      const result = await fetchModels(context, secretsStore, fetchFn, validation.input)
+      const result = await fetchModels(resolveContext(req), secretsStore, fetchFn, validation.input)
       res.json({ success: true, result })
     } catch (error) {
       const message = error instanceof Error ? error.message : '拉取模型失败'
@@ -331,7 +345,7 @@ export function createChannelsRouter(deps: ChannelsRouterDeps): Router {
         return
       }
 
-      const result = await testChannelDirect(context, secretsStore, fetchFn, validation.input)
+      const result = await testChannelDirect(resolveContext(req), secretsStore, fetchFn, validation.input)
       res.json({ success: true, result })
     } catch (error) {
       const message = error instanceof Error ? error.message : '直接测试连接失败'

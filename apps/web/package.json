@@ -1,6 +1,6 @@
 {
   "name": "@ma-proma/web",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "license": "UNLICENSED",
   "description": "MAPro Web service entry (Express + WebSocket)",
   "type": "module",

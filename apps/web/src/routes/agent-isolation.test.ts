@@ -14,6 +14,7 @@ import type { AppContext, UserContext } from '@ma-proma/server'
 import type { RequestWithUserContext } from '../auth-middleware.ts'
 import { createAgentRouter } from './agent.ts'
 import type { AgentSessionMeta } from '@ma-proma/shared'
+import { request } from '../test-utils/http-request.ts'
 
 function createTestContext(dataDir: string): AppContext {
   return {
@@ -66,25 +67,23 @@ describe('Agent 行级隔离', () => {
   })
 
   async function createSession(userKey: string, title: string): Promise<AgentSessionMeta> {
-    const res = await fetch(`${baseUrl}/sessions`, {
+    const res = await request(baseUrl, '/sessions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-test-user': userKey },
-      body: JSON.stringify({ title }),
+      headers: { 'x-test-user': userKey },
+      body: { title },
     })
-    const json = (await res.json()) as { success: boolean; session: AgentSessionMeta }
-    expect(json.success).toBe(true)
-    return json.session
+    expect(res.json.success).toBe(true)
+    return res.json.session as AgentSessionMeta
   }
 
   async function listSessionIds(userKey: string): Promise<string[]> {
-    const res = await fetch(`${baseUrl}/sessions?t=${Date.now()}`, { headers: { 'x-test-user': userKey } })
-    const json = (await res.json()) as { success: boolean; sessions: AgentSessionMeta[] }
-    expect(json.success).toBe(true)
-    return json.sessions.map((s) => s.id)
+    const res = await request(baseUrl, '/sessions', { headers: { 'x-test-user': userKey } })
+    expect(res.json.success).toBe(true)
+    return ((res.json.sessions as AgentSessionMeta[]) || []).map((s) => s.id)
   }
 
   async function getSession(userKey: string, id: string): Promise<{ status: number; found: boolean }> {
-    const res = await fetch(`${baseUrl}/sessions/${id}?t=${Date.now()}`, { headers: { 'x-test-user': userKey } })
+    const res = await request(baseUrl, `/sessions/${id}`, { headers: { 'x-test-user': userKey } })
     return { status: res.status, found: res.status === 200 }
   }
 

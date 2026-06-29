@@ -10,8 +10,9 @@ import type { Server } from 'node:http'
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AppContext } from '@ma-proma/server'
+import type { AppContext, UserContext } from '@ma-proma/server'
 import { ServerSecretsStore } from '@ma-proma/server'
+import type { RequestWithUserContext } from '../auth-middleware.ts'
 import type { SecretsStore, FetchFn } from '@ma-proma/server'
 import { createChannelsRouter } from './channels.ts'
 import type { Channel, ChannelTestResult, FetchModelsResult } from '@ma-proma/shared'
@@ -41,6 +42,11 @@ describe('Channels API', () => {
     secretsStore = new ServerSecretsStore('test-master-key-for-channels')
 
     const app = express()
+    const systemContext: UserContext = { userId: 'system', sessionId: 'test', tenantId: 'default', roles: [], permissions: ['*'], isSystemAccount: true }
+    app.use((req, _res, next) => {
+      ;(req as unknown as RequestWithUserContext).userContext = systemContext
+      next()
+    })
     app.use(createChannelsRouter({ context, secretsStore }))
 
     await new Promise<void>((resolve, reject) => {
@@ -195,6 +201,11 @@ describe('Channels API', () => {
     ])
 
     const app = express()
+    const systemContext: UserContext = { userId: 'system', sessionId: 'test', tenantId: 'default', roles: [], permissions: ['*'], isSystemAccount: true }
+    app.use((req, _res, next) => {
+      ;(req as unknown as RequestWithUserContext).userContext = systemContext
+      next()
+    })
     app.use(createChannelsRouter({ context, secretsStore, fetchFn: createMockFetch(responses) }))
 
     const testServer = app.listen(0)
@@ -229,6 +240,11 @@ describe('Channels API', () => {
     ])
 
     const app = express()
+    const systemContext: UserContext = { userId: 'system', sessionId: 'test', tenantId: 'default', roles: [], permissions: ['*'], isSystemAccount: true }
+    app.use((req, _res, next) => {
+      ;(req as unknown as RequestWithUserContext).userContext = systemContext
+      next()
+    })
     app.use(createChannelsRouter({ context, secretsStore, fetchFn: createMockFetch(responses) }))
 
     const testServer = app.listen(0)

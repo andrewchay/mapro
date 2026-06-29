@@ -15,6 +15,7 @@ import type { AppContext, UserContext } from '@ma-proma/server'
 import type { RequestWithUserContext } from '../auth-middleware.ts'
 import { createCampaignRouter } from './campaign.ts'
 import type { Campaign } from '@ma-proma/shared'
+import { request } from '../test-utils/http-request.ts'
 
 function createTestContext(dataDir: string): AppContext {
   return {
@@ -68,25 +69,23 @@ describe('Campaign 行级隔离', () => {
   })
 
   async function createCampaign(userKey: string, name: string): Promise<Campaign> {
-    const res = await fetch(`${baseUrl}/`, {
+    const res = await request(baseUrl, '/', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-test-user': userKey },
-      body: JSON.stringify({ name, brand: 'IsolationBrand', platform: 'xiaohongshu' }),
+      headers: { 'x-test-user': userKey },
+      body: { name, brand: 'IsolationBrand', platform: 'xiaohongshu' },
     })
-    const json = (await res.json()) as { success: boolean; campaign: Campaign }
-    expect(json.success).toBe(true)
-    return json.campaign
+    expect(res.json.success).toBe(true)
+    return res.json.campaign as Campaign
   }
 
   async function listCampaignIds(userKey: string): Promise<string[]> {
-    const res = await fetch(`${baseUrl}/?t=${Date.now()}`, { headers: { 'x-test-user': userKey } })
-    const json = (await res.json()) as { success: boolean; campaigns: Campaign[] }
-    expect(json.success).toBe(true)
-    return json.campaigns.map((c) => c.id)
+    const res = await request(baseUrl, '/', { headers: { 'x-test-user': userKey } })
+    expect(res.json.success).toBe(true)
+    return ((res.json.campaigns as Campaign[]) || []).map((c) => c.id)
   }
 
   async function getCampaign(userKey: string, id: string): Promise<{ status: number; found: boolean }> {
-    const res = await fetch(`${baseUrl}/${id}?t=${Date.now()}`, { headers: { 'x-test-user': userKey } })
+    const res = await request(baseUrl, `/${id}`, { headers: { 'x-test-user': userKey } })
     return { status: res.status, found: res.status === 200 }
   }
 

@@ -10,8 +10,9 @@ import type { Server } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AppContext, FileProvider } from '@ma-proma/server'
+import type { AppContext, FileProvider, UserContext } from '@ma-proma/server'
 import { LocalFileProvider } from '@ma-proma/server'
+import type { RequestWithUserContext } from '../auth-middleware.ts'
 import { createAttachmentsRouter } from './attachments.ts'
 import type { FileAttachment } from '@ma-proma/shared'
 
@@ -36,6 +37,11 @@ describe('Attachments API', () => {
     fileProvider = new LocalFileProvider()
 
     const app = express()
+    const systemContext: UserContext = { userId: 'system', sessionId: 'test', tenantId: 'default', roles: [], permissions: ['*'], isSystemAccount: true }
+    app.use((req, _res, next) => {
+      ;(req as unknown as RequestWithUserContext).userContext = systemContext
+      next()
+    })
     app.use(express.json({ limit: '110mb' }))
     app.use(createAttachmentsRouter({ context, fileProvider }))
 

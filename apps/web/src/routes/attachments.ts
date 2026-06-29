@@ -3,14 +3,17 @@
  *
  * 提供上传、下载/预览、删除、列表能力。
  * 存储路径：{MAPRO_DATA_DIR}/attachments/{scope}/{id}/{fileId}
+ * 阶段 C1：按请求用户隔离，system 账号继续使用全局目录，普通用户写入 users/{userId}/。
  */
 
 import express, { Router } from 'express'
 import type { Request, Response } from 'express'
-import type { AppContext, FileProvider } from '@ma-proma/server'
+import type { AppContext, FileProvider, UserContext } from '@ma-proma/server'
 import { AttachmentService } from '@ma-proma/server'
 import type { FileAttachment } from '@ma-proma/shared'
 import { MAX_ATTACHMENT_SIZE } from '@ma-proma/shared'
+import type { RequestWithUserContext } from '../auth-middleware.ts'
+import { createUserAppContext } from '../context.ts'
 
 const SAFE_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/
 const SAFE_FILE_ID_PATTERN = /^[a-zA-Z0-9_.-]+$/
@@ -48,11 +51,22 @@ function isNotFoundError(error: unknown, message: string): boolean {
   return false
 }
 
+function getRequestContext(baseContext: AppContext, userContext: UserContext): AppContext {
+  return userContext.isSystemAccount ? baseContext : createUserAppContext(baseContext, userContext.userId)
+}
+
 export function createAttachmentsRouter(deps: AttachmentRouterDeps): Router {
-  const { context, fileProvider } = deps
-  const attachmentService = new AttachmentService(context, fileProvider)
+  const { context: baseContext, fileProvider } = deps
   const router = Router()
   router.use(express.json({ limit: '110mb' }))
+
+  function resolveService(req: Request): AttachmentService {
+    const userContext = (req as RequestWithUserContext).userContext
+    if (!userContext) {
+      throw new Error('Attachments 路由缺少 userContext，请确认 authMiddleware 已挂载')
+    }
+    return new AttachmentService(getRequestContext(baseContext, userContext), fileProvider)
+  }
 
   // POST /:scope/:id 上传附件
   router.post('/:scope/:id', async (req: Request, res: Response) => {
@@ -80,7 +94,7 @@ export function createAttachmentsRouter(deps: AttachmentRouterDeps): Router {
         return
       }
 
-      const attachment = await attachmentService.save({
+      const attachment = await resolveService(req).save({
         scope,
         id,
         filename,
@@ -105,7 +119,7 @@ export function createAttachmentsRouter(deps: AttachmentRouterDeps): Router {
     try {
       const scope = validateSegment(req.params.scope, 'scope')
       const id = validateSegment(req.params.id, 'id')
-      const attachments = await attachmentService.list(scope, id)
+      const attachments = await resolveService(req).list(scope, id)
       res.json({ success: true, attachments })
     } catch (error) {
       const message = error instanceof Error ? error.message : '获取列表失败'
@@ -121,7 +135,7 @@ export function createAttachmentsRouter(deps: AttachmentRouterDeps): Router {
       const id = validateSegment(req.params.id, 'id')
       const fileId = validateSegment(req.params.fileId, 'fileId')
 
-      const buffer = await attachmentService.readAsBuffer(scope, id, fileId)
+      const buffer = await resolveService(req).readAsBuffer(scope, id, fileId)
       const contentType = req.query.mediaType ? String(req.query.mediaType) : 'application/octet-stream'
 
       res.setHeader('Content-Type', contentType)
@@ -149,7 +163,7 @@ export function createAttachmentsRouter(deps: AttachmentRouterDeps): Router {
       const id = validateSegment(req.params.id, 'id')
       const fileId = validateSegment(req.params.fileId, 'fileId')
 
-      await attachmentService.delete(scope, id, fileId)
+      await resolveService(req).delete(scope, id, fileId)
       res.json({ success: true })
     } catch (error) {
       const message = error instanceof Error ? error.message : '删除失败'

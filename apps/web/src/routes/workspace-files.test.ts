@@ -10,8 +10,9 @@ import type { Server } from 'node:http'
 import { mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AppContext, FileProvider, WorkspaceFileEntry } from '@ma-proma/server'
+import type { AppContext, FileProvider, UserContext, WorkspaceFileEntry } from '@ma-proma/server'
 import { LocalFileProvider } from '@ma-proma/server'
+import type { RequestWithUserContext } from '../auth-middleware.ts'
 import { createWorkspaceFilesRouter } from './workspace-files.ts'
 
 function createTestContext(dataDir: string): AppContext {
@@ -35,6 +36,11 @@ describe('Workspace Files API', () => {
     fileProvider = new LocalFileProvider()
 
     const app = express()
+    const systemContext: UserContext = { userId: 'system', sessionId: 'test', tenantId: 'default', roles: [], permissions: ['*'], isSystemAccount: true }
+    app.use((req, _res, next) => {
+      ;(req as unknown as RequestWithUserContext).userContext = systemContext
+      next()
+    })
     app.use(createWorkspaceFilesRouter({ context, fileProvider }))
 
     await new Promise<void>((resolve, reject) => {

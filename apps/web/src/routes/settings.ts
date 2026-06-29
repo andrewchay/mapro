@@ -3,12 +3,13 @@
  *
  * 提供应用设置和用户档案的读写能力。
  * 存储路径：{MAPRO_DATA_DIR}/settings.json、{MAPRO_DATA_DIR}/user-profile.json
+ * 阶段 C1：按请求用户隔离，system 账号继续使用全局目录，普通用户写入 users/{userId}/。
  */
 
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 import express from 'express'
-import type { AppContext } from '@ma-proma/server'
+import type { AppContext, UserContext } from '@ma-proma/server'
 import {
   getAppSettings,
   updateAppSettings,
@@ -16,17 +17,31 @@ import {
   getUserProfile,
   updateUserProfile,
 } from '@ma-proma/server'
+import type { RequestWithUserContext } from '../auth-middleware.ts'
+import { createUserAppContext } from '../context.ts'
 
-export function createSettingsRouter(context: AppContext): Router {
+function getRequestContext(baseContext: AppContext, userContext: UserContext): AppContext {
+  return userContext.isSystemAccount ? baseContext : createUserAppContext(baseContext, userContext.userId)
+}
+
+export function createSettingsRouter(baseContext: AppContext): Router {
   const router = Router()
 
   // 此路由可能接收 base64 头像等大 JSON，单独调大 limit，不影响全局
   router.use(express.json({ limit: '8mb' }))
 
+  function resolveContext(req: Request): AppContext {
+    const userContext = (req as RequestWithUserContext).userContext
+    if (!userContext) {
+      throw new Error('Settings 路由缺少 userContext，请确认 authMiddleware 已挂载')
+    }
+    return getRequestContext(baseContext, userContext)
+  }
+
   // GET /api/settings
-  router.get('/settings', (_req: Request, res: Response) => {
+  router.get('/settings', (req: Request, res: Response) => {
     try {
-      const settings = getAppSettings(context)
+      const settings = getAppSettings(resolveContext(req))
       res.json({ success: true, settings })
     } catch (error) {
       const message = error instanceof Error ? error.message : '获取设置失败'
@@ -46,7 +61,7 @@ export function createSettingsRouter(context: AppContext): Router {
         return
       }
 
-      const settings = updateAppSettings(context, updates)
+      const settings = updateAppSettings(resolveContext(req), updates)
       res.json({ success: true, settings })
     } catch (error) {
       const message = error instanceof Error ? error.message : '更新设置失败'
@@ -56,9 +71,9 @@ export function createSettingsRouter(context: AppContext): Router {
   })
 
   // GET /api/user-profile
-  router.get('/user-profile', (_req: Request, res: Response) => {
+  router.get('/user-profile', (req: Request, res: Response) => {
     try {
-      const profile = getUserProfile(context)
+      const profile = getUserProfile(resolveContext(req))
       res.json({ success: true, profile })
     } catch (error) {
       const message = error instanceof Error ? error.message : '获取用户档案失败'
@@ -89,7 +104,7 @@ export function createSettingsRouter(context: AppContext): Router {
         updates.avatar = body.avatar
       }
 
-      const profile = updateUserProfile(context, updates)
+      const profile = updateUserProfile(resolveContext(req), updates)
       res.json({ success: true, profile })
     } catch (error) {
       const message = error instanceof Error ? error.message : '更新用户档案失败'

@@ -10,7 +10,8 @@ import type { Server } from 'node:http'
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AppContext } from '@ma-proma/server'
+import type { AppContext, UserContext } from '@ma-proma/server'
+import type { RequestWithUserContext } from '../auth-middleware.ts'
 import { createSettingsRouter } from './settings.ts'
 
 type SettingsResponse = { success: boolean; settings?: Record<string, unknown>; errors?: Record<string, string> }
@@ -34,6 +35,11 @@ describe('Settings API', () => {
     const context = createTestContext(dataDir)
 
     const app = express()
+    const systemContext: UserContext = { userId: 'system', sessionId: 'test', tenantId: 'default', roles: [], permissions: ['*'], isSystemAccount: true }
+    app.use((req, _res, next) => {
+      ;(req as unknown as RequestWithUserContext).userContext = systemContext
+      next()
+    })
     app.use(createSettingsRouter(context))
 
     await new Promise<void>((resolve, reject) => {
