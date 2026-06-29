@@ -33,8 +33,8 @@ proma-v2/
     │       ├── main/       # 主进程 + 服务层 (main/lib/)
     │       ├── preload/    # IPC 上下文桥接
     │       └── renderer/   # React UI (Vite + Tailwind + Radix UI)
-    ├── web/        # Web 服务端入口 (Express + WebSocket) (v0.1.24)
-    └── web-ui/     # Web 端 React SPA (v0.1.19)
+    ├── web/        # Web 服务端入口 (Express + WebSocket) (v0.1.25)
+    └── web-ui/     # Web 端 React SPA (v0.1.20)
 ```
 
 **包命名规范**：`@ma-proma/*` 作用域（`@ma-proma/core`、`@ma-proma/shared`、`@ma-proma/ui`、`@ma-proma/server`、`@ma-proma/electron`）
@@ -59,7 +59,7 @@ proma-v2/
 - **依赖**：`@ma-proma/core`、`beautiful-mermaid`、`shiki`、Radix UI
 - **Peer 依赖**：`react@^18.3.0`、`react-dom@^18.3.0`
 
-#### @ma-proma/server (v0.1.25)
+#### @ma-proma/server (v0.1.27)
 - **导出模块**：`./campaign`、`./chat`、`./context`、`./db`、`./files`、`./kol`、`./secrets`、`./transport`
 - **关键功能**：
   - `CampaignRepository` / `CampaignQueryService` / `CampaignCommandService`：Campaign 项目 CRUD 与业务协调
@@ -67,13 +67,15 @@ proma-v2/
   - `CampaignArtifactValidator`：产物校验引擎（目录/文件/字数/语义锚点）与 Agent 兜底落盘
   - `ContentAuditRepository` / `ContentAuditService`：内容审核 SQLite 持久化与 LLM 三维度评分
   - `KOLDatabaseRepository`：KOL 主数据库访问
-  - 跨平台抽象：`DbProvider`、`FileProvider`、`SecretsStore`、`RendererTransport`
-- **依赖**：`@ma-proma/shared`、`@ma-proma/core`、`better-sqlite3`
+  - `createDbProvider()`：根据 `MAPRO_DB_TYPE` / `MAPRO_DATABASE_URL` 切换 SQLite / PostgreSQL
+  - `SqliteMigrationService`：SQLite 数据库导出/导入与数据目录迁移
+  - 跨平台抽象：`DbProvider`（`SqliteDbProvider` / `PostgresDbProvider`）、`FileProvider`、`SecretsStore`、`RendererTransport`
+- **依赖**：`@ma-proma/shared`、`@ma-proma/core`、`better-sqlite3`、`pg`
 
-#### @ma-proma/web (v0.1.24)
+#### @ma-proma/web (v0.1.25)
 - **职责**：Web 服务端入口，基于 Express + WebSocket 暴露 REST / WS API
 - **关键模块**：
-  - `routes/campaign.ts`：Campaign / KOL 候选池 / Brief / 内容审核 / 内容追踪 REST 路由
+  - `routes/campaign.ts`：Campaign / KOL 候选池 / Brief / 内容审核 / 内容追踪 / 13 步工作流 REST 路由；已接入 `createDbProvider()`，支持 SQLite / PostgreSQL
   - `routes/channels.ts` / `routes/settings.ts` / `routes/attachments.ts` / `routes/workspace-files.ts`：通用 REST 路由
   - `websocket/index.ts`：Chat 与 Agent 的 WebSocket 处理器
   - `agent/agent-orchestrator.ts`：与 Electron 共享同一套 Agent 编排逻辑的服务端实现

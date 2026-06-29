@@ -4,7 +4,7 @@
  * 阶段 B：暴露会话/工作区 CRUD，供 Web Agent UI 使用。
  */
 
-import { Router } from 'express'
+import express, { Router } from 'express'
 import type {
   AppContext,
   AgentSessionManager,
@@ -23,6 +23,7 @@ export interface AgentRouterDeps {
 
 export async function createAgentRouter(deps: AgentRouterDeps) {
   const router = Router()
+  router.use(express.json({ limit: '2mb' }))
   const chatToolConfigService = new ChatToolConfigServiceImpl({ context: deps.context })
   const workspaceManager = new AgentWorkspaceManagerImpl({
     context: deps.context,

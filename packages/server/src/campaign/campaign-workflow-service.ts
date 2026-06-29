@@ -63,7 +63,7 @@ export const STEP_DIR_MAP: Record<CampaignWorkflowStepId, string> = {
 // 默认 13 步工作流定义
 // =====================================================================
 
-const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt'>[] = [
+export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt'>[] = [
   {
     id: 'market_analysis',
     title: '市场分析',

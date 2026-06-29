@@ -12,7 +12,7 @@
  * - 内容性能本地分析（基于数据标准基准）
  */
 
-import { Router } from 'express'
+import express, { Router } from 'express'
 import type { CampaignWorkflowStepId } from '@ma-proma/shared'
 import {
   CampaignRepository,
@@ -23,7 +23,7 @@ import {
   ContentAuditService,
   KOLDatabaseRepository,
   LocalFileProvider,
-  SqliteDbProvider,
+  createDbProvider,
   WorkspaceFileService,
   STEP_DIR_MAP,
   getCampaignDbPath,
@@ -33,13 +33,15 @@ import type { AppContext, WorkspaceFileEntry, ChatProviderConfig } from '@ma-pro
 
 export async function createCampaignRouter(context: AppContext, chatConfig?: ChatProviderConfig | null) {
   const router = Router()
+  // 主进程不再挂载全局 express.json()，Campaign 路由自行配置 body 解析
+  router.use(express.json({ limit: '1mb' }))
   const dbPath = getCampaignDbPath(context)
-  const db = new SqliteDbProvider(dbPath)
+  const db = createDbProvider({ sqlitePath: dbPath, postgresDbNameSuffix: 'campaign' })
   const repository = new CampaignRepository(db)
   await repository.initSchema()
 
   const kolDbPath = getKolDbPath(context)
-  const kolDb = new SqliteDbProvider(kolDbPath)
+  const kolDb = createDbProvider({ sqlitePath: kolDbPath, postgresDbNameSuffix: 'kol' })
   const kolRepository = new KOLDatabaseRepository(kolDb, { seedMockData: process.env.MAPRO_SEED_MOCK_KOLS === '1' })
   await kolRepository.initSchema()
 

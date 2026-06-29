@@ -1,6 +1,6 @@
 export { CampaignRepository } from './campaign-repository.ts'
 export { CampaignQueryService } from './campaign-query-service.ts'
 export { CampaignCommandService } from './campaign-command-service.ts'
-export { CampaignWorkflowService, STEP_DIR_MAP } from './campaign-workflow-service.ts'
+export { CampaignWorkflowService, STEP_DIR_MAP, DEFAULT_WORKFLOW_STEPS } from './campaign-workflow-service.ts'
 export { CampaignArtifactValidator } from './campaign-artifact-validator.ts'
 export { ContentAuditService } from './content-audit-service.ts'

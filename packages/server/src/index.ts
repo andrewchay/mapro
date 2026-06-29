@@ -47,6 +47,7 @@ export {
   CampaignArtifactValidator,
   ContentAuditService,
   STEP_DIR_MAP,
+  DEFAULT_WORKFLOW_STEPS,
 } from './campaign/index.ts'
 export { KOLDatabaseRepository } from './kol/index.ts'
 export type { ChatProviderConfig, ChatSendInput, ChatStreamEvent } from './chat/index.ts'
@@ -67,7 +68,8 @@ export {
 } from './workspace/workspace-file-service.ts'
 export type { WorkspaceFileEntry } from '@ma-proma/shared'
 export type { DbProvider, DbQueryResult, DbTransaction } from './db/index.ts'
-export { SqliteDbProvider, PostgresDbProvider } from './db/index.ts'
+export { SqliteDbProvider, PostgresDbProvider, createDbProvider, SqliteMigrationService } from './db/index.ts'
+export type { DbFactoryOptions, DatabaseFileInfo } from './db/index.ts'
 export { readJsonFileSafe, writeJsonFileAtomic } from './utils/safe-file.ts'
 export {
   getAppSettings,

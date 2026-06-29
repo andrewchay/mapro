@@ -307,8 +307,8 @@ curl http://localhost:3000/health
 2. **Agent 安全加固（阶段 B 核心）**：命令审计日志、Docker `--cpus/--memory/--network` 资源限制、危险工具/命令禁用清单、沙箱隔离专项测试。
 3. **工作流执行 UI**：`CampaignWorkflowService` / `CampaignArtifactValidator` 已在 server 实现，补 Web 路由 + 13 步执行/校验/重置按钮（Campaign 主线价值所在）。
 4. **Web 文件能力**：基于已就绪的 `FileProvider` 接口补上传下载 API + 文件预览组件 + 拖拽上传。
-5. **PostgreSQL 切主**：`PostgresDbProvider` 已就绪，补配置开关 + 迁移脚本 + 方言差异测试（SaaS 化前启动）。
-6. **测试补齐**：E2E smoke-test 接入 CI（脚本已有）、Electron↔Web 双端一致性专项、Docker runner 沙箱隔离测试。
+5. **PostgreSQL 切主**：✅ 已完成——`createDbProvider()` 工厂支持 `MAPRO_DB_TYPE` / `MAPRO_DATABASE_URL`，`campaign.ts` 已接入；新增 SQLite/PostgreSQL 方言一致性测试与 `SqliteMigrationService` 数据迁移工具。
+6. **测试补齐**：✅ E2E 接入 CI（`.github/workflows/e2e.yml` + `scripts/smoke-test.ts`）、Electron↔Web 双端一致性专项测试（`campaign-consistency.test.ts`）已完成；Docker runner 沙箱隔离测试已覆盖。
 
 ---
 
@@ -363,9 +363,9 @@ curl http://localhost:3000/health
 |---|---|
 | `DbProvider` 抽象 + `SqliteDbProvider`（默认） | ✅ |
 | `PostgresDbProvider`（真实 `pg.Pool`，非骨架） | ✅ |
-| PG 切主配置开关 | ⬜ |
-| SQLite/PostgreSQL 方言差异测试 | ⬜ |
-| 数据迁移工具（`~/.mapro/*.sqlite` 导入导出） | ⬜ |
+| PG 切主配置开关 | ✅ |
+| SQLite/PostgreSQL 方言差异测试 | ✅ |
+| 数据迁移工具（`~/.mapro/*.sqlite` 导入导出） | ✅ |
 
 ### P5 前端功能补齐
 
@@ -389,8 +389,8 @@ curl http://localhost:3000/health
 | orchestrator 测试（权限 / AskUser / ExitPlan 全 action / 并发守卫 / plan 模式 Bash deny） | ✅ |
 | websocket 测试（路由 / sessionId 隔离） | ✅ |
 | E2E smoke-test 脚本（`scripts/smoke-test.ts`） | ✅ |
-| E2E 接入 CI（配测试用 Provider key） | ⬜ |
-| Electron↔Web 双端一致性专项 | ⬜ |
+| E2E 接入 CI（GitHub Actions + smoke-test） | ✅ |
+| Electron↔Web 双端一致性专项 | ✅ |
 
 ### P7 文档与工程规范
 

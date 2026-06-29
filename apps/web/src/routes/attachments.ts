@@ -5,7 +5,7 @@
  * 存储路径：{MAPRO_DATA_DIR}/attachments/{scope}/{id}/{fileId}
  */
 
-import { Router } from 'express'
+import express, { Router } from 'express'
 import type { Request, Response } from 'express'
 import type { AppContext, FileProvider } from '@ma-proma/server'
 import { AttachmentService } from '@ma-proma/server'
@@ -52,6 +52,7 @@ export function createAttachmentsRouter(deps: AttachmentRouterDeps): Router {
   const { context, fileProvider } = deps
   const attachmentService = new AttachmentService(context, fileProvider)
   const router = Router()
+  router.use(express.json({ limit: '110mb' }))
 
   // POST /:scope/:id 上传附件
   router.post('/:scope/:id', async (req: Request, res: Response) => {
