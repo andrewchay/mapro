@@ -5,6 +5,7 @@
 import { atom } from 'jotai'
 import { authAPI } from '../api/auth-api.ts'
 import type { AuthUser } from '../api/auth-api.ts'
+import { getAccessToken, setAccessToken, clearAccessToken } from './token-store.ts'
 
 export interface AuthState {
   user: AuthUser | null
@@ -29,10 +30,22 @@ export const isAuthenticatedAtom = atom((get) => get(authStateAtom).isAuthentica
 export const authLoadingAtom = atom((get) => get(authStateAtom).isLoading)
 export const userPermissionsAtom = atom((get) => get(authStateAtom).permissions)
 
-/** 初始化认证状态：尝试 /auth/me */
+/** 初始化认证状态：优先用 refresh cookie 恢复 access token，再调 /auth/me */
 export function createAuthInitializeAtom() {
   return atom(null, async (_get, set) => {
     try {
+      // 页面刷新后内存 access token 丢失，先用 httpOnly refresh cookie 恢复
+      if (!getAccessToken()) {
+        try {
+          const refreshResult = await authAPI.refresh()
+          setAccessToken(refreshResult.accessToken)
+        } catch {
+          // 无有效 refresh cookie，结束加载态并展示登录页
+          set(authStateAtom, (prev) => ({ ...prev, isLoading: false, isAuthenticated: false }))
+          return
+        }
+      }
+
       const { userContext } = await authAPI.me()
       set(authStateAtom, {
         user: {
@@ -49,6 +62,7 @@ export function createAuthInitializeAtom() {
         isAuthenticated: true,
       })
     } catch {
+      clearAccessToken()
       set(authStateAtom, (prev) => ({ ...prev, isLoading: false, isAuthenticated: false }))
     }
   })

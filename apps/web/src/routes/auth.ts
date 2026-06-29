@@ -11,6 +11,7 @@
 import { Router } from 'express'
 import express from 'express'
 import type { Request, Response } from 'express'
+import cookieParser from 'cookie-parser'
 import type { AuthService, PermissionService } from '@ma-proma/server'
 import { createAuthMiddleware, type RequestWithUserContext } from '../auth-middleware.ts'
 import { getApiToken } from '../security.ts'
@@ -27,6 +28,7 @@ const REFRESH_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 // 7 天
 export function createAuthRouter(deps: AuthRouterDeps): Router {
   const router = Router()
   router.use(express.json({ limit: '64kb' }))
+  router.use(cookieParser())
   const authMiddleware = createAuthMiddleware({
     authService: deps.authService,
     permissionService: deps.permissionService,
@@ -87,8 +89,8 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
   // POST /auth/refresh
   router.post('/refresh', async (req: Request, res: Response) => {
     try {
-      const refreshToken = getRefreshCookie(req)
-      if (!refreshToken) {
+      const refreshToken = req.cookies[getCookieName()]
+      if (typeof refreshToken !== 'string' || !refreshToken) {
         res.status(401).json({ success: false, error: '缺少 refresh token' })
         return
       }
@@ -116,8 +118,8 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
   // POST /auth/logout
   router.post('/logout', async (req: Request, res: Response) => {
     try {
-      const refreshToken = getRefreshCookie(req)
-      if (refreshToken) {
+      const refreshToken = req.cookies[getCookieName()]
+      if (typeof refreshToken === 'string' && refreshToken) {
         await deps.authService.logout(refreshToken)
       }
       clearRefreshCookie(res, req)
@@ -147,14 +149,6 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
   })
 
   return router
-}
-
-function getRefreshCookie(req: Request): string | undefined {
-  const cookieHeader = req.headers.cookie
-  if (!cookieHeader) return undefined
-  const match = cookieHeader.split(';').find((c) => c.trim().startsWith(`${getCookieName()}=`))
-  if (!match) return undefined
-  return decodeURIComponent(match.split('=')[1] ?? '')
 }
 
 function setRefreshCookie(res: Response, refreshToken: string, req: Request): void {

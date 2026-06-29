@@ -205,7 +205,11 @@ docker compose down
 | `MAPRO_AGENT_MODEL` | 可选 | Agent 模型名 |
 | `MAPRO_ENCRYPTION_KEY` | 推荐 | 服务端 AES-256-GCM 主密钥，未设置时使用默认密钥 |
 | `MAPRO_API_TOKEN` | 推荐 | HTTP API 与 WebSocket 共享的 Bearer Token；未设置时仅允许本地 Origin |
-| `MAPRO_MASTER_KEY` | 服务端必填 | `ServerSecretsStore` 主密钥，用于加密 channels.json 中的 API Key |
+| `MAPRO_MASTER_KEY` | 服务端必填 | `ServerSecretsStore` 主密钥，用于加密 channels.json 中的 API Key；未设置时回退明文（仅开发） |
+| `MAPRO_JWT_SECRET` | 生产必填 | JWT access token 签名密钥；未设置时回退 `MAPRO_MASTER_KEY`（仅开发） |
+| `MAPRO_JWT_ACCESS_TTL` | 可选 | Access token 有效期（秒），默认 `900` |
+| `MAPRO_AUTH_DISABLED` | 可选 | 设为 `1` 时关闭 JWT，所有请求映射为 system 账号（仅本地开发） |
+| `MAPRO_TRUST_PROXY` | 可选 | 设为 `1` 时启用 Express `trust proxy`，反向代理后可正确识别 `req.secure` |
 | `MAPRO_ALLOWED_ORIGINS` | 可选 | 显式允许的 CORS Origin 列表，逗号分隔；设置 Token 后默认禁止跨域 |
 
 最小可运行示例（仅 Chat）：
@@ -218,20 +222,27 @@ docker compose up --build -d \
   -e MAPRO_MASTER_KEY=your-master-key-at-least-16-chars
 ```
 
-### 安全约束
+### 认证与安全约束
 
-Web 版当前阶段不做内置多用户认证，生产部署必须满足以下至少一项：
+Web 版已内置基于 JWT + httpOnly refresh cookie 的多用户认证与 RBAC 授权。
+
+- **Access Token**：仅存前端内存，通过 `Authorization: Bearer <token>` 访问 `/api/*`，默认有效期 15 分钟。
+- **Refresh Token**：服务端生成后通过 `HttpOnly; SameSite=Strict; Secure（HTTPS 时）` cookie 返回，有效期 7 天；支持 rotation，每次刷新会吊销旧 token。
+- **页面刷新**：前端启动时若内存无 access token，会先调用 `/auth/refresh`（依赖 cookie）恢复，再获取用户上下文，因此刷新页面不会掉登录。
+
+**生产部署必须满足以下至少一项：**
 
 - 将 `MAPRO_WEB_HOST` 保持为 `127.0.0.1`，仅本地访问；
-- 或前置反向代理（nginx / Caddy / Traefik）并加 Basic Auth / mTLS / OAuth；
-- 或设置 `MAPRO_API_TOKEN`，并通过 HTTPS 暴露。
+- 或前置反向代理（nginx / Caddy / Traefik）加 HTTPS，并设置 `MAPRO_TRUST_PROXY=1`，使服务端正确识别 `req.secure`；
+- 或设置 `MAPRO_API_TOKEN`，作为服务账号 Token 绕过 JWT 流程（仅推荐内部/自动化场景）。
 
 **Token 行为：**
 
 - `MAPRO_API_TOKEN` 同时保护 HTTP API（`Authorization: Bearer <token>`）与 WebSocket（`ws://host:port/?token=<token>`）。
 - Web UI 由后端托管时会自动注入该 token，无需手动输入；独立构建（CDN / Vercel）可通过 `VITE_API_TOKEN` 或 `localStorage.setItem('mapro-api-token', '<token>')` 提供。
-- 未设置 Token 时，CORS 仅允许 `localhost` / `127.0.0.1` Origin，WebSocket 也仅接受本地 Origin，降低恶意网页调用本机 API 的风险。
+- 未设置 Token 且未禁用认证时，CORS 仅允许 `localhost` / `127.0.0.1` Origin，WebSocket 也仅接受本地 Origin，降低恶意网页调用本机 API 的风险。
 - 设置 Token 后，CORS 默认禁止跨域；如需第三方域名访问，请配置 `MAPRO_ALLOWED_ORIGINS`。
+- 生产环境务必配置 `MAPRO_JWT_SECRET`（或复用强随机的 `MAPRO_MASTER_KEY`），并启用 HTTPS。
 
 若启用 Agent，建议同时配置：
 
