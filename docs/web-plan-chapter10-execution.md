@@ -2,7 +2,7 @@
 
 > 基于 `WEB-PLAN.md` 第十章「实施进度对照（v0.1.14）」制定的可执行计划与跟进文档。
 > 性质：执行跟踪，不替代原规划的方向性判断。
-> 对应代码版本：MAPro v0.1.14 起，当前 server 0.1.23 / web 0.1.22 / web-ui 0.1.16。
+> 对应代码版本：MAPro v0.1.14 起，当前 server 0.1.26 / web 0.1.24 / web-ui 0.1.20。
 
 ---
 
@@ -31,7 +31,7 @@
 | P2 IPC 映射 | agent.ts + campaign.ts、文件附件 API、设置/档案 API、渠道 CRUD、系统能力 Web 策略 | — |
 | P3 工作区文件 | FileProvider + LocalFileProvider、路径隔离、上传下载 API、产物在线预览 | — |
 | P4 数据库 | DbProvider + SqliteDbProvider、PostgresDbProvider | PG 切主开关、方言差异测试、迁移工具 |
-| P5 前端 | Agent 面板、审批 Banner、Campaign 只读、Chat 流式、SettingsPage、工作流校验/重置/预览/执行 UI、文件预览组件、Agent 默认设置面板 | 拖拽上传、Brief/审核/追踪录入 |
+| P5 前端 | Agent 面板、审批 Banner、Campaign 只读/详情/追踪、Chat 流式、SettingsPage、13 步工作流执行/校验/重置/预览 UI、文件预览组件、Agent 默认设置面板、拖拽上传、Brief 生成 / 内容审核 / 内容追踪录入 | — |
 | P6 测试 | Banner / AgentPage / orchestrator / websocket / smoke-test 脚本 | E2E 接入 CI、双端一致性专项 |
 | P7 文档 | WEB-PLAN 同步、环境变量清单、README Web 部署说明 | — |
 
@@ -51,7 +51,7 @@
 
 **集成验证**：`docker compose up --build` + smoke-test 通过，Agent 安全测试通过。
 
-### 里程碑 M2：核心服务补齐（预估 2–3 周）
+### 里程碑 M2：核心服务补齐（已完成，2026-06-29）
 
 - P2 文件附件 API
 - P2 设置 / 用户档案 API
@@ -59,9 +59,9 @@
 - P3 Web 上传下载 API
 - P7 README Web 部署说明（随 P0 验证后补齐）
 
-**集成验证**：Web 端可上传文件、可修改设置、Campaign 工作区文件可读写。
+**集成验证**：Web 端可上传文件、可修改设置、Campaign 工作区文件可读写；对应单元测试与回归测试全过。
 
-### 里程碑 M3：Campaign 核心工作流 Web 化（预估 3–4 周）
+### 里程碑 M3：Campaign 核心工作流 Web 化（已完成，2026-06-29）
 
 - P5 13 步工作流执行 / 校验 / 重置 UI
 - P5 产物在线预览（.md 内联渲染）
@@ -69,17 +69,17 @@
 - P5 拖拽上传
 - P5 Brief 生成 / 内容审核 / 内容追踪录入
 
-**集成验证**：可在 Web 端完整创建并推进一个 Campaign 项目。
+**集成验证**：组件与 API 测试通过；完整「从零创建 Campaign 并推进到结束」的端到端验证待补（见验证记录表 🟡 项）。
 
-### 里程碑 M4：可扩展性与一致性（预估 2–3 周）
+### 里程碑 M4：可扩展性与一致性（进行中，预估 2–3 周）
 
-- P2 渠道 CRUD（Web）
-- P2 系统能力 Web 策略
 - P4 PostgreSQL 切主配置开关
 - P4 SQLite/PostgreSQL 方言差异测试
 - P4 数据迁移工具
 - P6 E2E 接入 CI
 - P6 Electron↔Web 双端一致性专项
+
+> P2 渠道 CRUD（Web）与 P2 系统能力 Web 策略已提前在 M2 前完成，不再列入 M4。
 
 **集成验证**：CI 全绿，PG 与 SQLite 双跑测试通过，关键路径一致性测试通过。
 
@@ -228,9 +228,10 @@
 | 2026-06-29 | 产物在线预览 | ✅ 通过 | `FilePreviewDialog` 支持 Markdown/PDF/图片/文本；`CampaignWorkflowSteps` 可展开步骤预览产物；typecheck + 回归 352 项全过 |
 | 2026-06-29 | README Web 部署说明 | ✅ 通过 | `README.md` 新增「Web 端部署」章节，含 Docker Compose 命令、完整环境变量清单、生产安全约束、本地开发端口 |
 | 2026-06-29 | Agent 设置面板 | ✅ 通过 | `AppSettings` 扩展 Agent 默认字段；SettingsPage 新增「Agent 默认设置」卡片（渠道/模型/工作区/权限模式）；`settings.test.ts` + `SettingsPage.test.tsx` 共 9 项新测试全过；全项目 360 项回归测试全过 |
-| 待填写 | Campaign 工作流端到端 | | |
-| 待填写 | PG 切主 + 双跑测试 | | |
-| 待填写 | E2E CI 接入 | | |
+| 2026-06-29 | P5 前端补齐（Brief / 内容审核 / 内容追踪录入 + 拖拽上传 + bug 修复） | ✅ 通过 | `CampaignBriefDialog` / `ContentAuditDialog` / `ContentTrackingManager` 上线；修复正则崩溃、PermissionBanner 队列清理、附件路径校验；新增 14 项回归测试；全项目 400+ 项测试全过 |
+| 🟡 待补 | Campaign 工作流端到端 | 🟡 部分通过 | 13 步工作流 UI、API、产物预览已可用；完整 Web 端从零创建并推进 Campaign 的端到端集成验证待补 |
+| ⬜ 待办 | PG 切主 + 双跑测试 | | |
+| ⬜ 待办 | E2E CI 接入 | | |
 
 ---
 
@@ -262,14 +263,22 @@
   - `apps/web` 0.1.21 → 0.1.22，Settings API 透传新字段
   - `apps/web-ui` 0.1.14 → 0.1.15，SettingsPage 新增「Agent 默认设置」卡片
   - 新增测试：`settings.test.ts` 3 项 + `SettingsPage.test.tsx` 5 项；全项目 360 项回归测试全过
+- 2026-06-29：完成 P5 剩余前端补齐与关键 bug 修复：
+  - `CampaignBriefDialog` / `ContentAuditDialog` / `ContentTrackingManager` 上线
+  - `packages/server` 0.1.25 → 0.1.26，`ContentAuditService` 修复品牌名正则特殊字符崩溃
+  - `apps/web-ui` 0.1.19 → 0.1.20，`PermissionBanner` 关闭只移除当前请求
+  - `AttachmentService.save` 补齐 scope/id 路径校验
+  - 新增回归测试：`content-audit-service.test.ts` 8 项 + `attachment-service.test.ts` 6 项 + `PermissionBanner.test.tsx` 1 项
+  - 全项目 400+ 项测试全过
 
 ### 下周计划
 
-- 继续 P5 前端补齐：P5「13 步工作流执行步骤」（依赖 Agent 会话上下文）或 P5「拖拽上传」。
-- 评估 P4「PostgreSQL 切主配置开关」启动时机。
+- 推进 P4「PostgreSQL 切主配置开关」可行性评估与最小原型。
+- 启动 P6「Electron↔Web 双端一致性专项」用例梳理。
+- 补做 Web 端 Campaign 工作流端到端集成验证，填平验证记录表中的 🟡 项。
 
 ---
 
-*文档版本：v1.2*
+*文档版本：v1.4*
 *更新日期：2026-06-29*
 *对应规划：WEB-PLAN.md 第十章 v0.1.14*

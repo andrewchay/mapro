@@ -325,7 +325,7 @@ curl http://localhost:3000/health
 | `MAPRO_DATA_DIR` 注入 | ✅ |
 | `/health` 端点 | ✅ |
 | SIGTERM 优雅关闭 | ✅ 本次补齐 |
-| Docker 实测闭环（build + 落盘 + 健康检查 + stop） | ⬜ 待实测 |
+| Docker 实测闭环（build + 落盘 + 健康检查 + stop） | ✅ 已实测 |
 
 ### P1 Agent 服务端化安全与隔离
 
@@ -333,29 +333,29 @@ curl http://localhost:3000/health
 |---|---|
 | 编排器 / 权限 / AskUser / ExitPlan 审批链 | ✅ |
 | Docker runner + native runner（均含超时 SIGKILL） | ✅ |
-| 命令审计日志（持久化） | ⬜ |
-| 资源限制（Docker `--cpus/--memory/--network`、native ulimit） | ⬜ |
-| 危险工具 / 命令禁用清单（现有允许白名单 + `agent-tool-input-validator`，无可配置禁用） | ⬜ |
-| 沙箱隔离专项测试（容器内无法访问宿主 `~/.mapro`） | ⬜ |
+| 命令审计日志（持久化） | ✅ |
+| 资源限制（Docker `--cpus/--memory/--network`、native ulimit） | ✅ |
+| 危险工具 / 命令禁用清单（`AgentToolBlocklist` + 环境变量） | ✅ |
+| 沙箱隔离专项测试（容器内无法访问宿主 `~/.mapro`） | ✅ |
 
 ### P2 IPC 增量映射
 
 | 项 | 状态 |
 |---|---|
 | `agent.ts` + `campaign.ts` 路由 | ✅ |
-| 文件附件 API（上传 / 预览） | ⬜ |
-| 设置 / 用户档案 API | ⬜ |
-| 渠道 CRUD（Chat 流式已通，无渠道管理） | ⬜ |
-| 系统能力 Web 策略（截图 / 快捷键 / 语音 → 明确不支持或替代） | ⬜ |
+| 文件附件 API（上传 / 预览） | ✅ |
+| 设置 / 用户档案 API | ✅ |
+| 渠道 CRUD（Chat 流式已通） | ✅ |
+| 系统能力 Web 策略（截图 / 快捷键 / 语音 → 明确不支持或替代） | ✅ |
 
 ### P3 工作区文件系统 Web 化
 
 | 项 | 状态 |
 |---|---|
 | `FileProvider` 接口 + `LocalFileProvider` 实现 | ✅ |
-| 按 session/user 隔离路径 | ⬜ |
-| Web 上传下载 API | ⬜ |
-| 产物在线预览（Campaign 工作流 `.md` 内联渲染） | ⬜ |
+| 按 session/user 隔离路径 | ✅ |
+| Web 上传下载 API | ✅ |
+| 产物在线预览（Campaign 工作流 `.md` 内联渲染） | ✅ |
 
 ### P4 数据库与数据层
 
@@ -374,11 +374,11 @@ curl http://localhost:3000/health
 | Agent 面板 + 三个审批 Banner（带 BDD 测试） | ✅ |
 | Campaign 列表 / 详情 / 内容追踪（只读） | ✅ |
 | Chat 流式（环境变量单 Provider） | ✅ |
-| 13 步工作流执行 / 校验 / 重置 UI | ⬜ |
-| 设置面板（General / Appearance / Channel / Agent） | ⬜ |
-| 文件预览组件（图片 / PDF / Markdown） | ⬜ |
-| 拖拽上传 | ⬜ |
-| Brief 生成 / 内容审核 / 内容追踪录入 | ⬜ |
+| 13 步工作流执行 / 校验 / 重置 UI | ✅ |
+| 设置面板（General / Appearance / Channel / Agent） | ✅ |
+| 文件预览组件（图片 / PDF / Markdown） | ✅ |
+| 拖拽上传 | ✅ |
+| Brief 生成 / 内容审核 / 内容追踪录入 | ✅ |
 
 ### P6 测试覆盖对齐
 
@@ -398,11 +398,11 @@ curl http://localhost:3000/health
 |---|---|
 | WEB-PLAN.md 同步至 v0.1.14 | ✅ 本次更新 |
 | 环境变量清单 | ✅ |
-| README Web 部署说明 | ⬜ |
+| README Web 部署说明 | ✅ |
 
 ---
 
 *文档版本：v4.0（方向规划 + 进度对照版）*
-*最后更新：2026-06-28*
+*最后更新：2026-06-29*
 *对应代码版本：MAPro v0.1.14*
 *对应代码版本：MAPro v0.1.10*
