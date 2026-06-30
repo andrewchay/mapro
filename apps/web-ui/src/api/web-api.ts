@@ -43,6 +43,7 @@ import type {
 } from './platform-api.ts'
 
 import { fileToBase64 } from '../lib/file-utils.ts'
+import { resolveWebSocketBase } from '../lib/websocket-url.ts'
 import {
   sendAgentMessage,
   respondAgentPermission,
@@ -51,16 +52,21 @@ import {
 } from './agent-websocket-client.ts'
 import { getAccessToken, setAccessToken, clearAccessToken } from '../store/token-store.ts'
 import { authAPI } from './auth-api.ts'
+import { getApiToken } from './api-token.ts'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
-const WS_BASE = import.meta.env.VITE_WS_BASE || 'ws://localhost:8081'
+const WS_BASE = resolveWebSocketBase()
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   return fetchWithAuth<T>(path, options, false)
 }
 
+function getAuthToken(): string | null {
+  return getAccessToken() ?? getApiToken() ?? null
+}
+
 async function fetchWithAuth<T>(path: string, options?: RequestInit, isRetry = false): Promise<T> {
-  const token = getAccessToken()
+  const token = getAuthToken()
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     credentials: 'include',
@@ -71,7 +77,8 @@ async function fetchWithAuth<T>(path: string, options?: RequestInit, isRetry = f
     },
   })
 
-  if (res.status === 401 && !isRetry) {
+  // 只有 JWT access token 才需要 refresh；服务账号 token 不存在过期问题
+  if (res.status === 401 && !isRetry && getAccessToken()) {
     try {
       const refreshResult = await authAPI.refresh()
       setAccessToken(refreshResult.accessToken)
@@ -90,7 +97,7 @@ async function fetchWithAuth<T>(path: string, options?: RequestInit, isRetry = f
 }
 
 function buildWebSocketUrl(base: string): string {
-  const token = getAccessToken()
+  const token = getAuthToken()
   if (!token) return base
   const sep = base.includes('?') ? '&' : '?'
   return `${base}${sep}token=${encodeURIComponent(token)}`

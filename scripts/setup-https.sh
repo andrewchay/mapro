@@ -5,7 +5,7 @@ set -euo pipefail
 # 用法：
 #   sudo ./scripts/setup-https.sh your-domain.com
 #
-# 依赖：Ubuntu/Debian、systemd、MAPro Web 已在本地 3000 端口运行
+# 依赖：Ubuntu/Debian、systemd、MAPro Web 已在本地 3000/8081 端口运行
 
 DOMAIN="${1:-}"
 INSTALL_DIR="${MAPRO_INSTALL_DIR:-/opt/mapro}"
@@ -61,6 +61,15 @@ $DOMAIN {
         X-Content-Type-Options "nosniff"
         X-Frame-Options "DENY"
         Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    handle_path /ws {
+        reverse_proxy localhost:8081 {
+            header_up Host {host}
+            header_up X-Real-IP {remote}
+            header_up X-Forwarded-For {remote}
+            header_up X-Forwarded-Proto {scheme}
+        }
     }
 
     reverse_proxy localhost:3000 {
@@ -124,6 +133,7 @@ main() {
   echo " HTTPS 配置完成"
   echo "=========================================="
   echo "  访问地址：https://$DOMAIN"
+  echo "  WebSocket：wss://$DOMAIN/ws"
   echo "  Caddyfile：$CADDYFILE"
   echo "  日志查看：journalctl -u caddy -f"
   echo

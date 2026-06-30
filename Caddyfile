@@ -19,7 +19,17 @@ your-domain.com {
         Referrer-Policy "strict-origin-when-cross-origin"
     }
 
-    # 代理到 MAPro Web（HTTP 3000）
+    # WebSocket 路径反代到后端 WS 服务（/ws 会被 strip）
+    handle_path /ws {
+        reverse_proxy localhost:8081 {
+            header_up Host {host}
+            header_up X-Real-IP {remote}
+            header_up X-Forwarded-For {remote}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # 其余请求反代到 MAPro Web HTTP 服务
     reverse_proxy localhost:3000 {
         # 透传真实 IP 和协议，使 Express 的 req.secure 正确识别 HTTPS
         header_up X-Forwarded-Host {host}

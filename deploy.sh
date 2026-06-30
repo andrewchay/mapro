@@ -11,6 +11,7 @@ set -euo pipefail
 REPO_URL="https://github.com/andrewchay/mapro.git"
 INSTALL_DIR="${MAPRO_INSTALL_DIR:-/opt/mapro}"
 DATA_BACKUP_DIR="${MAPRO_BACKUP_DIR:-/opt/mapro-backups}"
+COMPOSE_PROJECT_NAME="${MAPRO_COMPOSE_PROJECT_NAME:-ma-proma}"
 COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 ENV_FILE="$INSTALL_DIR/.env"
 
@@ -24,6 +25,26 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $*"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
+# 检查 docker compose 是否可用
+check_docker_compose() {
+  check_command docker
+
+  if docker compose version &>/dev/null; then
+    log_info "检测到 Docker Compose v2"
+    return 0
+  fi
+
+  if command -v docker-compose &>/dev/null && docker-compose version &>/dev/null; then
+    log_info "检测到 Docker Compose v1"
+    return 0
+  fi
+
+  log_error "缺少可用的 Docker Compose"
+  echo "请安装 Docker Compose 插件（推荐）或 docker-compose 后重试："
+  echo "  sudo apt-get install docker-compose-plugin"
+  exit 1
+}
+
 # 检查命令是否存在
 check_command() {
   if ! command -v "$1" &>/dev/null; then
@@ -31,6 +52,11 @@ check_command() {
     echo "请安装 $1 后重试。"
     exit 1
   fi
+}
+
+# docker compose 包装器，统一使用项目名和 compose 文件
+docker_compose() {
+  docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT_NAME" "$@"
 }
 
 # 生成随机密钥
@@ -89,14 +115,15 @@ backup_data() {
   mkdir -p "$DATA_BACKUP_DIR"
 
   log_info "备份现有数据到 $DATA_BACKUP_DIR/$backup_name ..."
-  if docker compose -f "$COMPOSE_FILE" ps -q 2>/dev/null | grep -q .; then
+  if docker_compose ps -q 2>/dev/null | grep -q .; then
     log_warn "容器正在运行，先停止再备份"
-    docker compose -f "$COMPOSE_FILE" down
+    docker_compose down
   fi
 
-  if docker volume inspect ma-proma_mapro-data &>/dev/null; then
+  local volume_name="${COMPOSE_PROJECT_NAME}_mapro-data"
+  if docker volume inspect "$volume_name" &>/dev/null; then
     docker run --rm \
-      -v ma-proma_mapro-data:/data \
+      -v "$volume_name:/data" \
       -v "$DATA_BACKUP_DIR:/backup" \
       oven/bun:1.3.14 \
       tar czf "/backup/$backup_name" -C /data .
@@ -131,8 +158,8 @@ start_services() {
   source "$ENV_FILE"
   set +a
 
-  docker compose down 2>/dev/null || true
-  docker compose up --build -d
+  docker_compose down 2>/dev/null || true
+  docker_compose up --build -d
 }
 
 # 健康检查
@@ -153,7 +180,7 @@ health_check() {
   done
 
   log_error "服务启动失败，请检查日志："
-  docker compose -f "$COMPOSE_FILE" logs --tail 50
+  docker_compose logs --tail 50
   return 1
 }
 
@@ -171,6 +198,7 @@ print_access_info() {
   echo "  数据目录： $INSTALL_DIR"
   echo "  备份目录： $DATA_BACKUP_DIR"
   echo "  环境配置： $ENV_FILE"
+  echo "  Compose 项目名： $COMPOSE_PROJECT_NAME"
   echo
   echo "  首次使用请打开页面创建初始管理员"
   echo
@@ -185,11 +213,7 @@ main() {
   local command="${1:-install}"
 
   check_command git
-  check_command docker
-  check_command docker-compose || check_command "docker compose" || {
-    log_error "需要 Docker Compose v2（docker compose）"
-    exit 1
-  }
+  check_docker_compose
 
   if [[ "$command" == "update" ]]; then
     backup_data
