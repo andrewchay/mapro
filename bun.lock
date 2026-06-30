@@ -139,7 +139,7 @@
     },
     "apps/web": {
       "name": "@ma-proma/web",
-      "version": "0.1.29",
+      "version": "0.1.32",
       "dependencies": {
         "@ma-proma/server": "workspace:*",
         "@ma-proma/shared": "workspace:*",
@@ -156,10 +156,14 @@
         "tsx": "^4.22.4",
         "typescript": "^5.0.0",
       },
+      "optionalDependencies": {
+        "@anthropic-ai/claude-agent-sdk-linux-arm64": "0.3.143",
+        "@anthropic-ai/claude-agent-sdk-linux-x64": "0.3.143",
+      },
     },
     "apps/web-ui": {
       "name": "@ma-proma/web-ui",
-      "version": "0.1.21",
+      "version": "0.1.29",
       "dependencies": {
         "@ma-proma/shared": "workspace:*",
         "jotai": "^2.17.1",
@@ -202,7 +206,7 @@
     },
     "packages/server": {
       "name": "@ma-proma/server",
-      "version": "0.1.29",
+      "version": "0.1.31",
       "dependencies": {
         "@ma-proma/core": "workspace:*",
         "@ma-proma/shared": "workspace:*",

@@ -1,6 +1,6 @@
 {
   "name": "@ma-proma/web",
-  "version": "0.1.32",
+  "version": "0.1.33",
   "license": "UNLICENSED",
   "description": "MAPro Web service entry (Express + WebSocket)",
   "type": "module",
@@ -25,5 +25,9 @@
     "@types/ws": "^8.5.13",
     "tsx": "^4.22.4",
     "typescript": "^5.0.0"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/claude-agent-sdk-linux-x64": "0.3.143",
+    "@anthropic-ai/claude-agent-sdk-linux-arm64": "0.3.143"
   }
 }
