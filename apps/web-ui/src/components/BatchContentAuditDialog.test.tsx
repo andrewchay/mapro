@@ -125,4 +125,39 @@ describe('BatchContentAuditDialog', () => {
     await waitFor(() => expect(getByText('审核服务异常')).toBeTruthy())
     expect(onAudited).not.toHaveBeenCalled()
   })
+
+  it('Given 部分失败 when 重试 then 已成功的 KOL 不再重复创建', async () => {
+    let calls = 0
+    mockWebAPI.createContentAudit = mock(async () => {
+      calls++
+      if (calls === 1) return { ...baseAudit }
+      throw new Error('服务抖动')
+    })
+
+    const onAudited = mock(async () => {})
+    const { getByText, getByPlaceholderText, queryByText } = render(
+      <BatchContentAuditDialog campaign={campaign} kols={kols} open={true} onClose={mock(() => {})} onAudited={onAudited} />,
+    )
+
+    fireEvent.change(getByPlaceholderText(/批量审核的内容文案/), { target: { value: '测试内容' } })
+
+    const submitButton = getByText('提交批量审核')
+    await act(async () => {
+      fireEvent.click(submitButton)
+    })
+
+    await waitFor(() => expect(getByText('服务抖动')).toBeTruthy())
+    expect(mockWebAPI.createContentAudit).toHaveBeenCalledTimes(2)
+
+    // 第二次点击：只应为剩余 KOL 创建审核
+    mockWebAPI.createContentAudit = mock(async () => ({ ...baseAudit, kolId: 'k2', kolName: '达人 B' }))
+    await act(async () => {
+      fireEvent.click(submitButton)
+    })
+
+    await waitFor(() => expect(onAudited).toHaveBeenCalled())
+    expect(mockWebAPI.createContentAudit).toHaveBeenCalledTimes(1)
+    const lastCall = mockWebAPI.createContentAudit.mock.calls[0] as [{ kolId: string }]
+    expect(lastCall[0].kolId).toBe('k2')
+  })
 })

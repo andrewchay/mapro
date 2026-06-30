@@ -51,6 +51,21 @@ async function runProviderContract(db: DbProvider): Promise<void> {
 
   const del = await db.execute('DELETE FROM dialect_test WHERE name = $1', ['bar'])
   expect(del.changes).toBe(1)
+
+  // insertIgnore / upsert 跨方言一致性
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS dialect_upsert_test (
+      k TEXT PRIMARY KEY,
+      v TEXT NOT NULL
+    );
+    DELETE FROM dialect_upsert_test;
+  `)
+  const firstIgnore = await db.insertIgnore('dialect_upsert_test', ['k', 'v'], ['a', '1'])
+  expect(firstIgnore.changes).toBe(1)
+  const secondIgnore = await db.insertIgnore('dialect_upsert_test', ['k', 'v'], ['a', '2'])
+  expect(secondIgnore.changes).toBe(0)
+  const upsertRow = await db.queryOne<{ v: string }>('SELECT v FROM dialect_upsert_test WHERE k = $1', ['a'])
+  expect(upsertRow?.v).toBe('1')
 }
 
 describe('DbProvider 方言一致性', () => {

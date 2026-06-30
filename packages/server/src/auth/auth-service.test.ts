@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { createDbProvider, MigrationRunner, loadMigrations } from '../db/index.ts'
 import { AuthRepository } from './auth-repository.ts'
 import { AuthService, AuthError } from './auth-service.ts'
+import { BuiltInRoles } from './rbac-constants.ts'
 import type { DbProvider } from '../db/types.ts'
 
 function createTestDb(): DbProvider {
@@ -93,5 +94,20 @@ describe('AuthService', () => {
 
     const user = await service.verifyAccessToken(login.accessToken)
     expect(user.email).toBe('admin@test.com')
+  })
+
+  test('重复分配角色不抛错', async () => {
+    const repository = new AuthRepository({ db, tenantId: 'default' })
+    const user = await repository.createUser({
+      email: 'user@test.com',
+      passwordHash: 'hash',
+      name: 'User',
+      status: 'active',
+      authProvider: 'local',
+      providerSubject: null,
+      tenantId: 'default',
+    })
+    await repository.assignRoleToUser(user.id, BuiltInRoles.SUPER_ADMIN)
+    await expect(repository.assignRoleToUser(user.id, BuiltInRoles.SUPER_ADMIN)).resolves.toBeUndefined()
   })
 })

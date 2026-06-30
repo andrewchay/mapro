@@ -158,9 +158,7 @@ export function CampaignDetailPage() {
           {activeTab === 'workflow' && id && <CampaignWorkflowSteps campaignId={id} />}
 
           {activeTab === 'kol-pool' && (
-            poolLoading ? (
-              <div className="text-center py-12 text-slate-500">加载中...</div>
-            ) : poolError ? (
+            poolError ? (
               <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700">{poolError}</div>
             ) : (
               <div className="space-y-3">
@@ -180,6 +178,7 @@ export function CampaignDetailPage() {
                 </div>
                 <KOLPoolList
                   pool={pool}
+                  loading={poolLoading}
                   onBrief={handleBrief}
                   onAudit={handleAudit}
                   selection={{ selected: selectedKOLIds, onChange: setSelectedKOLIds }}
@@ -189,9 +188,7 @@ export function CampaignDetailPage() {
           )}
 
           {activeTab === 'tracking' && (
-            trackingLoading ? (
-              <div className="text-center py-12 text-slate-500">加载中...</div>
-            ) : trackingError ? (
+            trackingError ? (
               <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700">{trackingError}</div>
             ) : (
               <>
@@ -206,6 +203,7 @@ export function CampaignDetailPage() {
                 </div>
                 <ContentTrackingList
                   tracking={tracking}
+                  loading={trackingLoading}
                   onEdit={handleEditTracking}
                   onAddPaid={handleAddPaid}
                   onAnalyze={handleAnalyze}
@@ -216,12 +214,10 @@ export function CampaignDetailPage() {
           )}
 
           {activeTab === 'audits' && (
-            auditsLoading ? (
-              <div className="text-center py-12 text-slate-500">加载中...</div>
-            ) : auditsError ? (
+            auditsError ? (
               <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700">{auditsError}</div>
             ) : (
-              <ContentAuditList audits={audits} />
+              <ContentAuditList audits={audits} loading={auditsLoading} />
             )
           )}
         </div>

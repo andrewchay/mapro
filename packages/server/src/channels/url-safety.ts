@@ -52,13 +52,13 @@ export function isDangerousHostname(hostname: string): boolean {
   return false
 }
 
-/** 解析 hostname 的所有 A 记录 */
+/** 解析 hostname 的所有 A / AAAA 记录 */
 export async function resolveHostIps(hostname: string): Promise<string[]> {
-  try {
-    return await dns.resolve(hostname)
-  } catch {
-    return []
-  }
+  const [v4, v6] = await Promise.all([
+    dns.resolve4(hostname).catch(() => [] as string[]),
+    dns.resolve6(hostname).catch(() => [] as string[]),
+  ])
+  return [...v4, ...v6]
 }
 
 /**

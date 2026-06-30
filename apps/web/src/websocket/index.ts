@@ -13,6 +13,7 @@ import type { ChatProviderConfig } from '@ma-proma/server'
 import type { AppContext, FileProvider, UserContext } from '@ma-proma/server'
 import type { PermissionResponse, AskUserResponse, ExitPlanModeResponse } from '@ma-proma/shared'
 import type { AgentOrchestrator } from '../agent/agent-orchestrator.ts'
+import { createUserAppContext } from '../context.ts'
 
 export interface WebSocketMessage {
   type: string
@@ -41,9 +42,13 @@ export function createWebSocketHandler(
   getAgentOrchestrator: AgentOrchestratorFactory | undefined,
   deps: WebSocketHandlerDeps,
 ) {
-  const chatService = chatConfig ? new ChatService(chatConfig, deps) : null
   /** 按 WebSocket 追踪活跃的 transport detach 回调，连接关闭时统一清理 */
   const activeDetaches = new Map<WebSocket, Set<() => void>>()
+
+  function resolveChatContext(userContext?: UserContext): AppContext {
+    if (!userContext || userContext.isSystemAccount) return deps.context
+    return createUserAppContext(deps.context, userContext.userId)
+  }
 
   function trackDetach(ws: WebSocket, detach: () => void): void {
     let set = activeDetaches.get(ws)
@@ -62,7 +67,7 @@ export function createWebSocketHandler(
     }
   }
 
-  function handleMessage(ws: WebSocket, raw: string, agentOrchestrator: AgentOrchestrator | undefined) {
+  function handleMessage(ws: WebSocket, raw: string, agentOrchestrator: AgentOrchestrator | undefined, userContext?: UserContext) {
     let message: WebSocketMessage
     try {
       message = JSON.parse(raw)
@@ -72,7 +77,7 @@ export function createWebSocketHandler(
     }
 
     if (message.type === 'chat') {
-      if (!chatService) {
+      if (!chatConfig) {
         const transport = createWebSocketTransport(ws)
         transport.send('chat-stream-event', { type: 'error', error: 'Chat 未配置：请设置 MAPRO_CHAT_PROVIDER 和 MAPRO_CHAT_API_KEY' } satisfies ChatStreamEvent)
         return
@@ -80,6 +85,8 @@ export function createWebSocketHandler(
 
       const input = message.payload as ChatSendInput
       const transport = createWebSocketTransport(ws)
+      const chatContext = resolveChatContext(userContext)
+      const chatService = new ChatService(chatConfig, { context: chatContext, fileProvider: deps.fileProvider })
       chatService.sendMessage(input, transport).catch((error) => {
         console.error('[WebSocket] Chat 处理失败:', error)
         transport.send('chat-stream-event', { type: 'error', error: '处理失败' } satisfies ChatStreamEvent)
@@ -166,3 +173,4 @@ export function createWebSocketHandler(
 
   return { handleMessage, handleClose }
 }
+

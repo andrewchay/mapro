@@ -25,6 +25,7 @@ import {
   parseWebSocketToken,
   isLocalOrigin,
   createCorsOptions,
+  API_TOKEN_COOKIE_NAME,
 } from './security.ts'
 import { loadChatConfig } from '@ma-proma/server'
 import type { UserContext } from '@ma-proma/server'
@@ -155,16 +156,21 @@ async function bootstrap(): Promise<void> {
   }
 
   function serveIndexHtml(staticDir: string): void {
-    app.use(express.static(staticDir))
-    app.get('*', (_req, res) => {
+    // index: false 让根路径也落到下方的 fallback 路由，从而可以统一设置 httpOnly Cookie
+    app.use(express.static(staticDir, { index: false }))
+    app.get('*', (req, res) => {
       const indexPath = resolve(staticDir, 'index.html')
       try {
-        let html = readFileSync(indexPath, 'utf-8')
+        const html = readFileSync(indexPath, 'utf-8')
         const token = getApiToken()
         if (token) {
-          // 将 token 注入前端运行时，避免用户手动输入；此 token 本身已通过 Authorization 校验
-          const tokenScript = `<script>window.MAPRO_API_TOKEN=${JSON.stringify(token)}</script>`
-          html = html.replace('</head>', `${tokenScript}</head>`)
+          // 服务账号 Token 通过 httpOnly Cookie 自动携带，避免暴露在页面全局变量中
+          res.cookie(API_TOKEN_COOKIE_NAME, token, {
+            httpOnly: true,
+            sameSite: 'strict',
+            secure: req.secure,
+            path: '/',
+          })
         }
         res.setHeader('Content-Type', 'text/html; charset=utf-8')
         res.send(html)
@@ -249,7 +255,7 @@ async function bootstrap(): Promise<void> {
     try {
       const agentOrchestrator = await getAgentOrchestrator(userContext)
       ws.on('message', (message) => {
-        handleMessage(ws, message.toString(), agentOrchestrator)
+        handleMessage(ws, message.toString(), agentOrchestrator, userContext)
       })
     } catch (error) {
       console.error('[WebSocket] 创建 Agent Orchestrator 失败:', error)

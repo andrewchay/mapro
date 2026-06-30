@@ -100,6 +100,13 @@ export class PostgresDbProvider implements DbProvider {
     )
     return rows.map((r) => r.column_name)
   }
+
+  async insertIgnore(tableName: string, columns: string[], values: unknown[]): Promise<{ changes: number }> {
+    const cols = columns.map((c) => `"${c}"`).join(', ')
+    const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ')
+    const sql = `INSERT INTO "${tableName}" (${cols}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`
+    return this.execute(sql, values)
+  }
 }
 
 /**

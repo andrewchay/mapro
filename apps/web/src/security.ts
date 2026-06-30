@@ -8,9 +8,20 @@ import type { CorsOptions } from 'cors'
 import type { IncomingMessage } from 'node:http'
 import { URL } from 'node:url'
 
+/** Web UI 自动认证用的 httpOnly Cookie 名称 */
+export const API_TOKEN_COOKIE_NAME = 'mapro_api_token'
+
 /** 当前进程配置的 API Token */
 export function getApiToken(): string | undefined {
   return process.env.MAPRO_API_TOKEN
+}
+
+/** 从请求 Cookie 头中解析 API Token（供 httpOnly Cookie 自动认证路径使用） */
+export function getApiTokenFromCookies(req: { headers?: { cookie?: string } }): string | undefined {
+  const cookieHeader = req.headers?.cookie
+  if (!cookieHeader) return undefined
+  const match = cookieHeader.match(new RegExp(`(?:^|\\s)${API_TOKEN_COOKIE_NAME}=([^;]+)`))
+  return match ? decodeURIComponent(match[1]!) : undefined
 }
 
 /** 校验 HTTP Authorization Bearer Token；未配置 token 时直接放行 */
@@ -24,7 +35,7 @@ export function validateBearerToken(authHeader: string | undefined): boolean {
 /** 从 WebSocket 握手 URL 的 query string 解析 token */
 export function parseWebSocketToken(req: IncomingMessage): string | undefined {
   const url = new URL(req.url ?? '/', 'http://localhost')
-  return url.searchParams.get('token') ?? undefined
+  return url.searchParams.get('token') ?? getApiTokenFromCookies(req) ?? undefined
 }
 
 /** 校验 WebSocket token；未配置 token 时直接放行 */

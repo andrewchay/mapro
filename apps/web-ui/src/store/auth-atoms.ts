@@ -30,12 +30,34 @@ export const isAuthenticatedAtom = atom((get) => get(authStateAtom).isAuthentica
 export const authLoadingAtom = atom((get) => get(authStateAtom).isLoading)
 export const userPermissionsAtom = atom((get) => get(authStateAtom).permissions)
 
-/** 初始化认证状态：优先用 refresh cookie 恢复 access token，再调 /auth/me */
+/** 初始化认证状态：优先尝试 /auth/me（支持服务账号 Token 的 httpOnly Cookie），失败后回退到 refresh cookie */
 export function createAuthInitializeAtom() {
   return atom(null, async (_get, set) => {
     try {
-      // 页面刷新后内存 access token 丢失，先用 httpOnly refresh cookie 恢复
+      // 页面刷新后内存 access token 丢失，先尝试直接 /auth/me（服务账号 Token 可通过 httpOnly Cookie 自动通过）
+      // 失败后回退到 refresh cookie 恢复 JWT access token
       if (!getAccessToken()) {
+        try {
+          const { userContext } = await authAPI.me()
+          set(authStateAtom, {
+            user: {
+              id: userContext.userId,
+              email: '',
+              name: '',
+              status: 'active',
+              tenantId: userContext.tenantId,
+            },
+            roles: userContext.roles,
+            permissions: userContext.permissions,
+            isSystemAccount: userContext.isSystemAccount ?? false,
+            isLoading: false,
+            isAuthenticated: true,
+          })
+          return
+        } catch {
+          // 继续尝试 refresh cookie
+        }
+
         try {
           const refreshResult = await authAPI.refresh()
           setAccessToken(refreshResult.accessToken)

@@ -223,10 +223,7 @@ export class AuthRepository {
   }
 
   async assignRoleToUser(userId: string, roleId: string): Promise<void> {
-    await this.db.execute(
-      'INSERT OR IGNORE INTO user_roles (user_id, role_id) VALUES ($1, $2)',
-      [userId, roleId],
-    )
+    await this.db.insertIgnore('user_roles', ['user_id', 'role_id'], [userId, roleId])
   }
 
   async getUserRoles(userId: string): Promise<RoleRecord[]> {

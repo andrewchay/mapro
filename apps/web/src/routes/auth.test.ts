@@ -148,8 +148,11 @@ describe('Auth Routes', () => {
   let server: Server
   let baseUrl: string
   let authService: AuthService
+  let originalApiToken: string | undefined
 
   beforeAll(async () => {
+    originalApiToken = process.env.MAPRO_API_TOKEN
+    process.env.MAPRO_API_TOKEN = 'service-token'
     authService = createMockAuthService()
     const app = express()
     app.use('/auth', createAuthRouter({ authService, permissionService: createMockPermissionService() }))
@@ -167,6 +170,11 @@ describe('Auth Routes', () => {
   })
 
   afterAll(() => {
+    if (originalApiToken !== undefined) {
+      process.env.MAPRO_API_TOKEN = originalApiToken
+    } else {
+      delete process.env.MAPRO_API_TOKEN
+    }
     server?.close()
   })
 
@@ -267,5 +275,16 @@ describe('Auth Routes', () => {
   test('GET /auth/me 无凭证返回 401', async () => {
     const res = await httpFetch(baseUrl, '/auth/me')
     expect(res.status).toBe(401)
+  })
+
+  test('GET /auth/me 通过 API Token Cookie 认证返回系统上下文', async () => {
+    const res = await httpFetch(baseUrl, '/auth/me', {
+      headers: { Cookie: 'mapro_api_token=service-token' },
+    })
+    expect(res.status).toBe(200)
+    const body = res.body as { success: boolean; userContext: { userId: string; isSystemAccount: boolean } }
+    expect(body.success).toBe(true)
+    expect(body.userContext.userId).toBe('system')
+    expect(body.userContext.isSystemAccount).toBe(true)
   })
 })

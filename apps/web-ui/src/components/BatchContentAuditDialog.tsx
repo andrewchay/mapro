@@ -8,7 +8,7 @@ interface BatchContentAuditDialogProps {
   kols: CampaignKOLPoolItem[]
   open: boolean
   onClose: () => void
-  onAudited?: () => void
+  onAudited?: () => void | Promise<void>
 }
 
 export function BatchContentAuditDialog({ campaign, kols, open, onClose, onAudited }: BatchContentAuditDialogProps) {
@@ -16,12 +16,14 @@ export function BatchContentAuditDialog({ campaign, kols, open, onClose, onAudit
   const [submitting, setSubmitting] = React.useState(false)
   const [progress, setProgress] = React.useState(0)
   const [error, setError] = React.useState<string | null>(null)
+  const [succeededIds, setSucceededIds] = React.useState<Set<string>>(new Set())
 
   React.useEffect(() => {
     if (!open) {
       setContentDesc('')
       setProgress(0)
       setError(null)
+      setSucceededIds(new Set())
     }
   }, [open])
 
@@ -31,11 +33,12 @@ export function BatchContentAuditDialog({ campaign, kols, open, onClose, onAudit
     if (!contentDesc.trim()) return
     setSubmitting(true)
     setError(null)
-    setProgress(0)
+
+    const pendingKols = kols.filter((kol) => !succeededIds.has(kol.kolId))
 
     try {
-      for (let i = 0; i < kols.length; i++) {
-        const kol = kols[i]
+      for (let i = 0; i < pendingKols.length; i++) {
+        const kol = pendingKols[i]
         if (!kol) continue
         await webAPI.createContentAudit({
           campaignId: campaign.id,
@@ -47,9 +50,14 @@ export function BatchContentAuditDialog({ campaign, kols, open, onClose, onAudit
           contentType: '图文',
           contentDescription: contentDesc.trim(),
         })
-        setProgress(i + 1)
+        setSucceededIds((prev) => {
+          const next = new Set(prev)
+          next.add(kol.kolId)
+          return next
+        })
+        setProgress((prev) => prev + 1)
       }
-      onAudited?.()
+      await onAudited?.()
       onClose()
     } catch (err) {
       const message = err instanceof Error ? err.message : '批量审核失败'
@@ -59,6 +67,8 @@ export function BatchContentAuditDialog({ campaign, kols, open, onClose, onAudit
       setSubmitting(false)
     }
   }
+
+  const allSucceeded = succeededIds.size === kols.length
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -77,6 +87,12 @@ export function BatchContentAuditDialog({ campaign, kols, open, onClose, onAudit
           {error && (
             <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
               {error}
+            </div>
+          )}
+
+          {allSucceeded && (
+            <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-700">
+              全部 KOL 审核已创建成功。
             </div>
           )}
 
@@ -103,7 +119,9 @@ export function BatchContentAuditDialog({ campaign, kols, open, onClose, onAudit
               {kols.map((kol) => (
                 <div key={kol.kolId} className="flex items-center justify-between px-3 py-2 text-sm">
                   <span className="text-slate-900">{kol.name}</span>
-                  <span className="text-slate-500">{kol.platform}</span>
+                  <span className={`text-xs ${succeededIds.has(kol.kolId) ? 'text-emerald-600' : 'text-slate-500'}`}>
+                    {succeededIds.has(kol.kolId) ? '已创建' : kol.platform}
+                  </span>
                 </div>
               ))}
             </div>
@@ -129,13 +147,18 @@ export function BatchContentAuditDialog({ campaign, kols, open, onClose, onAudit
           <button
             type="button"
             onClick={() => void handleSubmit()}
-            disabled={submitting || !contentDesc.trim() || kols.length === 0}
+            disabled={submitting || !contentDesc.trim() || kols.length === 0 || allSucceeded}
             className="inline-flex items-center gap-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg"
           >
             {submitting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 审核中...
+              </>
+            ) : allSucceeded ? (
+              <>
+                <ShieldCheck className="w-4 h-4" />
+                已完成
               </>
             ) : (
               <>

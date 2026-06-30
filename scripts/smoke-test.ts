@@ -19,6 +19,7 @@ const TEST_WS_PORT = 8999
 const TEST_DATA_DIR = mkdtempSync(join(tmpdir(), 'mapro-smoke-'))
 
 let serverProcess: ReturnType<typeof spawn> | null = null
+let smokeAccessToken: string | null = null
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -85,9 +86,46 @@ async function stopServer(): Promise<void> {
   rmSync(TEST_DATA_DIR, { recursive: true, force: true })
 }
 
-async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`http://localhost:${TEST_PORT}/api${path}`, {
+async function fetchAuth<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`http://localhost:${TEST_PORT}/auth${path}`, {
     headers: { 'Content-Type': 'application/json' },
+    ...options,
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`HTTP ${res.status}: ${text}`)
+  }
+  return res.json() as Promise<T>
+}
+
+async function setupAndLogin(): Promise<void> {
+  const testUser = { email: 'smoke@example.com', password: 'smoke-password-123', name: 'Smoke Test' }
+  try {
+    await fetchAuth<{ success: boolean }>('/setup', {
+      method: 'POST',
+      body: JSON.stringify(testUser),
+    })
+    console.log('  ✅ 已创建初始管理员')
+  } catch (error) {
+    // setup 可能因已有用户而失败，忽略并尝试登录
+    console.log('  ℹ️ setup 跳过:', error instanceof Error ? error.message : String(error))
+  }
+
+  const { accessToken } = await fetchAuth<{ accessToken: string }>('/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: testUser.email, password: testUser.password }),
+  })
+  smokeAccessToken = accessToken
+  console.log('  ✅ 已登录并获取 access token')
+}
+
+async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (smokeAccessToken) {
+    headers.Authorization = `Bearer ${smokeAccessToken}`
+  }
+  const res = await fetch(`http://localhost:${TEST_PORT}/api${path}`, {
+    headers,
     ...options,
   })
   if (!res.ok) {
@@ -99,7 +137,10 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
 
 async function testWebSocket(type: 'chat' | 'agent'): Promise<void> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://localhost:${TEST_WS_PORT}`)
+    const wsUrl = smokeAccessToken
+      ? `ws://localhost:${TEST_WS_PORT}?token=${encodeURIComponent(smokeAccessToken)}`
+      : `ws://localhost:${TEST_WS_PORT}`
+    const ws = new WebSocket(wsUrl)
     const timeout = setTimeout(() => {
       ws.close()
       reject(new Error('WebSocket 测试超时'))
@@ -150,7 +191,10 @@ async function run(): Promise<void> {
     console.assert(health.status === 'ok', '健康检查失败')
     console.log('  ✅', health)
 
-    console.log('[Smoke Test] 2. 创建 Campaign')
+    console.log('[Smoke Test] 2. 认证（setup + login）')
+    await setupAndLogin()
+
+    console.log('[Smoke Test] 3. 创建 Campaign')
     const { campaign } = await fetchApi<{ campaign: { id: string; name: string } }>('/campaigns', {
       method: 'POST',
       body: JSON.stringify({
@@ -164,27 +208,27 @@ async function run(): Promise<void> {
     console.assert(campaign.name === '冒烟测试 Campaign', '创建 Campaign 失败')
     console.log('  ✅', campaign.id)
 
-    console.log('[Smoke Test] 3. 获取 Campaign 列表')
+    console.log('[Smoke Test] 4. 获取 Campaign 列表')
     const { campaigns } = await fetchApi<{ campaigns: { id: string }[] }>('/campaigns')
     console.assert(campaigns.length === 1, 'Campaign 列表数量不对')
     console.log('  ✅ 列表数量:', campaigns.length)
 
-    console.log('[Smoke Test] 4. 获取 Campaign 详情')
+    console.log('[Smoke Test] 5. 获取 Campaign 详情')
     const { campaign: detail } = await fetchApi<{ campaign: { id: string } }>(`/campaigns/${campaign.id}`)
     console.assert(detail.id === campaign.id, 'Campaign 详情不匹配')
     console.log('  ✅')
 
-    console.log('[Smoke Test] 5. 获取 KOL 候选池')
+    console.log('[Smoke Test] 6. 获取 KOL 候选池')
     const { pool } = await fetchApi<{ pool: unknown[] }>(`/campaigns/${campaign.id}/kol-pool`)
     console.assert(Array.isArray(pool), '候选池返回格式错误')
     console.log('  ✅ 数量:', pool.length)
 
-    console.log('[Smoke Test] 6. 获取内容追踪')
+    console.log('[Smoke Test] 7. 获取内容追踪')
     const { tracking } = await fetchApi<{ tracking: unknown[] }>(`/campaigns/${campaign.id}/content-tracking`)
     console.assert(Array.isArray(tracking), '内容追踪返回格式错误')
     console.log('  ✅ 数量:', tracking.length)
 
-    console.log('[Smoke Test] 7. 工作流加载与推进')
+    console.log('[Smoke Test] 8. 工作流加载与推进')
     const { workflow } = await fetchApi<{ workflow: { steps: { id: string; status: string }[]; currentStepIndex: number } }>(`/campaigns/${campaign.id}/workflow`)
     console.assert(workflow.steps.length === 13, '工作流步骤数量不对')
     console.assert(workflow.currentStepIndex === -1, '初始当前步骤索引不对')
@@ -199,16 +243,16 @@ async function run(): Promise<void> {
     console.assert(advanced.currentStepIndex === 1, '当前步骤索引未更新')
     console.log('  ✅ 已推进到:', advanced.steps[1]?.id)
 
-    console.log('[Smoke Test] 8. WebSocket Chat 未配置提示')
+    console.log('[Smoke Test] 9. WebSocket Chat 未配置提示')
     await testWebSocket('chat')
     console.log('  ✅')
 
-    console.log('[Smoke Test] 9. Agent 工作区列表')
+    console.log('[Smoke Test] 10. Agent 工作区列表')
     const { workspaces } = await fetchApi<{ workspaces: { id: string; slug: string; name: string }[] }>('/agent/workspaces')
     console.assert(workspaces.length >= 1, '默认工作区未创建')
     console.log('  ✅ 数量:', workspaces.length)
 
-    console.log('[Smoke Test] 10. 创建 Agent 会话')
+    console.log('[Smoke Test] 11. 创建 Agent 会话')
     const defaultWorkspace = workspaces.find((w) => w.slug === 'default') ?? workspaces[0]
     const { session } = await fetchApi<{ session: { id: string; title: string } }>('/agent/sessions', {
       method: 'POST',
@@ -217,12 +261,12 @@ async function run(): Promise<void> {
     console.assert(session.title === '冒烟测试 Agent 会话', '创建 Agent 会话失败')
     console.log('  ✅', session.id)
 
-    console.log('[Smoke Test] 11. 获取 Agent 会话详情')
+    console.log('[Smoke Test] 12. 获取 Agent 会话详情')
     const { session: sessionDetail, messages } = await fetchApi<{ session: { id: string }; messages: unknown[] }>(`/agent/sessions/${session.id}`)
     console.assert(sessionDetail.id === session.id, 'Agent 会话详情不匹配')
     console.log('  ✅ 消息数:', messages.length)
 
-    console.log('[Smoke Test] 12. WebSocket Agent 未配置提示')
+    console.log('[Smoke Test] 13. WebSocket Agent 未配置提示')
     await testWebSocket('agent')
     console.log('  ✅')
 

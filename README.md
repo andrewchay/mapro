@@ -239,7 +239,7 @@ Web 版已内置基于 JWT + httpOnly refresh cookie 的多用户认证与 RBAC 
 **Token 行为：**
 
 - `MAPRO_API_TOKEN` 同时保护 HTTP API（`Authorization: Bearer <token>`）与 WebSocket（`ws://host:port/?token=<token>`）。
-- Web UI 由后端托管时会自动注入该 token，无需手动输入；独立构建（CDN / Vercel）可通过 `VITE_API_TOKEN` 或 `localStorage.setItem('mapro-api-token', '<token>')` 提供。
+- Web UI 由后端托管时会通过 `httpOnly; SameSite=Strict` Cookie 自动携带该 token，无需手动输入，也不会暴露在页面全局变量中；独立构建（CDN / Vercel）可通过 `VITE_API_TOKEN` 或 `localStorage.setItem('mapro-api-token', '<token>')` 提供。
 - 未设置 Token 且未禁用认证时，CORS 仅允许 `localhost` / `127.0.0.1` Origin，WebSocket 也仅接受本地 Origin，降低恶意网页调用本机 API 的风险。
 - 设置 Token 后，CORS 默认禁止跨域；如需第三方域名访问，请配置 `MAPRO_ALLOWED_ORIGINS`。
 - 生产环境务必配置 `MAPRO_JWT_SECRET`（或复用强随机的 `MAPRO_MASTER_KEY`），并启用 HTTPS。

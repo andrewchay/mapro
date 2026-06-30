@@ -12,6 +12,8 @@ import {
   isValidWebSocketToken,
   isLocalOrigin,
   createCorsOptions,
+  getApiTokenFromCookies,
+  API_TOKEN_COOKIE_NAME,
 } from './security.ts'
 
 describe('validateBearerToken', () => {
@@ -54,6 +56,33 @@ describe('parseWebSocketToken', () => {
   test('保留 URL 中其他 query 参数', () => {
     const req = { url: '/?foo=bar&token=abc&baz=qux' } as IncomingMessage
     expect(parseWebSocketToken(req)).toBe('abc')
+  })
+
+  test('从 httpOnly Cookie 解析 token', () => {
+    const req = { url: '/', headers: { cookie: `${API_TOKEN_COOKIE_NAME}=cookie-token` } } as IncomingMessage
+    expect(parseWebSocketToken(req)).toBe('cookie-token')
+  })
+
+  test('query token 优先于 cookie token', () => {
+    const req = {
+      url: '/?token=query-token',
+      headers: { cookie: `${API_TOKEN_COOKIE_NAME}=cookie-token` },
+    } as IncomingMessage
+    expect(parseWebSocketToken(req)).toBe('query-token')
+  })
+})
+
+describe('getApiTokenFromCookies', () => {
+  test('无 cookie 返回 undefined', () => {
+    const req = { headers: {} } as IncomingMessage
+    expect(getApiTokenFromCookies(req)).toBeUndefined()
+  })
+
+  test('从多段 cookie 中解析 token', () => {
+    const req = {
+      headers: { cookie: `other=1; ${API_TOKEN_COOKIE_NAME}=secret%20token; foo=2` },
+    } as IncomingMessage
+    expect(getApiTokenFromCookies(req)).toBe('secret token')
   })
 })
 

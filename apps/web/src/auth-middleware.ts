@@ -7,6 +7,7 @@
 import type { Request, Response, NextFunction } from 'express'
 import type { UserContext } from '@ma-proma/server'
 import type { AuthService, PermissionService } from '@ma-proma/server'
+import { getApiTokenFromCookies } from './security.ts'
 
 export interface RequestWithUserContext extends Request {
   userContext?: UserContext
@@ -30,7 +31,7 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions) {
     }
 
     const authHeader = req.headers.authorization
-    const token = extractBearerToken(authHeader)
+    const token = extractBearerToken(authHeader) ?? getApiTokenFromCookies(req)
 
     if (!token) {
       res.status(401).json({ success: false, error: '未授权：缺少凭证' })

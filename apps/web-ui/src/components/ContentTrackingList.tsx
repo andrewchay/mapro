@@ -1,5 +1,8 @@
+import * as React from 'react'
 import type { KOLContentTracking } from '@ma-proma/shared'
-import { Pencil, Megaphone, Sparkles, Trash2 } from 'lucide-react'
+import { Pencil, Megaphone, Sparkles, Trash2, BarChart3 } from 'lucide-react'
+import { EmptyState } from './ui/EmptyState.tsx'
+import { TableSkeleton } from './ui/TableSkeleton.tsx'
 
 const GRADE_LABEL: Record<string, string> = {
   excellent: '优秀',
@@ -19,18 +22,25 @@ const GRADE_COLOR: Record<string, string> = {
 
 interface ContentTrackingListProps {
   tracking: KOLContentTracking[]
+  loading?: boolean
   onEdit?: (item: KOLContentTracking) => void
   onAddPaid?: (item: KOLContentTracking) => void
   onAnalyze?: (item: KOLContentTracking) => void
   onDelete?: (id: string) => void
 }
 
-export function ContentTrackingList({ tracking, onEdit, onAddPaid, onAnalyze, onDelete }: ContentTrackingListProps) {
+export function ContentTrackingList({ tracking, loading, onEdit, onAddPaid, onAnalyze, onDelete }: ContentTrackingListProps) {
+  if (loading) {
+    return <TableSkeleton columns={9} />
+  }
+
   if (tracking.length === 0) {
     return (
-      <div className="text-center py-12 text-slate-500 bg-white rounded-xl border border-dashed border-slate-300">
-        暂无内容追踪数据
-      </div>
+      <EmptyState
+        icon={BarChart3}
+        title="暂无内容追踪数据"
+        description="添加第一条 KOL 内容数据，开始回收投放效果。"
+      />
     )
   }
 

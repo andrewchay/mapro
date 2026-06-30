@@ -5,7 +5,7 @@
  */
 
 import { describe, test, expect } from 'bun:test'
-import { validateChannelBaseUrl, validateChannelBaseUrlAsync, resolveHostIps } from './url-safety.ts'
+import { validateChannelBaseUrl, validateChannelBaseUrlAsync, resolveHostIps, isDangerousHostname } from './url-safety.ts'
 
 describe('validateChannelBaseUrl 字面量校验', () => {
   test('允许合法 HTTPS 域名', () => {
@@ -27,6 +27,24 @@ describe('validateChannelBaseUrl 字面量校验', () => {
     expect(validateChannelBaseUrl('https://192.168.1.1').safe).toBe(false)
     expect(validateChannelBaseUrl('https://10.0.0.1').safe).toBe(false)
     expect(validateChannelBaseUrl('https://172.16.0.1').safe).toBe(false)
+  })
+})
+
+describe('isDangerousHostname IPv6 与映射地址', () => {
+  test('识别回环 IPv6', () => {
+    expect(isDangerousHostname('::1')).toBe(true)
+  })
+
+  test('识别链路本地 IPv6', () => {
+    expect(isDangerousHostname('fe80::1')).toBe(true)
+  })
+
+  test('识别唯一本地 IPv6', () => {
+    expect(isDangerousHostname('fc00::1')).toBe(true)
+  })
+
+  test('识别 IPv4 映射地址', () => {
+    expect(isDangerousHostname('::ffff:192.168.1.1')).toBe(true)
   })
 })
 

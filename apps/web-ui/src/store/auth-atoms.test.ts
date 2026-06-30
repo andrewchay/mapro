@@ -1,7 +1,8 @@
 /**
  * 认证状态原子测试
  *
- * 验证页面刷新后 authInitializeAtom 会先调用 refresh，再调 me 恢复登录态。
+ * 验证页面刷新后 authInitializeAtom 会先调用 /auth/me（支持服务账号 Cookie），
+ * 失败后再回退到 refresh，最后调 me 恢复登录态。
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test'
@@ -55,16 +56,28 @@ describe('authInitializeAtom', () => {
     tokenStore.accessToken = null
   })
 
-  test('无 access token 时先 refresh 再 me', async () => {
+  test('无 access token 时先尝试 me，成功则不再 refresh', async () => {
     const store = createStore()
 
     await store.set(authInitializeAtom)
 
-    expect(mockRefresh).toHaveBeenCalledTimes(1)
     expect(mockMe).toHaveBeenCalledTimes(1)
-    expect(tokenStore.accessToken).toBe('refreshed-token')
+    expect(mockRefresh).toHaveBeenCalledTimes(0)
+    expect(tokenStore.accessToken).toBeNull()
     expect(store.get(authStateAtom).isAuthenticated).toBe(true)
     expect(store.get(authStateAtom).user?.id).toBe('user-1')
+  })
+
+  test('无 access token 且 me 失败时回退到 refresh，再调 me', async () => {
+    mockMe.mockImplementationOnce(() => Promise.reject(new Error('no cookie')))
+    const store = createStore()
+
+    await store.set(authInitializeAtom)
+
+    expect(mockMe).toHaveBeenCalledTimes(2)
+    expect(mockRefresh).toHaveBeenCalledTimes(1)
+    expect(tokenStore.accessToken).toBe('refreshed-token')
+    expect(store.get(authStateAtom).isAuthenticated).toBe(true)
   })
 
   test('内存已有 access token 时直接 me', async () => {
@@ -78,15 +91,16 @@ describe('authInitializeAtom', () => {
     expect(store.get(authStateAtom).isAuthenticated).toBe(true)
   })
 
-  test('refresh 失败时结束 loading 并视为未登录', async () => {
-    mockRefresh.mockImplementationOnce(() => Promise.reject(new Error('no cookie')))
+  test('me 失败且 refresh 失败时结束 loading 并视为未登录', async () => {
+    mockMe.mockImplementationOnce(() => Promise.reject(new Error('no cookie')))
+    mockRefresh.mockImplementationOnce(() => Promise.reject(new Error('no refresh cookie')))
 
     const store = createStore()
 
     await store.set(authInitializeAtom)
 
+    expect(mockMe).toHaveBeenCalledTimes(1)
     expect(mockRefresh).toHaveBeenCalledTimes(1)
-    expect(mockMe).toHaveBeenCalledTimes(0)
     expect(store.get(authStateAtom).isLoading).toBe(false)
     expect(store.get(authStateAtom).isAuthenticated).toBe(false)
   })

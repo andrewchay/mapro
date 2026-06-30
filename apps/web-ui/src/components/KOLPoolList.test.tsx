@@ -68,4 +68,15 @@ describe('KOLPoolList', () => {
 
     expect(onBrief).toHaveBeenCalledWith(pool[0])
   })
+
+  it('Given loading when 渲染 then 展示骨架屏', () => {
+    const { container } = render(<KOLPoolList pool={[]} loading />)
+    const rows = container.querySelectorAll('tbody tr')
+    expect(rows.length).toBe(5)
+  })
+
+  it('Given 空列表 when 渲染 then 展示空状态提示', () => {
+    const { getByText } = render(<KOLPoolList pool={[]} />)
+    expect(getByText('暂无 KOL 候选')).toBeTruthy()
+  })
 })

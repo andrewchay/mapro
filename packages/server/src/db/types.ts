@@ -31,6 +31,12 @@ export interface DbProvider {
 
   /** 列出表的所有列名（用于跨方言的 Schema 迁移） */
   listTableColumns(tableName: string): Promise<string[]>
+
+  /**
+   * 插入一行；若主键/唯一约束冲突则忽略。
+   * 由具体方言实现：SQLite 使用 INSERT OR IGNORE，PostgreSQL 使用 ON CONFLICT DO NOTHING。
+   */
+  insertIgnore(tableName: string, columns: string[], values: unknown[]): Promise<{ changes: number }>
 }
 
 export interface DbTransaction {

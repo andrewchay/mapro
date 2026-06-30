@@ -1,6 +1,8 @@
 import * as React from 'react'
 import type { CampaignKOLPoolItem } from '@ma-proma/shared'
-import { FileText, ShieldCheck } from 'lucide-react'
+import { FileText, ShieldCheck, Users } from 'lucide-react'
+import { EmptyState } from './ui/EmptyState.tsx'
+import { TableSkeleton } from './ui/TableSkeleton.tsx'
 
 const POOL_STATUS_LABEL: Record<string, string> = {
   candidate: '候选',
@@ -12,6 +14,7 @@ const POOL_STATUS_LABEL: Record<string, string> = {
 
 interface KOLPoolListProps {
   pool: CampaignKOLPoolItem[]
+  loading?: boolean
   onBrief?: (kol: CampaignKOLPoolItem) => void
   onAudit?: (kol: CampaignKOLPoolItem) => void
   selection?: {
@@ -20,7 +23,7 @@ interface KOLPoolListProps {
   }
 }
 
-export function KOLPoolList({ pool, onBrief, onAudit, selection }: KOLPoolListProps) {
+export function KOLPoolList({ pool, loading, onBrief, onAudit, selection }: KOLPoolListProps) {
   const isSelectable = !!selection
   const selectedSet = React.useMemo(() => new Set(selection?.selected ?? []), [selection?.selected])
   const allSelected = pool.length > 0 && pool.every((item) => selectedSet.has(item.kolId))
@@ -46,11 +49,17 @@ export function KOLPoolList({ pool, onBrief, onAudit, selection }: KOLPoolListPr
     selection.onChange(Array.from(next))
   }
 
+  if (loading) {
+    return <TableSkeleton columns={isSelectable ? 8 : 7} />
+  }
+
   if (pool.length === 0) {
     return (
-      <div className="text-center py-12 text-slate-500 bg-white rounded-xl border border-dashed border-slate-300">
-        暂无 KOL 候选
-      </div>
+      <EmptyState
+        icon={Users}
+        title="暂无 KOL 候选"
+        description="可先在 KOL 数据库中搜索并导入合适的达人到当前 Campaign。"
+      />
     )
   }
 

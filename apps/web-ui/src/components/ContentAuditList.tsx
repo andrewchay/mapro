@@ -1,8 +1,12 @@
+import * as React from 'react'
 import type { ContentAudit } from '@ma-proma/shared'
 import { ShieldCheck, CheckCircle, XCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { EmptyState } from './ui/EmptyState.tsx'
+import { TableSkeleton } from './ui/TableSkeleton.tsx'
 
 interface ContentAuditListProps {
   audits: ContentAudit[]
+  loading?: boolean
 }
 
 const STATUS_CONFIG = {
@@ -12,12 +16,18 @@ const STATUS_CONFIG = {
   reviewing: { label: '审核中', color: 'text-blue-600 bg-blue-50', icon: Loader2 },
 }
 
-export function ContentAuditList({ audits }: ContentAuditListProps) {
+export function ContentAuditList({ audits, loading }: ContentAuditListProps) {
+  if (loading) {
+    return <TableSkeleton columns={6} />
+  }
+
   if (audits.length === 0) {
     return (
-      <div className="text-center py-12 text-slate-500 bg-white rounded-xl border border-dashed border-slate-300">
-        暂无内容审核记录
-      </div>
+      <EmptyState
+        icon={ShieldCheck}
+        title="暂无内容审核记录"
+        description="在 KOL 候选池中选择达人，提交内容文案进行 AI 审核。"
+      />
     )
   }
 

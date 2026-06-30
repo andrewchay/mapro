@@ -71,6 +71,13 @@ export class SqliteDbProvider implements DbProvider {
     const { rows } = await this.query<{ name: string }>(`PRAGMA table_info(${tableName})`)
     return rows.map((r) => r.name)
   }
+
+  async insertIgnore(tableName: string, columns: string[], values: unknown[]): Promise<{ changes: number }> {
+    const cols = columns.map((c) => `"${c}"`).join(', ')
+    const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ')
+    const sql = `INSERT OR IGNORE INTO "${tableName}" (${cols}) VALUES (${placeholders})`
+    return this.execute(sql, values)
+  }
 }
 
 /** 把 $1, $2... 占位符替换为 ? */
