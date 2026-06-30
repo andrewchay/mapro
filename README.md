@@ -28,7 +28,7 @@ MAPro 是一个本地优先的 AI 桌面应用，把多模型 Chat、通用 Agen
 
 ### 下载安装
 
-从 [GitHub Releases](https://github.com/andrewchay/mapro/releases) 下载开源版本。当前版本为 `v0.1.9`，提供 macOS Apple Silicon、macOS Intel 和 Windows 安装包。
+从 [GitHub Releases](https://github.com/andrewchay/mapro/releases) 下载开源版本。当前版本为 `v0.9.40`，提供 macOS Apple Silicon、macOS Intel 和 Windows 安装包。
 
 ### 首次配置
 
@@ -222,6 +222,73 @@ docker compose up --build -d \
   -e MAPRO_MASTER_KEY=your-master-key-at-least-16-chars
 ```
 
+### Ubuntu 服务器一键部署
+
+如果你有一台干净的 Ubuntu 服务器，可以用仓库里的 `deploy.sh` 自动完成克隆、生成密钥、备份、构建和健康检查：
+
+```bash
+# 下载并执行（需要 root 或 sudo）
+curl -fsSL https://raw.githubusercontent.com/andrewchay/mapro/main/deploy.sh -o deploy.sh
+chmod +x deploy.sh
+sudo ./deploy.sh
+```
+
+脚本会：
+- 安装目录：`/opt/mapro`
+- 数据备份：`/opt/mapro-backups`
+- 自动生成 `.env` 并写入 `MAPRO_JWT_SECRET`、`MAPRO_MASTER_KEY`、`MAPRO_API_TOKEN`
+- 首次构建并启动 Docker 服务
+- 自动检查 `http://localhost:3000/health`
+
+后续更新：
+
+```bash
+sudo ./deploy.sh update
+```
+
+> 注意：`deploy.sh` 默认从 GitHub 拉取最新代码并在服务器本地构建 Docker 镜像，因此 Agent SDK 会根据服务器架构自动安装 `linux-x64` 或 `linux-arm64` 子包。
+
+### HTTPS 反向代理（Caddy）
+
+生产环境强烈建议前置反向代理 + HTTPS，而不是直接暴露 3000/8081 端口。
+
+#### 自动配置
+
+运行仓库提供的脚本（需要域名已解析到服务器，且防火墙放行 80/443）：
+
+```bash
+sudo ./scripts/setup-https.sh your-domain.com
+```
+
+脚本会：
+- 安装 Caddy
+- 自动生成 HTTPS Caddyfile
+- 配置 `MAPRO_TRUST_PROXY=1` 和 `MAPRO_ALLOWED_ORIGINS=https://your-domain.com`
+- 自动申请 Let's Encrypt 证书并启动 Caddy
+
+#### 手动配置
+
+复制 `Caddyfile` 到服务器并替换域名：
+
+```bash
+sudo cp Caddyfile /etc/caddy/Caddyfile
+sudo sed -i 's/your-domain.com/example.com/g' /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+然后在 `.env` 中加上：
+
+```bash
+MAPRO_TRUST_PROXY=1
+MAPRO_ALLOWED_ORIGINS=https://example.com
+```
+
+最后重启 MAPro：
+
+```bash
+docker compose restart
+```
+
 ### 认证与安全约束
 
 Web 版已内置基于 JWT + httpOnly refresh cookie 的多用户认证与 RBAC 授权。
@@ -290,10 +357,10 @@ mapro-v2/
 
 | 包 | 版本 | 职责 |
 | --- | --- | --- |
-| `@ma-proma/electron` | `0.1.12` | Electron 桌面应用 |
-| `@ma-proma/web` | `0.1.24` | Web 服务端入口 |
-| `@ma-proma/web-ui` | `0.1.19` | Web 端 React SPA |
-| `@ma-proma/server` | `0.1.25` | 服务端共享业务逻辑 |
+| `@ma-proma/electron` | `0.1.14` | Electron 桌面应用 |
+| `@ma-proma/web` | `0.1.33` | Web 服务端入口 |
+| `@ma-proma/web-ui` | `0.1.29` | Web 端 React SPA |
+| `@ma-proma/server` | `0.1.31` | 服务端共享业务逻辑 |
 | `@ma-proma/shared` | `0.1.26` | 共享类型、IPC 常量、配置和工具 |
 | `@ma-proma/core` | `0.2.9` | Provider Adapter、SSE、Shiki 高亮 |
 | `@ma-proma/ui` | `0.1.3` | 共享 React UI 组件 |

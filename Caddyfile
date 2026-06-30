@@ -1,0 +1,29 @@
+# MAPro Web Caddy 反向代理配置
+# 用法：
+#   1. 将域名替换为你的真实域名
+#   2. 确保 80/443 端口可从公网访问
+#   3. 复制到 /etc/caddy/Caddyfile 后执行：systemctl reload caddy
+#   4. 设置环境变量：MAPRO_TRUST_PROXY=1、MAPRO_ALLOWED_ORIGINS=https://your-domain.com
+
+your-domain.com {
+    # 自动申请并续期 Let's Encrypt 证书
+    tls {
+        protocols tls1.2 tls1.3
+    }
+
+    # 安全响应头
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    # 代理到 MAPro Web（HTTP 3000）
+    reverse_proxy localhost:3000 {
+        # 透传真实 IP 和协议，使 Express 的 req.secure 正确识别 HTTPS
+        header_up X-Forwarded-Host {host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Real-IP {remote}
+    }
+}
