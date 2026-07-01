@@ -144,20 +144,22 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
   },
   {
     id: 'user_analysis',
-    title: '用户分析（TA画像 + 搜索习惯）',
-    description: '构建精准受众画像，补充用户搜索习惯（平台、场景、关键词）',
+    title: '用户分析（TA画像 + 搜索习惯 + 消费者洞察）',
+    description: '构建精准受众画像，补充搜索习惯，并提炼带张力的 4A 消费者洞察',
     toolName: 'ma-ta-portrait',
     minArtifactLength: 300,
-    requiredFiles: ['ta-portrait.md', 'search-habits.md'],
+    requiredFiles: ['ta-portrait.md', 'search-habits.md', 'consumer-insight.md'],
     artifactRequirements: [
       { name: '人口统计', aliases: ['年龄', '性别', '收入', '城市', '地域', '学历', '职业'] },
       { name: '兴趣偏好', aliases: ['兴趣', '偏好', '爱好', '生活方式', '消费观'] },
       { name: '痛点需求', aliases: ['痛点', '需求', '场景', '问题', '欲望', '动机'] },
       { name: '搜索习惯', aliases: ['搜索', '关键词', '平台', '场景', '下拉词', '联想词'] },
+      { name: '消费者洞察', aliases: ['洞察', 'insight', '张力', '人性真相', '观察'] },
+      { name: '传播切入点', aliases: ['切入点', 'entry point', '传播角度', '入口'] },
     ],
-    agentPrompt: `## 步骤 3: 用户分析（TA画像 + 搜索习惯）
+    agentPrompt: `## 步骤 3: 用户分析（TA画像 + 搜索习惯 + 消费者洞察）
 
-目标：基于市场分析和竞品分析，构建精准受众画像，并补充用户搜索习惯分析。
+目标：基于市场分析和竞品分析，构建精准受众画像，补充搜索习惯，并提炼可用于传播的消费者洞察（Insight）。
 
 分析框架：
 1. **人口统计画像**：年龄、性别、收入、城市、地域、学历、职业
@@ -167,15 +169,21 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
    - 在什么平台搜索（小红书、抖音、百度等）
    - 在什么场景下搜索（种草前、决策中、使用后等）
    - 搜索什么关键词（核心词、长尾词、竞品词）
-   - 建议接入小红书聚光平台关键词规划师、千瓜/蝉妈妈/新红等工具的实时数据
+5. **消费者洞察（Consumer Insight）**：
+   - 基于画像与搜索习惯，提炼出一个带张力的人性真相
+   - 区分 Observation（观察到的现象）与 Insight（背后的动机/冲突）
+   - 参考 JWT TTB 的洞察标准：洞察不是观察，而是"为什么"的深层动机
+6. **传播切入点（Entry Point）**：
+   - 基于 Insight，明确本次 campaign 最能切入用户心智的角度
 
 执行要求：
 1. 使用 ma-ta-portrait 工具构建用户画像
 2. 产出必须保存到以下目录：\`user-analysis/\`
-3. 文件命名建议：\`ta-portrait.md\`、\`search-habits.md\`
+3. 文件命名建议：\`ta-portrait.md\`、\`search-habits.md\`、\`consumer-insight.md\`
 4. 完成标准（校验时会检查）：
    - ta-portrait.md 必须包含人口统计、兴趣偏好、痛点需求（至少300字）
    - search-habits.md 必须包含搜索平台、搜索场景、关键词列表（至少300字）
+   - consumer-insight.md 必须包含 Observation、Insight、传播切入点（至少300字）
 
 前置产物：\`market-analysis/\`、\`competitor-analysis/\` 目录中的文件
 完成后，请返回 "已完成：用户分析"并附上产物摘要。`,
@@ -255,11 +263,14 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
   {
     id: 'brand_concept',
     title: 'Brand Concept 产出',
-    description: '基于品牌DNA和品牌诊断，产出品牌愿景、价值观、品牌主张、slogan、品牌屋、Brand Tone & Visual',
+    description: '基于品牌DNA和品牌诊断，产出品牌愿景/使命、品牌意念、品牌主张、slogan、品牌屋、Brand Tone & Visual',
     toolName: 'ma-brand-house',
     minArtifactLength: 300,
+    requiredFiles: ['brand-concept.md', 'brand-house.md', 'brand-idea.md'],
     artifactRequirements: [
-      { name: '品牌愿景', aliases: ['愿景', '使命', '长期目标', 'vision', 'mission'] },
+      { name: '品牌愿景', aliases: ['愿景', 'vision', '长期目标'] },
+      { name: '品牌使命', aliases: ['使命', 'mission', '为什么存在'] },
+      { name: '品牌意念', aliases: ['品牌意念', 'brand idea', '核心思想', '品牌核心'] },
       { name: '品牌价值观', aliases: ['价值观', '信仰', 'value', '信念'] },
       { name: '品牌主张', aliases: ['主张', 'slogan', 'tagline', '宣言', '定位'] },
       { name: '品牌人格', aliases: ['人格', '个性', '性格', 'personality', '拟人'] },
@@ -270,32 +281,37 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
     ],
     agentPrompt: `## 步骤 5: Brand Concept 产出
 
-目标：基于品牌DNA（步骤4产物）和品牌诊断，系统产出品牌概念体系，包括品牌愿景、价值观、品牌主张、品牌屋、Brand Tone 和 Brand Visual。
+目标：基于品牌DNA（步骤4产物）和品牌诊断，系统产出品牌概念体系。参考 JWT TTB：Brand Vision → Brand Idea → Brand Concept；参考奥美 360 品牌管家：品牌愿景、品牌写真、品牌屋。
 
 产出框架：
-1. **品牌愿景**（使命 + 长期目标）：品牌希望实现的长期理想状态 & 品牌为什么存在
-2. **品牌价值观**：品牌的核心信仰与价值判断
-3. **品牌主张**：并生成 slogan / tagline 候选
-4. **附加价值**（情感定位）：情感、文化、生活方式层面的价值定位
-5. **品牌人格**：3-5 个具体的形容词描述品牌拟人化特质
-6. **产品定位**（支持情感定位）：
+1. **品牌愿景（Vision）**：品牌希望实现的长期理想状态（未来想成为什么）
+2. **品牌使命（Mission）**：品牌为什么存在、现在每天解决什么问题（与 Vision 区分）
+3. **品牌意念（Brand Idea）**：
+   - 一句话可传播的品牌核心思想
+   - 连接品牌愿景与消费者洞察的桥梁
+   - 是后续 Big Idea 的上层指引
+4. **品牌价值观**：品牌的核心信仰与价值判断
+5. **品牌主张**：并生成 slogan / tagline 候选
+6. **附加价值**（情感定位）：情感、文化、生活方式层面的价值定位
+7. **品牌人格**：3-5 个具体的形容词描述品牌拟人化特质
+8. **产品定位**（支持情感定位）：
    - Functional benefit：产品具体解决什么问题
    - 差异化定位：与竞品最核心的差异
    - RTB（Reasons to Believe）：支持点 / 证据
-7. **品牌屋搭建**：确保愿景→价值观→利益点→RTB→目标人群 各层级逻辑自洽
-8. **Brand Tone 产出**：语言风格、用词风格、禁忌词
-9. **Brand Visual 产出**：视觉风格、色彩策略、字体偏好
+9. **品牌屋搭建**：确保愿景→价值观→利益点→RTB→目标人群 各层级逻辑自洽
+10. **Brand Tone 产出**：语言风格、用词风格、禁忌词
+11. **Brand Visual 产出**：视觉风格、色彩策略、字体偏好
 
 执行要求：
 1. 使用 ma-brand-house 工具构建品牌概念体系
 2. 产出必须保存到：\`brand-concept/\`
-3. 文件命名建议：\`brand-concept.md\`、\`brand-house.md\`、\`tone-visual.md\`
+3. 文件命名建议：\`brand-concept.md\`、\`brand-house.md\`、\`brand-idea.md\`、\`tone-visual.md\`
 4. 完成标准（校验时会检查）：
-   - brand-concept.md 必须包含品牌愿景、品牌价值观、品牌主张、slogan（至少300字）
+   - brand-concept.md 必须包含品牌愿景、品牌使命、品牌价值观、品牌主张、slogan（至少300字）
    - brand-house.md 必须包含品牌屋架构（愿景/价值观/利益点/RTB/目标人群）（至少300字）
-   - tone-visual.md 必须包含 Brand Tone 和 Brand Visual 描述（至少300字）
+   - brand-idea.md 必须包含品牌意念、与愿景/洞察的连接、对 Big Idea 的指引（至少300字）
 
-前置产物：\`brand-dna/\` 目录中的品牌DNA与品牌诊断文件
+前置产物：\`brand-dna/\`、\`user-analysis/\` 目录中的文件
 完成后，请返回 "已完成：Brand Concept 产出"并附上产物摘要。`,
   },
   {
@@ -335,25 +351,42 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
   {
     id: 'creative_concept',
     title: '生成 Big Idea',
-    description: '基于品牌DNA、Brand Concept和目标设定，生成Campaign核心创意概念（Big Idea）',
+    description: '基于品牌DNA、Brand Concept和目标设定，生成Campaign核心创意概念（Big Idea），并用 DDB ROI 和李奥贝纳 Inherent Drama 评估',
     toolName: 'ma-creative-concept',
     minArtifactLength: 300,
+    requiredFiles: ['big-idea.md', 'creative-directions.md'],
     artifactRequirements: [
       { name: '核心创意', aliases: ['Big Idea', '核心概念', '创意概念', '传播主张', '大创意'] },
       { name: '创意方向', aliases: ['创意方向', '视觉方向', '文案方向', '内容方向', '媒介建议'] },
       { name: '推荐方案', aliases: ['推荐', '最优方案', '首选', '主推方案', '最终选择'] },
+      { name: '品牌戏剧性', aliases: ['戏剧性', 'inherent drama', '人性冲突', '情感张力'] },
+      { name: '相关性', aliases: ['relevance', '相关性', '品牌相关', '用户相关'] },
+      { name: '原创性', aliases: ['originality', '原创性', '差异化', '新颖'] },
+      { name: '影响力', aliases: ['impact', '影响力', '传播力', '记忆度'] },
     ],
     agentPrompt: `## 步骤 7: 生成 Big Idea
 
-目标：基于品牌DNA、Brand Concept和目标设定，生成3个创意方向并推荐最优方案。
+目标：基于品牌DNA、Brand Concept和目标设定，生成3个创意方向并推荐最优方案。评估标准参考 DDB ROI 创意原则（Relevance / Originality / Impact）和李奥贝纳 Inherent Drama（品牌内在戏剧性）。
+
+产出框架：
+1. **Big Idea**：一句话能说清的核心创意概念
+2. **传播主张**：Hero Message / 传播主题
+3. **品牌戏剧性（Inherent Drama）**：
+   - 品牌或产品中天然存在的人性冲突/情感张力
+   - 不是人为制造的噱头，而是品牌与用户之间真实的戏剧性关系
+4. **DDB ROI 评估**：每个创意方向必须给出 1-10 分的三项评分
+   - Relevance（相关性）：与品牌/产品/用户的关联度
+   - Originality（原创性）：与竞品传播的差异化
+   - Impact（影响力）：能否引发注意、讨论和记忆
+5. **推荐方案及理由**：明确推荐哪个方向，并说明 ROI 和戏剧性优势
 
 执行要求：
 1. 使用 ma-creative-concept 工具生成创意概念
 2. 产出必须保存到：\`creative-concept/\`
 3. 文件命名建议：\`big-idea.md\`、\`creative-directions.md\`
 4. 完成标准（校验时会检查）：
-   - big-idea.md 必须包含核心创意概念、传播主张、创意钩子（至少300字）
-   - creative-directions.md 必须包含3个方向及推荐（至少300字）
+   - big-idea.md 必须包含核心创意概念、传播主张、创意钩子、品牌戏剧性（至少300字）
+   - creative-directions.md 必须包含3个方向、每个方向的 ROI 评分及推荐（至少300字）
    - 必须明确推荐最优方案及理由
 
 前置产物：\`brand-dna/\`、\`brand-concept/\`、\`goal-setting/\` 目录中的文件
@@ -389,55 +422,75 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
   {
     id: 'kol_pyramid',
     title: '设计 KOL 金字塔',
-    description: '根据预算和平台矩阵，设计 KOL 合作金字塔（头部/腰部/尾部比例）',
+    description: '根据预算、平台矩阵和品牌人格，设计 KOL 合作金字塔与达人形象角色矩阵',
     toolName: 'ma-kol-pyramid',
     minArtifactLength: 300,
+    requiredFiles: ['kol-pyramid.md', 'kol-role-matrix.md'],
     artifactRequirements: [
       { name: '金字塔结构', aliases: ['金字塔', '层级', '头部', '腰部', '尾部', '比例'] },
       { name: '预算分配', aliases: ['预算', '预算分配', '预算比例', '费用', '投入'] },
       { name: '筛选标准', aliases: ['筛选', '标准', '要求', '条件', '粉丝量', '互动率'] },
+      { name: '达人角色', aliases: ['角色', '形象角色', '品牌人格', '人设', '形象匹配'] },
+      { name: '形象匹配', aliases: ['形象契合', '调性契合', '品牌调性', '人格匹配'] },
     ],
     agentPrompt: `## 步骤 9: 设计 KOL 金字塔
 
-目标：基于总预算 {budget} 元、平台矩阵和目标人群，设计头部/腰部/尾部 KOL 金字塔。
+目标：基于总预算 {budget} 元、平台矩阵、目标人群和品牌人格，设计头部/腰部/尾部 KOL 金字塔，并明确各层级达人承担的"形象角色"。
+
+产出框架：
+1. **金字塔结构**：头部 / 腰部 / 尾部（KOC）的比例、数量、预算分配
+2. **筛选标准**：粉丝画像匹配度、互动率、垂类匹配度、内容质量、履约稳定性
+3. **达人形象角色矩阵**：
+   - 每个层级应承担的形象角色（如头部 = 品牌背书者 / 腰部 = 场景种草者 / KOC = 真实体验者）
+   - 该角色与品牌人格（Brand Personality）的匹配逻辑
+   - 参考 BBDO 产品形象 × 用户形象连接：达人形象应能放大品牌人格
+4. **平台与层级分工**：各平台主攻哪个层级，理由是什么
+5. **预算约束**：总预算分配不超过 {budget} 元
 
 执行要求：
 1. 使用 ma-kol-pyramid 工具设计 KOL 金字塔
 2. 产出必须保存到：\`kol-pyramid/\`
-3. 文件命名建议：\`kol-pyramid.md\`、\`kol-tier-spec.md\`
+3. 文件命名建议：\`kol-pyramid.md\`、\`kol-tier-spec.md\`、\`kol-role-matrix.md\`
 4. 完成标准（校验时会检查）：
    - kol-pyramid.md 必须包含各层级比例、数量、预算分配、筛选标准（至少300字）
-   - kol-tier-spec.md 必须包含各层级 KOL 的具体要求（至少300字）
+   - kol-role-matrix.md 必须包含达人形象角色、与品牌人格的匹配逻辑、各平台分工（至少300字）
    - 总预算分配不超过 {budget} 元
 
-前置产物：\`platform-matrix/\` 目录中的平台矩阵文件
+前置产物：\`platform-matrix/\`、\`brand-concept/\` 目录中的文件
 完成后，请返回 "已完成：KOL 金字塔设计"并附上产物摘要。`,
   },
   {
     id: 'search_kols',
     title: '筛选候选达人',
-    description: '基于 KOL 金字塔参数，从数据库中搜索并筛选符合要求的候选达人',
+    description: '基于 KOL 金字塔参数，从数据库中搜索并筛选符合形象角色与调性契合度的候选达人',
     toolName: 'kol-data/search_kols',
     minArtifactLength: 300,
     artifactRequirements: [
       { name: '搜索条件', aliases: ['搜索', '筛选', '条件', '参数', '筛选标准'] },
       { name: 'KOL 列表', aliases: ['KOL', '达人', '博主', '候选人', '推荐列表'] },
       { name: '推荐理由', aliases: ['推荐理由', '匹配度', '分析', '评估', '为什么'] },
+      { name: '形象契合', aliases: ['形象契合', '形象匹配', '品牌人格', '调性契合', '人设'] },
+      { name: '历史审阅', aliases: ['历史审阅', '履约评估', '合作历史', '风险评估', '过往内容'] },
     ],
     agentPrompt: `## 步骤 10: 筛选候选达人
 
-目标：基于 KOL 金字塔参数（平台、类目、粉丝量级、预算范围），搜索并筛选候选达人。
+目标：基于 KOL 金字塔参数（平台、类目、粉丝量级、预算范围、形象角色），搜索并筛选候选达人。筛选不仅要考虑数据匹配，还要评估达人形象与品牌人格的契合度。
 
 执行要求：
-1. 使用 kol-data/search_kols 工具筛选候选 KOL
-2. 筛选结果必须保存到：\`kol-search/\`
-3. 文件命名建议：\`kol-search-results.md\`、\`kol-shortlist.md\`
-4. 完成标准（校验时会检查）：
+1. 使用 kol-data/search_kols 工具按金字塔参数筛选候选 KOL
+2. 对重点达人，使用 ma-kol-history-review 工具或数据库信息评估：
+   - 近 10-20 条内容质量与风格稳定性
+   - 过往品牌合作历史（是否有竞品合作）
+   - 履约风险信号
+3. 筛选结果必须保存到：\`kol-search/\`
+4. 文件命名建议：\`kol-search-results.md\`、\`kol-shortlist.md\`
+5. 完成标准（校验时会检查）：
    - kol-search-results.md 必须包含搜索条件、筛选逻辑、KOL 列表（至少300字）
    - kol-shortlist.md 必须包含精选推荐及推荐理由（至少300字）
+   - 每位 KOL 推荐理由必须包含：数据匹配度、形象契合度、调性契合度、历史审阅摘要
    - 每位 KOL 信息包含：ID、名称、平台、粉丝量、互动率、类目、报价、城市
 
-前置产物：\`kol-pyramid/\` 目录中的 KOL 金字塔文件
+前置产物：\`kol-pyramid/\` 目录中的 KOL 金字塔与形象角色矩阵文件
 完成后，请返回 "已完成：候选达人筛选"并附上产物摘要。`,
   },
   {
@@ -472,58 +525,110 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
   {
     id: 'generate_briefs',
     title: '生成达人 Brief',
-    description: '为每个已确认的达人生成个性化的合作 Brief（内容方向、交付物、时间线）',
+    description: '为每个已确认的达人生成个性化的合作 Brief，包含内容方向、Tone & Manner、品牌戏剧性植入、合规检查与交付物',
     toolName: 'ma-creative-pilot',
     minArtifactLength: 300,
     artifactRequirements: [
       { name: 'Brief 索引', aliases: ['Brief', '索引', 'briefs', '清单', '列表'] },
       { name: '内容方向', aliases: ['内容方向', '内容策略', '关键信息', '信息点', '核心信息'] },
+      { name: 'Tone & Manner', aliases: ['tone', 'manner', '调性', '语气', '语言风格'] },
+      { name: '品牌戏剧性', aliases: ['戏剧性', 'inherent drama', '情感张力', '冲突', '植入点'] },
+      { name: '合规检查', aliases: ['合规', '广告法', '禁用词', '平台规范', '审核'] },
       { name: '交付物', aliases: ['交付物', '交付清单', '要求', '产出', '作品'] },
       { name: '时间线', aliases: ['时间', '时间线', '节点', 'deadline', '截止日期'] },
     ],
     agentPrompt: `## 步骤 12: 生成达人 Brief
 
-目标：为当前 Campaign 候选池中的每位已确认达人（status = confirmed）生成个性化 Brief。
+目标：为当前 Campaign 候选池中的每位已确认达人（status = confirmed）生成个性化 Brief。Brief 不只是内容方向，还要明确 Tone & Manner、品牌戏剧性植入点、合规要求和交付标准。
+
+产出框架（每个 brief-{kol-id}.md 必须包含）：
+1. **内容方向**：核心信息、内容角度、必须呈现的场景/卖点
+2. **Tone & Manner 校准**：
+   - 该达人的语言风格如何适配品牌全局调性
+   - 可说的话 / 不可说的话（禁忌词、敏感表达）
+   - 参考 ma-tone-manner 中定义的品牌声音
+3. **品牌戏剧性植入点（Inherent Drama）**：
+   - 本次内容要呈现的人性冲突/情感张力
+   - 品牌在这个冲突中扮演的角色
+   - 达人如何自然地带出这个戏剧性
+4. **合规检查清单**：
+   - 平台规范（小红书/抖音等）
+   - 广告法禁用词（最、第一、纯天然等）
+   - 必须标注的利益关系声明
+5. **交付物清单**：图文/视频数量、封面要求、话题标签、是否需要露出产品包装等
+6. **时间线**：发布节点、审稿节点、修改截止时间
 
 执行要求：
 1. 使用 ma-creative-pilot 工具生成 Brief
-2. 产出必须保存到：\`briefs/\`
-3. 文件命名建议：\`briefs-index.md\`、\`brief-{kol-id}.md\`（每位达人单独一个文件）
-4. 完成标准（校验时会检查）：
+2. 可调用 ma-script-studio 为重要达人生成故事脚本/分镜（可选）
+3. 产出必须保存到：\`briefs/\`
+4. 文件命名建议：\`briefs-index.md\`、\`brief-{kol-id}.md\`（每位达人单独一个文件）
+5. 完成标准（校验时会检查）：
    - briefs-index.md 必须包含所有已确认 KOL 列表、Brief 状态、交付时间线（至少300字）
-   - 每个 brief-{kol-id}.md 必须包含：内容方向、交付物清单、时间节点（至少300字）
+   - 每个 brief-{kol-id}.md 必须包含：内容方向、Tone & Manner、品牌戏剧性植入点、合规检查、交付物清单、时间节点（至少300字）
    - 每位达人的 Brief 都体现其个人风格和受众特点
 
-前置产物：\`brand-dna/\`、\`creative-concept/\`、\`kol-search/\` 目录中的文件
+前置产物：\`brand-concept/\`、\`creative-concept/\`、\`kol-search/\` 目录中的文件
 完成后，请返回 "已完成：达人 Brief 生成"并附上产物摘要。`,
   },
   {
     id: 'ab_test',
-    title: '设计 A/B 测试',
-    description: '为 Campaign 设计 A/B 测试方案（变量、分组、指标、样本量）',
+    title: '投放测试、阶段复盘与放量决策',
+    description: '设计 A/B 测试方案，并预设阶段复盘框架、调优规则与放量/止损决策标准',
     toolName: 'ma-campaign-tester',
     minArtifactLength: 300,
+    requiredFiles: ['ab-test-plan.md', 'ab-test-review.md', 'scale-up-plan.md'],
     artifactRequirements: [
       { name: '测试变量', aliases: ['变量', '测试变量', 'A/B测试', '对比', '测试方案'] },
       { name: '分组方案', aliases: ['分组', '受众分组', '分组方案', '测试组', '对照组'] },
       { name: '指标', aliases: ['指标', 'KPI', '关键指标', '成功指标', '统计指标'] },
       { name: '样本量', aliases: ['样本量', '样本', '计算', '统计', '显著性'] },
+      { name: '数据复盘', aliases: ['数据复盘', '阶段复盘', '复盘', '数据分析', '核心发现'] },
+      { name: '调优方案', aliases: ['调优', '优化方案', '策略调整', '组合优化'] },
+      { name: '放量决策', aliases: ['放量', '放量决策', 'go/no-go', 'scale', '正式投放'] },
     ],
-    agentPrompt: `## 步骤 13: 设计 A/B 测试
+    agentPrompt: `## 步骤 13: 投放测试、阶段复盘与放量决策
 
-目标：为 Campaign 设计 A/B 测试方案，定义测试变量、受众分组、成功指标和样本量计算。
+目标：为 Campaign 设计 A/B 测试方案，并提前建立“测试 → 复盘 → 调优 → 放量/止损”的完整衔接机制。本步骤不能只停留在测试设计，还要明确测试结束后如何读取数据、如何判断是否放量、如何调整达人组合与预算。
+
+产出框架：
+1. **A/B 测试方案**（保存到 \`ab-test-plan.md\`）
+   - 测试假设与目标：要验证的核心问题（如“腰部达人 vs KOC 的 CPE 差异”）
+   - 测试变量：每次只测一个变量，避免混淆
+   - 分组方案：测试组 / 对照组、受众分配、达人数量
+   - 核心指标与阈值：CPE、互动率、ROI、CTR 等；明确通过/不通过阈值
+   - 样本量与统计显著性：最低样本量、检验功效、显著性水平
+   - 测试预算与周期：建议为正式预算的 10-20%，周期 7-14 天
+   - 止损线：如“前 3 天 CPE > 15 元即暂停该组”
+
+2. **阶段复盘框架**（保存到 \`ab-test-review.md\`）
+   - 数据回收清单：曝光、浏览、点赞、收藏、评论、转发、CPM、CPE、CTR、互动率
+   - 分析维度：达人层级、平台、内容风格、发布时段、Brief 版本
+   - 核心发现模板：最佳组合、表现不佳元素、异常值说明
+   - 与目标的对比：哪些指标达成、哪些未达成、原因假设
+   - 复盘触发条件：测试结束后自动调用 ma-phase-reviewer 生成阶段复盘报告
+
+3. **调优与放量方案**（保存到 \`scale-up-plan.md\`）
+   - 调优规则：基于测试数据的组合调整、预算重分配、内容策略调整
+   - 放量决策标准：Go / No-go 的量化门槛（如“CPE < 5 元且 ROI > 1:3”则放量）
+   - 正式投放方案：放量预算、达人组合比例、平台分配、时间线
+   - 风险预案：效果稀释、达人档期、内容同质化等风险及应对措施
+   - 若测试未达标：明确止损动作、预算回收、二次测试条件
 
 执行要求：
-1. 使用 ma-campaign-tester 工具设计 A/B 测试
-2. 产出必须保存到：\`ab-test/\`
-3. 文件命名建议：\`ab-test-plan.md\`、\`test-metrics.md\`
-4. 完成标准（校验时会检查）：
-   - ab-test-plan.md 必须包含测试目标、变量定义、分组方案、测试周期（至少300字）
-   - test-metrics.md 必须包含关键指标、样本量计算、统计显著性阈值（至少300字）
-   - 测试方案与创意概念和平台矩阵一致
+1. 使用 ma-campaign-tester 工具设计 A/B 测试方案
+2. 使用 ma-campaign-optimizer 工具生成测试后的调优规则与放量方案
+3. 测试结束后，使用 ma-phase-reviewer 工具基于真实数据进行阶段复盘
+4. 产出必须保存到：\`ab-test/\`
+5. 文件命名建议：\`ab-test-plan.md\`、\`ab-test-review.md\`、\`scale-up-plan.md\`
+6. 完成标准（校验时会检查）：
+   - ab-test-plan.md 必须包含测试目标、变量、分组、指标、样本量、预算、周期、止损线（至少300字）
+   - ab-test-review.md 必须包含数据回收清单、分析维度、核心发现模板、目标达成判定（至少300字）
+   - scale-up-plan.md 必须包含调优规则、放量决策标准、正式投放方案、风险预案（至少300字）
+   - 三份文件均与创意概念、平台矩阵、达人金字塔保持一致
 
-前置产物：\`creative-concept/\`、\`platform-matrix/\` 目录中的文件
-完成后，请返回 "已完成：A/B 测试设计"并附上产物摘要。`,
+前置产物：\`creative-concept/\`、\`platform-matrix/\`、\`kol-pyramid/\` 目录中的文件
+完成后，请返回 "已完成：投放测试、阶段复盘与放量决策"并附上产物摘要。`,
   },
 ]
 

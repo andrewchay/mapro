@@ -262,8 +262,8 @@ describe('Campaign 工作流测试', () => {
     const dir = join(workspaceDir, 'ab-test')
     mkdirSync(dir, { recursive: true })
 
-    // ab_test 步骤：锚点=测试变量、分组方案、指标、样本量
-    const content = [
+    // ab_test 步骤：锚点=测试变量、分组方案、指标、样本量、数据复盘、调优方案、放量决策
+    const planContent = [
       '# A/B 测试方案',
       '',
       '## 测试变量',
@@ -295,9 +295,60 @@ describe('Campaign 工作流测试', () => {
       '通过样本量计算公式，每组需要至少 5000 次有效曝光才能达到统计显著性。',
       '预计总曝光量为 200 万次，远超最低样本要求，确保结果具有高度可信度。',
       '测试将在 7 天内完成，每日监控数据变化趋势，及时调整投放策略。',
+      '',
+      '## 止损线',
+      '若前 3 天 CTR 差异 < 1% 或 CPE > 15 元，暂停该组测试并分析原因。',
     ].join('\n')
 
-    writeFileSync(join(dir, 'ab-test-plan.md'), content, 'utf-8')
+    const reviewContent = [
+      '# 阶段复盘框架',
+      '',
+      '## 数据回收清单',
+      '回收字段：曝光、浏览、点赞、收藏、评论、转发、CPM、CPE、CTR、互动率。',
+      '数据源：小红书/抖音平台后台、内容追踪系统、投流数据。',
+      '',
+      '## 分析维度',
+      '- 达人层级：头部 / 腰部 / KOC 各层级表现',
+      '- 平台：小红书 vs 抖音',
+      '- 内容风格：场景种草 / 产品测评 / 真实体验',
+      '- 发布时段：工作日 vs 周末',
+      '',
+      '## 核心发现模板',
+      '- 最佳组合：互动率最高、CPE 最低的组合',
+      '- 表现不佳元素：CTR 低或评论区负面率高的组合',
+      '- 异常值说明：单个达人异常表现及可能原因',
+      '',
+      '## 目标达成判定',
+      '对比测试计划中的通过阈值，判定 CTR、CPE、互动率是否达成。',
+      '测试结束后将调用 ma-phase-reviewer 生成阶段复盘报告。',
+    ].join('\n')
+
+    const scaleUpContent = [
+      '# 调优与放量方案',
+      '',
+      '## 调优规则',
+      '- 若腰部达人 + 场景种草组合 CPE 最低，则正式投放提高该组合占比 20%',
+      '- 若小红书 CTR 显著高于抖音，则小红书预算占比提升至 60%',
+      '- 砍掉测试中 CTR < 1% 或 CPE > 15 元的达人/内容组合',
+      '',
+      '## 放量决策标准',
+      'Go / No-go 门槛：',
+      '- Go：CPE < 5 元、互动率 > 5%、ROI > 1:3、统计显著 p<0.05',
+      '- No-go：CPE > 10 元、互动率 < 2%、ROI < 1:2 或未达显著性',
+      '',
+      '## 正式投放方案',
+      '放量预算：剩余 80% 预算。达人组合：腰部 50%、KOC 40%、头部 10%。',
+      '平台分配：小红书 60%、抖音 40%。时间线：第 1 周集中发布，第 2-3 周长尾维护。',
+      '',
+      '## 风险预案',
+      '- 效果稀释：预留 10% 预算作为二次测试',
+      '- 达人档期：提前锁定核心达人档期',
+      '- 内容同质化：控制同风格内容占比不超过 60%',
+    ].join('\n')
+
+    writeFileSync(join(dir, 'ab-test-plan.md'), planContent, 'utf-8')
+    writeFileSync(join(dir, 'ab-test-review.md'), reviewContent, 'utf-8')
+    writeFileSync(join(dir, 'scale-up-plan.md'), scaleUpContent, 'utf-8')
 
     workflowService.updateWorkflowStep({
       campaignId: testCampaignId,
