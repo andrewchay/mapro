@@ -118,7 +118,7 @@ const STEP_DIR: Record<CampaignWorkflowStepId, string> = {
 
 // ===== 每步合格产物内容（覆盖全部语义锚点 + 字数达标） =====
 
-const STEP_ARTIFACTS: Record<CampaignWorkflowStepId, { filename: string; content: string }> = {
+const STEP_ARTIFACTS: Record<CampaignWorkflowStepId, { filename: string; content: string } | { filename: string; content: string }[]> = {
   market_analysis: {
     filename: 'market-analysis.md',
     content: `# 市场分析
@@ -163,9 +163,10 @@ const STEP_ARTIFACTS: Record<CampaignWorkflowStepId, { filename: string; content
 竞品没做或没做好的地方：场景化鲜切、都市女性情感连接、办公场景渗透。
 差异化策略：抢占"通勤即时犒赏"场景，建立情感心智。`,
   },
-  user_analysis: {
-    filename: 'ta-portrait.md',
-    content: `# 用户分析
+  user_analysis: [
+    {
+      filename: 'ta-portrait.md',
+      content: `# 用户分析
 
 ## 人口统计画像
 年龄 25-35 岁，性别女性为主，收入 8K-20K，城市一二线城市，学历本科及以上，职业白领。
@@ -177,12 +178,24 @@ const STEP_ARTIFACTS: Record<CampaignWorkflowStepId, { filename: string; content
 
 ## 痛点与需求
 核心痛点："想吃水果但没时间挑选处理"。使用场景：通勤路上、办公室下午茶、加班夜宵。
-购买动机：即时满足、健康犒赏、社交分享。需求集中在便捷、新鲜、场景化解决方案。
+购买动机：即时满足、健康犒赏、社交分享。需求集中在便捷、新鲜、场景化解决方案。`,
+    },
+    {
+      filename: 'search-habits.md',
+      content: `# 搜索习惯
 
-## 搜索习惯
-搜索平台：小红书为主，抖音为辅。搜索场景：种草前搜索测评、决策中搜索对比。
-关键词：鲜切水果、办公室水果、健康零食、下午茶推荐。下拉词联想以场景化长尾词为主。`,
-  },
+## 搜索平台
+搜索平台：小红书为主，抖音为辅。用户在不同平台获取信息的偏好明显不同。
+
+## 搜索场景
+搜索场景：种草前搜索测评、决策中搜索对比、使用后搜索搭配灵感。
+
+## 关键词列表
+核心关键词：鲜切水果、办公室水果、健康零食、下午茶推荐。
+长尾关键词：通勤水果、加班零食、办公室下午茶、健康犒赏。
+下拉词联想以场景化长尾词为主，用户搜索意图偏向解决方案和场景匹配。`,
+    },
+  ],
   brand_dna: {
     filename: 'brand-dna.md',
     content: `# 品牌 DNA 分析
@@ -496,7 +509,10 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     // 3. 模拟 Agent 写入合格产物（覆盖该步全部语义锚点）
     const dir = join(TEST_DIR, 'agent-workspaces', `campaign-${campaignId}`, STEP_DIR[stepId])
     mkdirSync(dir, { recursive: true })
-    writeFileSync(join(dir, artifact.filename), artifact.content, 'utf-8')
+    const artifacts = Array.isArray(artifact) ? artifact : [artifact]
+    for (const item of artifacts) {
+      writeFileSync(join(dir, item.filename), item.content, 'utf-8')
+    }
 
     // 4. 完成步骤（兜底落盘 + 5 层校验 + 状态推进 + 历史记录）
     const messages: AgentMessage[] = [

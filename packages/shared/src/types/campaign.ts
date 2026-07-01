@@ -387,6 +387,8 @@ export interface CampaignWorkflowStep {
   artifactRequirements?: ArtifactRequirement[]
   /** 产物最低字数阈值（默认 300） */
   minArtifactLength?: number
+  /** 必须存在的产物文件名列表（相对于步骤目录） */
+  requiredFiles?: string[]
   /** 完成时间（可选） */
   completedAt?: number
   /** 输出结果摘要（可选） */

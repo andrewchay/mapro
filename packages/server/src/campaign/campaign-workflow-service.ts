@@ -135,6 +135,7 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
     description: '构建精准受众画像，补充用户搜索习惯（平台、场景、关键词）',
     toolName: 'ma-ta-portrait',
     minArtifactLength: 300,
+    requiredFiles: ['ta-portrait.md', 'search-habits.md'],
     artifactRequirements: [
       { name: '人口统计', aliases: ['年龄', '性别', '收入', '城市', '地域', '学历', '职业'] },
       { name: '兴趣偏好', aliases: ['兴趣', '偏好', '爱好', '生活方式', '消费观'] },

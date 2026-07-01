@@ -53,7 +53,16 @@ function writeArtifact(dataDir: string, campaignId: string, stepId: CampaignWork
   const step = DEFAULT_WORKFLOW_STEPS.find((s) => s.id === stepId)
   const anchors = step?.artifactRequirements?.map((r) => [r.name, ...r.aliases].join(' ')).join('\n') ?? stepId
   const content = `# ${step?.title ?? stepId}\n\n${anchors}\n${'内容'.repeat(200)}\n`
-  writeFileSync(join(fullDir, 'artifact.md'), content, 'utf-8')
+
+  // 如果步骤声明了必需产物文件，则写入每个必需文件；否则写入默认 artifact.md
+  const requiredFiles = step?.requiredFiles
+  if (requiredFiles && requiredFiles.length > 0) {
+    for (const filename of requiredFiles) {
+      writeFileSync(join(fullDir, filename), content, 'utf-8')
+    }
+  } else {
+    writeFileSync(join(fullDir, 'artifact.md'), content, 'utf-8')
+  }
 }
 
 describe('Campaign 13 步工作流 E2E', () => {

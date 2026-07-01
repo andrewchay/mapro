@@ -1,6 +1,6 @@
 {
   "name": "@ma-proma/server",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "license": "UNLICENSED",
   "description": "MAPro shared server-side business logic",
   "type": "module",

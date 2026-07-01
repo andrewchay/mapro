@@ -34,7 +34,7 @@ export class CampaignArtifactValidator {
   async validateStepArtifacts(
     campaignId: string,
     stepId: CampaignWorkflowStepId,
-    step?: Pick<CampaignWorkflowStep, 'minArtifactLength' | 'artifactRequirements'>,
+    step?: Pick<CampaignWorkflowStep, 'minArtifactLength' | 'artifactRequirements' | 'requiredFiles'>,
   ): Promise<ArtifactValidationResult> {
     const dirName = STEP_DIR_MAP[stepId]
     if (!dirName) {
@@ -76,18 +76,27 @@ export class CampaignArtifactValidator {
       missing.push(`${dirName}/ 目录中没有可读产物（文本文件）`)
     }
 
-    // 5. 检查文件非空
+    // 5. 检查必需文件是否存在
+    const requiredFiles = step?.requiredFiles ?? []
+    for (const requiredFile of requiredFiles) {
+      const exists = scan.files.some((f) => f.toLowerCase() === requiredFile.toLowerCase())
+      if (!exists) {
+        missing.push(`${dirName}/ 缺少必需产物文件: ${requiredFile}`)
+      }
+    }
+
+    // 6. 检查文件非空
     if (scan.totalChars === 0) {
       missing.push(`${dirName}/ 目录中文件均为空`)
     }
 
-    // 6. 检查字数
+    // 7. 检查字数
     const minLength = step?.minArtifactLength ?? 300
     if (scan.totalChars < minLength) {
       missing.push(`${dirName}/ 总字数 ${scan.totalChars} 低于最低要求 ${minLength} 字`)
     }
 
-    // 7. 检查语义锚点
+    // 8. 检查语义锚点
     const requirements = step?.artifactRequirements ?? []
     for (const req of requirements) {
       if (!this.checkRequirement(scan.combinedContent, req)) {

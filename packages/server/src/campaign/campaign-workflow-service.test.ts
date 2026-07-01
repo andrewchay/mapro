@@ -283,6 +283,21 @@ describe('CampaignArtifactValidator', () => {
     expect(result.missing.some((m) => m.includes('语义锚点'))).toBe(true)
   })
 
+  test('缺少必需产物文件 → 校验失败', async () => {
+    const workflow = await workflowService.loadCampaignWorkflow('test-2')
+    const step = workflow.steps.find((s) => s.id === 'user_analysis')!
+    // 只写 ta-portrait.md，不写 search-habits.md
+    writeArtifact(
+      'test-2',
+      'user-analysis',
+      'ta-portrait.md',
+      '人口统计、兴趣偏好、痛点需求、搜索习惯等内容的用户分析文档。'.repeat(20),
+    )
+    const result = await validator.validateStepArtifacts('test-2', 'user_analysis', step)
+    expect(result.valid).toBe(false)
+    expect(result.missing.some((m) => m.includes('search-habits.md'))).toBe(true)
+  })
+
   test('合格内容 → 校验通过', async () => {
     const workflow = await workflowService.loadCampaignWorkflow('test-2')
     const step = workflow.steps.find((s) => s.id === 'market_analysis')!
