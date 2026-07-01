@@ -65,7 +65,7 @@ function writeArtifact(dataDir: string, campaignId: string, stepId: CampaignWork
   }
 }
 
-describe('Campaign 13 步工作流 E2E', () => {
+describe('Campaign 14 步工作流 E2E', () => {
   let dataDir: string
   let context: AppContext
   let server: Server
@@ -116,14 +116,14 @@ describe('Campaign 13 步工作流 E2E', () => {
     rmSync(dataDir, { recursive: true, force: true })
   })
 
-  test('初始工作流包含 13 步且未开始', async () => {
+  test('初始工作流包含 14 步且未开始', async () => {
     const json = await httpGetJson<{ success: boolean; workflow: { steps: { id: string; status: string }[]; currentStepIndex: number } }>(`${baseUrl}/${campaign.id}/workflow`)
     expect(json.success).toBe(true)
-    expect(json.workflow.steps.length).toBe(13)
+    expect(json.workflow.steps.length).toBe(14)
     expect(json.workflow.currentStepIndex).toBe(-1)
   })
 
-  test('依次完成 13 步工作流', async () => {
+  test('依次完成 14 步工作流', async () => {
     for (let i = 0; i < DEFAULT_WORKFLOW_STEPS.length; i++) {
       const stepId = DEFAULT_WORKFLOW_STEPS[i]!.id
       writeArtifact(dataDir, campaign.id, stepId)

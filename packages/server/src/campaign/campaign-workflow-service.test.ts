@@ -139,10 +139,10 @@ describe('CampaignWorkflowService', () => {
     }
   })
 
-  test('首次加载时创建默认 13 步工作流', async () => {
+  test('首次加载时创建默认 14 步工作流', async () => {
     const workflow = await service.loadCampaignWorkflow('test-1')
     expect(workflow.campaignId).toBe('test-1')
-    expect(workflow.steps).toHaveLength(13)
+    expect(workflow.steps).toHaveLength(14)
     expect(workflow.currentStepIndex).toBe(-1)
     expect(workflow.steps[0]?.id).toBe('market_analysis')
     expect(workflow.steps[workflow.steps.length - 1]?.id).toBe('ab_test')

@@ -348,6 +348,7 @@ export type CampaignWorkflowStepId =
   | 'competitor_analysis'
   | 'user_analysis'
   | 'brand_dna'
+  | 'brand_fact_check'
   | 'brand_concept'
   | 'goal_setting'
   | 'creative_concept'

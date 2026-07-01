@@ -24,7 +24,7 @@ export interface OnboardingStepInfo {
 /** 步骤展示信息（不含 environment，environment 不在指示器中显示） */
 export const STEP_INFOS: OnboardingStepInfo[] = [
   { id: 'channel', title: '配置 AI 渠道', description: '连接 AI 供应商' },
-  { id: 'workflow', title: '营销 Agent 工作流', description: '13 步标准流程' },
+  { id: 'workflow', title: '营销 Agent 工作流', description: '14 步标准流程' },
   { id: 'campaign', title: '创建第一个项目', description: '启动 Campaign' },
 ]
 

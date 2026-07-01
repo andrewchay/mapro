@@ -32,6 +32,7 @@ const ARTIFACT_DIRS = [
   'competitor-analysis',
   'user-analysis',
   'brand-dna',
+  'brand-fact-check',
   'brand-concept',
   'goal-setting',
   'creative-concept',
@@ -48,6 +49,7 @@ export const STEP_DIR_MAP: Record<CampaignWorkflowStepId, string> = {
   competitor_analysis: 'competitor-analysis',
   user_analysis: 'user-analysis',
   brand_dna: 'brand-dna',
+  brand_fact_check: 'brand-fact-check',
   brand_concept: 'brand-concept',
   goal_setting: 'goal-setting',
   creative_concept: 'creative-concept',
@@ -206,6 +208,38 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
 
 前置产物：\`market-analysis/\`、\`competitor-analysis/\`、\`user-analysis/\` 目录中的文件
 完成后，请返回 "已完成：品牌DNA + 品牌诊断"并附上产物摘要。`,
+  },
+  {
+    id: 'brand_fact_check',
+    title: '品牌信息核实',
+    description: '通过公开搜索核实品牌DNA中提取的信息，识别可能存在的误差并提示用户',
+    toolName: 'web_search',
+    minArtifactLength: 300,
+    requiredFiles: ['brand-fact-check.md'],
+    artifactRequirements: [
+      { name: '核实结论', aliases: ['核实', '确认', '结论', '验证结论', '信息确认'] },
+      { name: '搜索来源', aliases: ['来源', '搜索', '查询', '链接', '参考'] },
+      { name: '差异项', aliases: ['差异', '不一致', '矛盾', '偏差', '出入'] },
+      { name: '风险提示', aliases: ['风险', '提示', '误差', '可能存在', '谨慎'] },
+    ],
+    agentPrompt: `## 步骤 5: 品牌信息核实
+
+目标：基于公开网络搜索，核实上一步 \`brand-dna/\` 中提取的品牌信息是否准确，识别可能存在的误差并向用户提示。
+
+执行要求：
+1. 读取 \`brand-dna/\` 目录中的品牌信息。
+2. 使用 \`web_search\` 工具对品牌名称、创立时间、发展历程、核心产品线、价格带、供应链等关键信息进行公开搜索。
+3. 将搜索结果与 \`brand-dna/\` 中的内容进行逐条对比。
+4. 在 \`brand-fact-check/\` 目录中写入 \`brand-fact-check.md\`，必须包含：
+   - **核实结论**：哪些信息得到确认，哪些无法确认
+   - **搜索来源**：列出使用的搜索查询和来源链接
+   - **差异项**：列出与 \`brand-dna/\` 不一致或存在矛盾的地方
+   - **风险提示**：若发现关键信息无法核实或存在矛盾，必须明确提示“用户信息可能存在误差，建议在后续步骤中补充或修正”
+5. 完成标准（校验时会检查）：
+   - brand-fact-check.md 必须包含核实结论、搜索来源、差异项、风险提示（至少300字）
+
+前置产物：\`brand-dna/\` 目录中的品牌DNA与品牌诊断文件
+完成后，请返回 "已完成：品牌信息核实"并附上产物摘要。`,
   },
   {
     id: 'brand_concept',

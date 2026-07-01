@@ -155,7 +155,7 @@ export function CampaignWorkflowSteps({ campaignId }: CampaignWorkflowStepsProps
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-900">13 步标准工作流</h2>
+        <h2 className="text-lg font-semibold text-slate-900">14 步标准工作流</h2>
         <button
           onClick={handleReset}
           className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"

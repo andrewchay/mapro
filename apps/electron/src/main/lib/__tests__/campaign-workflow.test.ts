@@ -103,7 +103,7 @@ describe('Campaign 工作流测试', () => {
     const workflow = workflowService.loadCampaignWorkflow(testCampaignId)
 
     expect(workflow.campaignId).toBe(testCampaignId)
-    expect(workflow.steps).toHaveLength(13)
+    expect(workflow.steps).toHaveLength(14)
     expect(workflow.currentStepIndex).toBe(-1)
     expect(workflow.steps[0]?.id).toBe('market_analysis')
     expect(workflow.steps[0]?.status).toBe('pending')
@@ -111,7 +111,7 @@ describe('Campaign 工作流测试', () => {
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
     const expectedDirs = [
       'market-analysis', 'competitor-analysis', 'user-analysis',
-      'brand-dna', 'brand-concept', 'goal-setting', 'creative-concept',
+      'brand-dna', 'brand-fact-check', 'brand-concept', 'goal-setting', 'creative-concept',
       'platform-matrix', 'kol-pyramid', 'kol-search', 'briefs', 'ab-test', '.context',
     ]
     for (const dir of expectedDirs) {
@@ -407,7 +407,7 @@ describe('Campaign 工作流测试', () => {
 
   it('Slice 7: 进度计算正确', () => {
     const progress = workflowService.getWorkflowProgress(testCampaignId)
-    // 13 步中：ab_test completed, add_to_pool completed (校验时写文件), generate_briefs failed
+    // 14 步中：ab_test completed, add_to_pool completed (校验时写文件), generate_briefs failed
     // 其余 pending
     expect(progress).toBeGreaterThanOrEqual(0)
     expect(progress).toBeLessThanOrEqual(100)
@@ -456,7 +456,7 @@ describe('Campaign 工作流测试', () => {
 
     const migrated = workflowService.loadCampaignWorkflow(legacyCampaignId)
 
-    expect(migrated.steps).toHaveLength(13)
+    expect(migrated.steps).toHaveLength(14)
     expect(migrated.steps[migrated.currentStepIndex]?.id).toBe('kol_pyramid')
     expect(migrated.steps.find((step) => step.id === 'market_analysis')?.status).toBe('pending')
 
@@ -468,7 +468,7 @@ describe('Campaign 工作流测试', () => {
   it('Slice 9: 重置工作流恢复初始状态', () => {
     const workflow = workflowService.resetWorkflow(testCampaignId)
 
-    expect(workflow.steps).toHaveLength(13)
+    expect(workflow.steps).toHaveLength(14)
     for (const step of workflow.steps) {
       expect(step.status).toBe('pending')
       expect(step.completedAt).toBeUndefined()

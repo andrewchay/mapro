@@ -230,7 +230,7 @@ async function run(): Promise<void> {
 
     console.log('[Smoke Test] 8. 工作流加载与推进')
     const { workflow } = await fetchApi<{ workflow: { steps: { id: string; status: string }[]; currentStepIndex: number } }>(`/campaigns/${campaign.id}/workflow`)
-    console.assert(workflow.steps.length === 13, '工作流步骤数量不对')
+    console.assert(workflow.steps.length === 14, '工作流步骤数量不对')
     console.assert(workflow.currentStepIndex === -1, '初始当前步骤索引不对')
     console.log('  ✅ 步骤数:', workflow.steps.length)
 

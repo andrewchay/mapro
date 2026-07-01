@@ -252,7 +252,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
               </div>
               <h2 className="text-2xl font-semibold mb-2">第二步：了解营销 Agent 工作流</h2>
               <p className="text-muted-foreground">
-                MAPro 把品牌营销投放抽象成 13 步标准工作流，Agent 会按步骤推进并沉淀产物。
+                MAPro 把品牌营销投放抽象成 14 步标准工作流，Agent 会按步骤推进并沉淀产物。
               </p>
             </div>
 
@@ -260,16 +260,16 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
               <div className="rounded-xl border bg-card p-4">
                 <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
                   <Target size={16} className="text-primary" />
-                  阶段一：策略制定（步骤 1-6）
+                  阶段一：策略制定（步骤 1-7）
                 </h3>
                 <p className="text-xs text-muted-foreground">
-                  市场分析 → 竞品分析 → 用户分析 → 品牌 DNA → Brand Concept → 目标设定
+                  市场分析 → 竞品分析 → 用户分析 → 品牌 DNA → 品牌信息核实 → Brand Concept → 目标设定
                 </p>
               </div>
               <div className="rounded-xl border bg-card p-4">
                 <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
                   <Users size={16} className="text-primary" />
-                  阶段二：达人矩阵（步骤 7-11）
+                  阶段二：达人矩阵（步骤 8-12）
                 </h3>
                 <p className="text-xs text-muted-foreground">
                   Big Idea → 平台矩阵 → KOL 金字塔 → 筛选达人 → 加入候选池
@@ -278,7 +278,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
               <div className="rounded-xl border bg-card p-4">
                 <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
                   <MessageSquare size={16} className="text-primary" />
-                  阶段三：内容与优化（步骤 12-13）
+                  阶段三：内容与优化（步骤 13-14）
                 </h3>
                 <p className="text-xs text-muted-foreground">
                   生成达人 Brief → 设计 A/B 测试 → 内容审核与数据追踪
@@ -323,7 +323,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
               </div>
               <h2 className="text-2xl font-semibold mb-2">第三步：创建第一个营销项目</h2>
               <p className="text-muted-foreground">
-                Campaign 是 MAPro 的核心单元。创建一个项目后，Agent 会带你走完 13 步营销工作流。
+                Campaign 是 MAPro 的核心单元。创建一个项目后，Agent 会带你走完 14 步营销工作流。
               </p>
             </div>
 

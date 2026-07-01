@@ -1,7 +1,7 @@
 /**
  * Campaign 工作流全链路 E2E 测试
  *
- * 模拟一个真实 Campaign 从创建到 13 步全部完成的完整执行路径，验证步骤间状态机
+ * 模拟一个真实 Campaign 从创建到 14 步全部完成的完整执行路径，验证步骤间状态机
  * 推进、产物校验、历史记录同步、候选池导入等全链路环节的准确性。
  *
  * 覆盖的服务层链路：
@@ -105,6 +105,7 @@ const STEP_DIR: Record<CampaignWorkflowStepId, string> = {
   competitor_analysis: 'competitor-analysis',
   user_analysis: 'user-analysis',
   brand_dna: 'brand-dna',
+  brand_fact_check: 'brand-fact-check',
   brand_concept: 'brand-concept',
   goal_setting: 'goal-setting',
   creative_concept: 'creative-concept',
@@ -227,6 +228,25 @@ const STEP_ARTIFACTS: Record<CampaignWorkflowStepId, { filename: string; content
 ## 差异化优势
 我们的差异化在于"鲜切即食+场景化套餐"，核心竞争力是供应链稳定性
 与都市女性生活场景的深度绑定，形成与竞品最核心的差异。`,
+  },
+  brand_fact_check: {
+    filename: 'brand-fact-check.md',
+    content: `# 品牌信息核实
+
+## 核实结论
+经公开搜索，测试鲜果创立于 2018 年、主打鲜切水果盒与办公室下午茶套餐等核心信息得到多个来源确认。
+品牌阶段判断为成长期、目标人群为都市年轻女性等推断与搜索结果一致，可进入后续步骤。
+
+## 搜索来源
+- 搜索查询：测试鲜果 品牌 创立时间
+- 搜索查询：测试鲜果 鲜切水果 产品线
+- 来源：品牌官方介绍、行业媒体报道、电商平台商品页
+
+## 差异项
+搜索结果中未找到关于“每日鲜果”理念早期传播的独立第三方来源，该信息仅来自品牌自述，建议在品牌概念阶段补充证据或标注为品牌自述。
+
+## 风险提示
+目前核心事实（创立年份、产品线、价格带）已得到交叉验证，未发现明显矛盾；但部分品牌故事细节为单方信息，用户信息可能存在误差，建议在后续步骤中补充或修正。`,
   },
   brand_concept: {
     filename: 'brand-concept.md',
@@ -528,17 +548,17 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     expect(step?.outputSummary).toBe(summary)
 
     // 5. 进度递增验证
-    const expectedProgress = Math.round(((stepIndex + 1) / 13) * 100)
+    const expectedProgress = Math.round(((stepIndex + 1) / 14) * 100)
     expect(workflowService.getWorkflowProgress(campaignId)).toBe(expectedProgress)
   }
 
   // ===== 前置：Campaign 创建 + 工作流初始化 =====
 
-  it('前置: Campaign 创建成功 + 工作流初始化为 13 步 pending', () => {
+  it('前置: Campaign 创建成功 + 工作流初始化为 14 步 pending', () => {
     const workflow = workflowService.loadCampaignWorkflow(campaignId)
 
     expect(workflow.campaignId).toBe(campaignId)
-    expect(workflow.steps).toHaveLength(13)
+    expect(workflow.steps).toHaveLength(14)
     expect(workflow.currentStepIndex).toBe(-1)
     expect(workflow.steps.every((s) => s.status === 'pending')).toBe(true)
     expect(workflowService.getWorkflowProgress(campaignId)).toBe(0)
@@ -546,7 +566,7 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     // 验证标准产物目录与上下文文件已初始化
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${campaignId}`)
     for (const dir of ['market-analysis', 'competitor-analysis', 'user-analysis', 'brand-dna',
-      'brand-concept', 'goal-setting', 'creative-concept', 'platform-matrix',
+      'brand-fact-check', 'brand-concept', 'goal-setting', 'creative-concept', 'platform-matrix',
       'kol-pyramid', 'kol-search', 'briefs', 'ab-test', '.context']) {
       expect(existsSync(join(workspaceDir, dir))).toBe(true)
     }
@@ -554,7 +574,7 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     expect(existsSync(join(workspaceDir, '.context', 'campaign.md'))).toBe(true)
   })
 
-  // ===== 13 步顺序执行 =====
+  // ===== 14 步顺序执行 =====
 
   it('步骤1 market_analysis: 市场分析', () => {
     runStep('market_analysis', 0, '已完成：市场分析')
@@ -572,27 +592,31 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     runStep('brand_dna', 3, '已完成：品牌DNA+品牌诊断')
   })
 
-  it('步骤5 brand_concept: 品牌概念产出', () => {
-    runStep('brand_concept', 4, '已完成：Brand Concept 产出')
+  it('步骤5 brand_fact_check: 品牌信息核实', () => {
+    runStep('brand_fact_check', 4, '已完成：品牌信息核实')
   })
 
-  it('步骤6 goal_setting: 目标设定', () => {
-    runStep('goal_setting', 5, '已完成：目标设定')
+  it('步骤6 brand_concept: 品牌概念产出', () => {
+    runStep('brand_concept', 5, '已完成：Brand Concept 产出')
   })
 
-  it('步骤7 creative_concept: 生成 Big Idea', () => {
-    runStep('creative_concept', 6, '已完成：Big Idea 生成')
+  it('步骤7 goal_setting: 目标设定', () => {
+    runStep('goal_setting', 6, '已完成：目标设定')
   })
 
-  it('步骤8 platform_matrix: 设计平台矩阵', () => {
-    runStep('platform_matrix', 7, '已完成：平台矩阵设计')
+  it('步骤8 creative_concept: 生成 Big Idea', () => {
+    runStep('creative_concept', 7, '已完成：Big Idea 生成')
   })
 
-  it('步骤9 kol_pyramid: 设计 KOL 金字塔（含预算模板替换）', () => {
-    runStep('kol_pyramid', 8, '已完成：KOL 金字塔设计')
+  it('步骤9 platform_matrix: 设计平台矩阵', () => {
+    runStep('platform_matrix', 8, '已完成：平台矩阵设计')
   })
 
-  it('步骤10 search_kols: 真实搜索 KOL 数据库 → 产物 → 完成', () => {
+  it('步骤10 kol_pyramid: 设计 KOL 金字塔（含预算模板替换）', () => {
+    runStep('kol_pyramid', 9, '已完成：KOL 金字塔设计')
+  })
+
+  it('步骤11 search_kols: 真实搜索 KOL 数据库 → 产物 → 完成', () => {
     // 真实调用 kol-data-service 搜索 KOL 数据库
     const searchResult = kolDataService.searchKOLs({ platform: '小红书', limit: 5 })
     expect(searchResult.total).toBeGreaterThan(0)
@@ -602,7 +626,7 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     searchedKolIds = searchResult.kols.slice(0, 3).map((k) => k.id)
     expect(searchedKolIds).toHaveLength(3)
 
-    runStep('search_kols', 9, '已完成：候选达人筛选，共筛出 3 位小红书达人')
+    runStep('search_kols', 10, '已完成：候选达人筛选，共筛出 3 位小红书达人')
   })
 
   it('步骤11 add_to_pool: 真实 ma_campaign_kol_add 导入候选池 → 产物 → 完成', async () => {
@@ -626,20 +650,20 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     expect(pool.every((k) => k.status === 'candidate')).toBe(true)
     expect(pool.map((k) => k.kolId).sort()).toEqual([...searchedKolIds].sort())
 
-    runStep('add_to_pool', 10, '已完成：达人导入候选池，成功导入 3 位')
+    runStep('add_to_pool', 11, '已完成：达人导入候选池，成功导入 3 位')
   })
 
-  it('步骤12 generate_briefs: 生成达人 Brief', () => {
-    runStep('generate_briefs', 11, '已完成：达人 Brief 生成')
+  it('步骤13 generate_briefs: 生成达人 Brief', () => {
+    runStep('generate_briefs', 12, '已完成：达人 Brief 生成')
   })
 
-  it('步骤13 ab_test: 设计 A/B 测试', () => {
-    runStep('ab_test', 12, '已完成：A/B 测试设计')
+  it('步骤14 ab_test: 设计 A/B 测试', () => {
+    runStep('ab_test', 13, '已完成：A/B 测试设计')
   })
 
   // ===== 终态验证 =====
 
-  it('终态: 13 步全完成 → isWorkflowComplete=true, progress=100', () => {
+  it('终态: 14 步全完成 → isWorkflowComplete=true, progress=100', () => {
     expect(workflowService.isWorkflowComplete(campaignId)).toBe(true)
     expect(workflowService.getWorkflowProgress(campaignId)).toBe(100)
 
@@ -649,14 +673,14 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     expect(workflow.steps.every((s) => s.outputSummary !== undefined)).toBe(true)
   })
 
-  it('终态: history.md 累积 13 条完成记录', () => {
+  it('终态: history.md 累积 14 条完成记录', () => {
     const historyPath = join(TEST_DIR, 'agent-workspaces', `campaign-${campaignId}`, '.context', 'history.md')
     expect(existsSync(historyPath)).toBe(true)
 
     const content = readFileSync(historyPath, 'utf-8')
     expect(content).toContain('Campaign 执行历史')
     const completedCount = (content.match(/✅ 完成/g) || []).length
-    expect(completedCount).toBe(13)
+    expect(completedCount).toBe(14)
     // 每步都应记录步骤 ID
     for (const stepId of Object.keys(STEP_ARTIFACTS) as CampaignWorkflowStepId[]) {
       expect(content).toContain(stepId)
@@ -671,9 +695,9 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     expect(content).not.toContain('## ⏳ 待完成')
     expect(content).not.toContain('## 🔵 当前步骤')
 
-    // 13 个步骤全部勾选
+    // 14 个步骤全部勾选
     const checkedCount = (content.match(/- \[x\]/g) || []).length
-    expect(checkedCount).toBe(13)
+    expect(checkedCount).toBe(14)
   })
 
   it('终态: 候选池保留 3 个 KOL 且状态为 candidate', () => {
@@ -690,10 +714,10 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
 
   // ===== 回归：重置工作流 =====
 
-  it('回归: 重置工作流恢复 13 步 pending 初始状态', () => {
+  it('回归: 重置工作流恢复 14 步 pending 初始状态', () => {
     const workflow = workflowService.resetWorkflow(campaignId)
 
-    expect(workflow.steps).toHaveLength(13)
+    expect(workflow.steps).toHaveLength(14)
     expect(workflow.steps.every((s) => s.status === 'pending')).toBe(true)
     expect(workflow.steps.every((s) => s.completedAt === undefined)).toBe(true)
     expect(workflow.currentStepIndex).toBe(-1)
