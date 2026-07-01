@@ -188,6 +188,22 @@ describe('Campaign 工作流测试', () => {
     expect(result.unmetRequirements.length).toBeGreaterThan(0)
   })
 
+  it('Slice 2d1: 缺少必需产物文件 → valid=false', () => {
+    const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
+    const dir = join(workspaceDir, 'user-analysis')
+    mkdirSync(dir, { recursive: true })
+    // 只写 ta-portrait.md，不写 search-habits.md
+    writeFileSync(
+      join(dir, 'ta-portrait.md'),
+      '人口统计、兴趣偏好、痛点需求、搜索习惯等内容的用户分析文档。'.repeat(20),
+      'utf-8',
+    )
+
+    const result = workflowService.validateStepArtifacts(testCampaignId, 'user_analysis')
+    expect(result.valid).toBe(false)
+    expect(result.missing.some((m) => m.includes('search-habits.md'))).toBe(true)
+  })
+
   it('Slice 2e: 合格内容（字数够、覆盖所有锚点）→ valid=true', () => {
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
     const dir = join(workspaceDir, 'kol-search')

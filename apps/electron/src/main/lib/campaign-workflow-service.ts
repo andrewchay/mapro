@@ -146,6 +146,7 @@ const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt
     description: '构建精准受众画像，补充用户搜索习惯（平台、场景、关键词）',
     toolName: 'ma-ta-portrait',
     minArtifactLength: 300,
+    requiredFiles: ['ta-portrait.md', 'search-habits.md'],
     artifactRequirements: [
       { name: '人口统计', aliases: ['年龄', '性别', '收入', '城市', '地域', '学历', '职业'] },
       { name: '兴趣偏好', aliases: ['兴趣', '偏好', '爱好', '生活方式', '消费观'] },
@@ -1005,7 +1006,24 @@ export function validateStepArtifacts(
     missing.push(`${dirName}/ 目录中没有可读产物（文本文件）`)
   }
 
-  // 5. 检查文件非空
+  // 5. 检查必需文件是否存在
+  let requiredFiles: string[] = []
+  try {
+    const workflow = loadCampaignWorkflow(campaignId)
+    const step = workflow.steps.find((s) => s.id === stepId)
+    if (step?.requiredFiles) requiredFiles = step.requiredFiles
+  } catch {
+    // 忽略
+  }
+
+  for (const requiredFile of requiredFiles) {
+    const exists = files.some((f) => f.toLowerCase() === requiredFile.toLowerCase())
+    if (!exists) {
+      missing.push(`${dirName}/ 缺少必需产物文件: ${requiredFile}`)
+    }
+  }
+
+  // 6. 检查文件非空
   if (totalChars === 0) {
     missing.push(`${dirName}/ 目录中文件均为空`)
   }
