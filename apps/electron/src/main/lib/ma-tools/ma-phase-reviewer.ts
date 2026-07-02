@@ -41,7 +41,7 @@ export const PHASE_REVIEWER_TOOL_META: ChatToolMeta = {
 
 **参数说明：**
 - campaign_id: Campaign 的唯一 ID
-- phase: 阶段序号（1=美学吸睛期，2=场景渗透期，3=价值深化期）
+- phase: 阶段序号（1/2/3，对应 campaign.phasePlans 中的阶段定义）
 - start_date / end_date: 复盘的时间范围
 - cpm_target: 可选，CPM 目标值（如 100）
 - engagement_target: 可选，互动率目标值（如 5 表示 5%）
