@@ -195,26 +195,18 @@ function generateBriefContent(campaign: Campaign, kol: CampaignKOLPoolItem): str
 ${kol.city ? `- **所在城市**：${kol.city}` : ''}
 ${kol.price ? `- **合作报价**：${kol.price}` : ''}
 
-## 内容方向（三阶段投放策略）
+## 内容方向（按 Campaign 阶段规划）
 
-### 第一阶段：美学吸睛期（建立视觉认知）
-- 产品开箱 / 颜值展示
-- 强调包装设计、色彩美学
-- 适配 ${kol.platform} 平台视觉调性
-
-### 第二阶段：场景渗透期（场景绑定）
-- 都市女性生活场景植入
-- 办公室下午茶 / 健身后补充 / 旅行便携
-- 情感共鸣：忙碌生活中的品质小确幸
-
-### 第三阶段：价值深化期（品牌护城河）
-- 品牌理念传递：天然、健康、可持续
-- 与其他品牌的差异化对比
-- 用户证言 / 复购理由
+${campaign.phasePlans.map((phase) => `### 第 ${phase.phase} 阶段：${phase.name}（${phase.goal}）
+- 结合 ${campaign.brand} 品牌调性创作内容
+- 围绕 ${campaign.creativePlan.contentPillars.join('、') || '产品卖点'} 展开
+- 适配 ${kol.platform} 平台内容形态与受众习惯`).join('\n\n')}
 
 ## 内容要求
 - [ ] 必须露出品牌名「${campaign.brand}」
-- [ ] 强调核心卖点：天然、健康、品质
+- [ ] 强调核心信息：${campaign.creativePlan.coreMessage}
+- [ ] 内容风格：${campaign.creativePlan.tone}
+- [ ] 重点内容支柱：${campaign.creativePlan.contentPillars.join('、')}
 - [ ] 内容风格适配 ${kol.platform} 平台调性
 - [ ] 避免过度营销感，保持真实分享感
 

@@ -98,14 +98,25 @@ function getTestConfigDir(): string | undefined {
 let dbInstance: Database | null = null
 
 const DEFAULT_PHASE_TEMPLATE: Array<Omit<CampaignPhasePlan, 'budget'>> = [
-  { phase: 1, name: '美学吸睛期', months: '第 1-2 月', goal: '建立视觉认知，占领关键词' },
-  { phase: 2, name: '场景渗透期', months: '第 3-4 月', goal: '场景绑定，情感连接' },
-  { phase: 3, name: '价值深化期', months: '第 5-6 月', goal: '品牌护城河，长尾维护' },
+  { phase: 1, name: '第一阶段', months: '第 1 阶段', goal: '根据品牌与目标人群制定投放策略' },
+  { phase: 2, name: '第二阶段', months: '第 2 阶段', goal: '深化内容与场景渗透' },
+  { phase: 3, name: '第三阶段', months: '第 3 阶段', goal: '沉淀品牌资产与长尾运营' },
 ]
 
 function buildDefaultPhasePlans(budget: number, durationMonths: number): CampaignPhasePlan[] {
-  const phaseBudget = Math.round(budget / Math.max(durationMonths, 1) * 2)
-  return DEFAULT_PHASE_TEMPLATE.map((phase) => ({ ...phase, budget: phaseBudget }))
+  const safeDuration = Math.max(durationMonths, 1)
+  const phaseBudget = Math.round(budget / safeDuration * 2)
+  const monthsPerPhase = Math.max(1, Math.round(safeDuration / 3))
+  return DEFAULT_PHASE_TEMPLATE.map((phase, index) => {
+    const startMonth = index * monthsPerPhase + 1
+    const endMonth = Math.min((index + 1) * monthsPerPhase, safeDuration)
+    const monthsRange = startMonth === endMonth ? `第 ${startMonth} 月` : `第 ${startMonth}-${endMonth} 月`
+    return {
+      ...phase,
+      months: monthsRange,
+      budget: phaseBudget,
+    }
+  })
 }
 
 function normalizePhasePlans(value: unknown, budget: number, durationMonths: number): CampaignPhasePlan[] {
@@ -114,15 +125,16 @@ function normalizePhasePlans(value: unknown, budget: number, durationMonths: num
   try {
     const parsed = typeof value === 'string' ? JSON.parse(value) : value
     if (Array.isArray(parsed)) {
+      const defaults = buildDefaultPhasePlans(budget, durationMonths)
       return parsed.map((item, index) => {
         const raw = item as Partial<CampaignPhasePlan>
-        const fallback = DEFAULT_PHASE_TEMPLATE[index] ?? DEFAULT_PHASE_TEMPLATE[0]!
+        const fallback = defaults[index] ?? defaults[defaults.length - 1]!
         return {
           phase: Number(raw.phase ?? fallback.phase),
           name: String(raw.name ?? fallback.name),
           months: String(raw.months ?? fallback.months),
           goal: String(raw.goal ?? fallback.goal),
-          budget: Number(raw.budget ?? Math.round(budget / Math.max(durationMonths, 1) * 2)),
+          budget: Number(raw.budget ?? fallback.budget),
         }
       })
     }
@@ -135,10 +147,10 @@ function normalizePhasePlans(value: unknown, budget: number, durationMonths: num
 
 function buildDefaultCreativePlan(campaign: Pick<Campaign, 'brand' | 'targetAudience'>): CampaignCreativePlan {
   return {
-    bigIdea: `${campaign.brand} 的生活方式种草`,
+    bigIdea: `${campaign.brand} 的品牌种草计划`,
     coreMessage: `面向${campaign.targetAudience || '目标人群'}传递品牌价值与使用场景。`,
     contentPillars: ['产品体验', '生活场景', '用户口碑'],
-    tone: '真实、克制、有质感',
+    tone: '真实、自然、有质感',
     mandatoryElements: [campaign.brand],
     forbiddenElements: [],
   }
@@ -692,12 +704,26 @@ def normalize_update_value(key, value):
     return value
 
 def default_phase_plans(budget, duration_months):
-    phase_budget = round(float(budget or 0) / max(int(duration_months or 1), 1) * 2)
-    return [
-        {"phase": 1, "name": "美学吸睛期", "months": "第 1-2 月", "goal": "建立视觉认知，占领关键词", "budget": phase_budget},
-        {"phase": 2, "name": "场景渗透期", "months": "第 3-4 月", "goal": "场景绑定，情感连接", "budget": phase_budget},
-        {"phase": 3, "name": "价值深化期", "months": "第 5-6 月", "goal": "品牌护城河，长尾维护", "budget": phase_budget},
-    ]
+    safe_duration = max(int(duration_months or 1), 1)
+    phase_budget = round(float(budget or 0) / safe_duration * 2)
+    months_per_phase = max(1, round(safe_duration / 3))
+    phases = []
+    for index, phase in enumerate([
+        {"phase": 1, "name": "第一阶段", "goal": "根据品牌与目标人群制定投放策略"},
+        {"phase": 2, "name": "第二阶段", "goal": "深化内容与场景渗透"},
+        {"phase": 3, "name": "第三阶段", "goal": "沉淀品牌资产与长尾运营"},
+    ]):
+        start_month = index * months_per_phase + 1
+        end_month = min((index + 1) * months_per_phase, safe_duration)
+        months_range = f"第 {start_month} 月" if start_month == end_month else f"第 {start_month}-{end_month} 月"
+        phases.append({
+            "phase": phase["phase"],
+            "name": phase["name"],
+            "months": months_range,
+            "goal": phase["goal"],
+            "budget": phase_budget,
+        })
+    return phases
 
 def split_list(value):
     try:
@@ -710,10 +736,10 @@ def split_list(value):
 
 def default_creative_plan(brand, target_audience):
     return {
-        "bigIdea": f"{brand} 的生活方式种草",
+        "bigIdea": f"{brand} 的品牌种草计划",
         "coreMessage": f"面向{target_audience or '目标人群'}传递品牌价值与使用场景。",
         "contentPillars": ["产品体验", "生活场景", "用户口碑"],
-        "tone": "真实、克制、有质感",
+        "tone": "真实、自然、有质感",
         "mandatoryElements": [brand],
         "forbiddenElements": [],
     }
@@ -1089,10 +1115,16 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
   const db = getDb()
   const now = Date.now()
   const id = generateId()
-  const phasePlans = normalizePhasePlans(input.phasePlans, input.budget, input.durationMonths)
+  const platform = input.platform ?? 'xiaohongshu'
+  const budget = input.budget ?? 0
+  const durationMonths = input.durationMonths ?? 3
+  const targetCity = input.targetCity ?? []
+  const targetAudience = input.targetAudience ?? ''
+
+  const phasePlans = normalizePhasePlans(input.phasePlans, budget, durationMonths)
   const creativePlan = normalizeCreativePlan(input.creativePlan, {
     brand: input.brand,
-    targetAudience: input.targetAudience,
+    targetAudience,
   })
 
   db.run(
@@ -1101,11 +1133,11 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
     id,
     input.name,
     input.brand,
-    input.platform,
-    input.budget,
-    input.durationMonths,
-    JSON.stringify(input.targetCity),
-    input.targetAudience,
+    platform,
+    budget,
+    durationMonths,
+    JSON.stringify(targetCity),
+    targetAudience,
     1,
     JSON.stringify(phasePlans),
     JSON.stringify(creativePlan),
@@ -1118,11 +1150,11 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
     id,
     name: input.name,
     brand: input.brand,
-    platform: input.platform,
-    budget: input.budget,
-    durationMonths: input.durationMonths,
-    targetCity: input.targetCity,
-    targetAudience: input.targetAudience,
+    platform,
+    budget,
+    durationMonths,
+    targetCity,
+    targetAudience,
     currentPhase: 1,
     phasePlans,
     creativePlan,
@@ -1474,26 +1506,18 @@ export function generateBriefTemplate(
 ${kol.city ? `- **所在城市**：${kol.city}` : ''}
 ${kol.price ? `- **合作报价**：${kol.price}` : ''}
 
-## 内容方向（三阶段投放策略）
+## 内容方向（按 Campaign 阶段规划）
 
-### 第一阶段：美学吸睛期（建立视觉认知）
-- 产品开箱 / 颜值展示
-- 强调包装设计、色彩美学
-- 适配 ${kol.platform} 平台视觉调性
-
-### 第二阶段：场景渗透期（场景绑定）
-- 都市女性生活场景植入
-- 办公室下午茶 / 健身后补充 / 旅行便携
-- 情感共鸣：忙碌生活中的品质小确幸
-
-### 第三阶段：价值深化期（品牌护城河）
-- 品牌理念传递：天然、健康、可持续
-- 与其他品牌的差异化对比
-- 用户证言 / 复购理由
+${campaign.phasePlans.map((phase) => `### 第 ${phase.phase} 阶段：${phase.name}（${phase.goal}）
+- 结合 ${campaign.brand} 品牌调性创作内容
+- 围绕 ${campaign.creativePlan.contentPillars.join('、') || '产品卖点'} 展开
+- 适配 ${kol.platform} 平台内容形态与受众习惯`).join('\n\n')}
 
 ## 内容要求
 - [ ] 必须露出品牌名「${campaign.brand}」
-- [ ] 强调核心卖点：天然、健康、品质
+- [ ] 强调核心信息：${campaign.creativePlan.coreMessage}
+- [ ] 内容风格：${campaign.creativePlan.tone}
+- [ ] 重点内容支柱：${campaign.creativePlan.contentPillars.join('、')}
 - [ ] 内容风格适配 ${kol.platform} 平台调性
 - [ ] 避免过度营销感，保持真实分享感
 

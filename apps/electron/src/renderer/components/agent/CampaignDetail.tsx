@@ -60,11 +60,7 @@ const POOL_STATUS_LABEL: Record<string, string> = {
   rejected: '已拒绝',
 }
 
-const PHASES = [
-  { num: 1, name: '美学吸睛期', months: '第 1-2 月', goal: '建立视觉认知，占领关键词' },
-  { num: 2, name: '场景渗透期', months: '第 3-4 月', goal: '场景绑定，情感连接' },
-  { num: 3, name: '价值深化期', months: '第 5-6 月', goal: '品牌护城河，长尾维护' },
-]
+// 阶段数据来自 campaign.phasePlans，不再硬编码品牌专属阶段文案。
 
 export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateToKolData, onSendToAssistant }: CampaignDetailProps): React.ReactElement {
   const setCampaigns = useSetAtom(campaignsAtom)
@@ -144,7 +140,8 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
       const updated = await window.electronAPI.advanceCampaignPhase(campaign.id)
       if (updated) {
         applyCampaignUpdate(updated)
-        toast.success(`已进入第 ${updated.currentPhase} 阶段：${PHASES[updated.currentPhase - 1]?.name ?? ''}`)
+        const phaseName = updated.phasePlans[updated.currentPhase - 1]?.name ?? `第 ${updated.currentPhase} 阶段`
+        toast.success(`已进入第 ${updated.currentPhase} 阶段：${phaseName}`)
       } else {
         toast.error('推进失败')
       }

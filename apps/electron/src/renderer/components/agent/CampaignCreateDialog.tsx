@@ -45,13 +45,14 @@ export function CampaignCreateDialog({ open, onOpenChange, onCreated }: Campaign
       toast.error('请填写项目名称和品牌名')
       return
     }
-    const budgetNum = parseInt(budget, 10)
-    if (isNaN(budgetNum) || budgetNum <= 0) {
+
+    const budgetNum = budget.trim() ? parseInt(budget, 10) : undefined
+    if (budgetNum !== undefined && (isNaN(budgetNum) || budgetNum < 0)) {
       toast.error('请输入有效预算金额')
       return
     }
-    const months = parseInt(durationMonths, 10)
-    if (isNaN(months) || months <= 0) {
+    const months = durationMonths.trim() ? parseInt(durationMonths, 10) : undefined
+    if (months !== undefined && (isNaN(months) || months <= 0)) {
       toast.error('请输入有效投放周期')
       return
     }
@@ -63,7 +64,7 @@ export function CampaignCreateDialog({ open, onOpenChange, onCreated }: Campaign
       budget: budgetNum,
       durationMonths: months,
       targetCity: targetCity.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
-      targetAudience: targetAudience.trim(),
+      targetAudience: targetAudience.trim() || undefined,
     }
 
     setSubmitting(true)
@@ -112,7 +113,7 @@ export function CampaignCreateDialog({ open, onOpenChange, onCreated }: Campaign
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">投放平台</label>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">投放平台（可选）</label>
               <Select value={platform} onValueChange={(v) => setPlatform(v as typeof platform)}>
                 <SelectTrigger className="text-sm">
                   <SelectValue />
@@ -126,7 +127,7 @@ export function CampaignCreateDialog({ open, onOpenChange, onCreated }: Campaign
             </div>
 
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">预算（元）</label>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">预算（元，可选）</label>
               <input
                 type="number"
                 value={budget}
@@ -139,7 +140,7 @@ export function CampaignCreateDialog({ open, onOpenChange, onCreated }: Campaign
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">投放周期（月）</label>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">投放周期（月，可选）</label>
               <input
                 type="number"
                 value={durationMonths}
@@ -149,7 +150,7 @@ export function CampaignCreateDialog({ open, onOpenChange, onCreated }: Campaign
             </div>
 
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">目标城市</label>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">目标城市（可选）</label>
               <input
                 type="text"
                 value={targetCity}
@@ -161,7 +162,7 @@ export function CampaignCreateDialog({ open, onOpenChange, onCreated }: Campaign
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">目标人群</label>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">目标人群（可选）</label>
             <input
               type="text"
               value={targetAudience}

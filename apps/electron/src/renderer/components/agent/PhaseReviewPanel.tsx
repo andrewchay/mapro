@@ -60,11 +60,6 @@ const PERFORMANCE_GRADE_COLOR: Record<string, string> = {
   pending: 'text-gray-500 bg-gray-50 border-gray-200',
 }
 
-const PHASE_NAME: Record<number, string> = {
-  1: '美学吸睛期',
-  2: '场景渗透期',
-  3: '价值深化期',
-}
 
 /* ===================== 统计卡片 ===================== */
 
@@ -313,7 +308,7 @@ function ReportList({ reports, selectedId, onSelect, onDelete }: ReportListProps
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium">
-                    第 {report.phase} 阶段复盘 — {PHASE_NAME[report.phase] ?? ''}
+                    第 {report.phase} 阶段复盘
                   </span>
                   <span className={cn(
                     'text-[10px] px-1.5 py-0.5 rounded',
@@ -502,9 +497,9 @@ export function PhaseReviewPanel({ campaignId, currentPhase }: PhaseReviewPanelP
               onChange={(e) => setSelectedPhase(Number(e.target.value))}
               className="h-8 pl-3 pr-8 text-xs rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer"
             >
-              <option value={1}>第一阶段 · 美学吸睛期</option>
-              <option value={2}>第二阶段 · 场景渗透期</option>
-              <option value={3}>第三阶段 · 价值深化期</option>
+              <option value={1}>第一阶段</option>
+              <option value={2}>第二阶段</option>
+              <option value={3}>第三阶段</option>
             </select>
             <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
           </div>

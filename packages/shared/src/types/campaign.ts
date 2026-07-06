@@ -86,11 +86,11 @@ export interface Campaign {
 export interface CreateCampaignInput {
   name: string
   brand: string
-  platform: CampaignPlatform
-  budget: number
-  durationMonths: number
-  targetCity: string[]
-  targetAudience: string
+  platform?: CampaignPlatform
+  budget?: number
+  durationMonths?: number
+  targetCity?: string[]
+  targetAudience?: string
   phasePlans?: CampaignPhasePlan[]
   creativePlan?: CampaignCreativePlan
 }
