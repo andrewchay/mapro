@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MAPro Direction C · Token Preview</title>
+  <style>
+    :root {
+      --background: #f8f7f5;
+      --foreground: #1c1917;
+      --muted: #f5f4f2;
+      --muted-foreground: #78716c;
+      --border: #e7e5e4;
+      --primary: #d97706;
+      --primary-foreground: #ffffff;
+      --card: #ffffff;
+      --accent: rgba(245, 158, 11, 0.12);
+      --selection-bg: #fff7ed;
+      --selection-fg: #1c1917;
+      --pulse-line: #f59e0b;
+      --pulse-glow: #fbbf24;
+    }
+    .dark-mode {
+      --background: #0f1115;
+      --foreground: #f5f5f4;
+      --muted: #1c1c1e;
+      --muted-foreground: #a8a29e;
+      --border: #252830;
+      --primary: #d97706;
+      --primary-foreground: #ffffff;
+      --card: #18181b;
+      --accent: rgba(245, 158, 11, 0.15);
+      --selection-bg: #451a03;
+      --selection-fg: #f5f5f4;
+      --pulse-line: #f59e0b;
+      --pulse-glow: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+      background: #f0f0f0;
+      padding: 40px;
+    }
+    .mode {
+      width: 360px;
+      border-radius: 16px;
+      overflow: hidden;
+      background: var(--background);
+      color: var(--foreground);
+      border: 1px solid var(--border);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+      margin-bottom: 24px;
+    }
+    .mode-header {
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+    }
+    .mode-body {
+      padding: 16px;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px;
+      border-radius: 10px;
+      margin-bottom: 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+    }
+    .row.selected {
+      background: var(--selection-bg);
+      color: var(--selection-fg);
+      border-color: var(--primary);
+    }
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      background: var(--primary);
+      color: var(--primary-foreground);
+      border: none;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .btn-ghost {
+      background: transparent;
+      color: var(--muted-foreground);
+      border: 1px solid var(--border);
+    }
+    .badge {
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: var(--accent);
+      color: var(--foreground);
+      font-size: 12px;
+    }
+    .pulse-demo {
+      position: relative;
+      padding-left: 20px;
+      margin-top: 16px;
+    }
+    .pulse-line {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      border-radius: 1px;
+      background: linear-gradient(to bottom, transparent, var(--pulse-line), transparent);
+      box-shadow: 0 0 8px 2px rgba(var(--pulse-glow), 0.3);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 0.9; }
+    }
+    .swatches {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+    .swatch {
+      width: 48px;
+      height: 48px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 4px;
+      font-size: 9px;
+      color: rgba(0,0,0,0.5);
+    }
+  </style>
+</head>
+<body>
+  <h1 style="font-size: 20px; margin-bottom: 24px;">MAPro Direction C · Token Preview</h1>
+
+  <div class="mode">
+    <div class="mode-header">浅色模式</div>
+    <div class="mode-body">
+      <div class="row">
+        <span>普通项</span>
+        <span class="badge">Badge</span>
+      </div>
+      <div class="row selected">
+        <span>选中项</span>
+        <button class="btn">操作</button>
+      </div>
+      <div class="pulse-demo">
+        <div class="pulse-line"></div>
+        <div style="color: var(--muted-foreground); font-size: 13px;">Agent 正在分析 Campaign 数据…</div>
+      </div>
+      <div class="swatches">
+        <div class="swatch" style="background: var(--background);">bg</div>
+        <div class="swatch" style="background: var(--card);">card</div>
+        <div class="swatch" style="background: var(--muted);">muted</div>
+        <div class="swatch" style="background: var(--primary); color: white;">primary</div>
+        <div class="swatch" style="background: var(--accent);">accent</div>
+        <div class="swatch" style="background: var(--selection-bg);">sel</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mode dark-mode">
+    <div class="mode-header">深色模式</div>
+    <div class="mode-body">
+      <div class="row">
+        <span>普通项</span>
+        <span class="badge">Badge</span>
+      </div>
+      <div class="row selected">
+        <span>选中项</span>
+        <button class="btn">操作</button>
+      </div>
+      <div class="pulse-demo">
+        <div class="pulse-line"></div>
+        <div style="color: var(--muted-foreground); font-size: 13px;">Agent 正在分析 Campaign 数据…</div>
+      </div>
+      <div class="swatches">
+        <div class="swatch" style="background: var(--background);">bg</div>
+        <div class="swatch" style="background: var(--card);">card</div>
+        <div class="swatch" style="background: var(--muted);">muted</div>
+        <div class="swatch" style="background: var(--primary); color: white;">primary</div>
+        <div class="swatch" style="background: var(--accent);">accent</div>
+        <div class="swatch" style="background: var(--selection-bg);">sel</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

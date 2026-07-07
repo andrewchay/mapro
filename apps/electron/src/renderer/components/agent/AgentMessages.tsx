@@ -608,7 +608,10 @@ export function AgentMessages({ sessionId, sessionModelId, messagesLoaded, persi
     <BasePathsProvider basePaths={attachedDirs}>
     <Conversation resize={ready && !transitioning ? 'smooth' : 'instant'} className={ready ? (skipFadeIn ? 'opacity-100' : 'opacity-100 transition-opacity duration-200') : 'opacity-0'}>
       <ScrollPositionManager id={sessionId} ready={ready} />
-      <ConversationContent>
+      <ConversationContent className="relative">
+        {(hasContent || streaming) && (
+          <div className={cn('agent-pulse-line', streaming && 'is-streaming')} aria-hidden="true" />
+        )}
         {!hasContent && !streaming ? (
           <EmptyState />
         ) : (

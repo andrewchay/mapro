@@ -1,0 +1,1635 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Direction A · Precision Tool — MAPro Visual Direction</title>
+  <style>
+    :root {
+      --bg: #09090b;
+      --surface: #141416;
+      --surface-raised: #1c1c1f;
+      --surface-hover: #222225;
+      --border: #27272a;
+      --border-subtle: #1f1f22;
+      --accent: #6366f1;
+      --accent-glow: rgba(99, 102, 241, 0.35);
+      --accent-dim: rgba(99, 102, 241, 0.12);
+      --text: #fafafa;
+      --text-secondary: #a1a1aa;
+      --text-muted: #71717a;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --radius: 6px;
+      --radius-pill: 9999px;
+      --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+      --font-mono: "SF Mono", Monaco, "Cascadia Code", "Fira Code", "Noto Sans SC", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #050506;
+      color: var(--text);
+      font-family: var(--font-ui);
+      font-size: 13px;
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      padding: 24px;
+      min-width: 320px;
+    }
+
+    .page-caption {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 40px;
+      padding: 0 20px;
+      background: rgba(9, 9, 11, 0.92);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
+    }
+
+    .page-caption span.accent { color: var(--accent); }
+
+    .screens-stage {
+      margin-top: 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+      align-items: flex-start;
+    }
+
+    .screen-wrapper {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .screen-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .screen-label .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+
+    .screen {
+      width: 1440px;
+      height: 900px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      position: relative;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.45);
+    }
+
+    /* ---------- Sidebar ---------- */
+    .sidebar {
+      width: 232px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 12px 10px;
+    }
+
+    .sidebar-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 8px 14px;
+    }
+
+    .logo-mark {
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+
+    .logo-mark svg { width: 16px; height: 16px; }
+
+    .app-name {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    .app-version {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-left: auto;
+      font-family: var(--font-mono);
+    }
+
+    .mode-switch {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin: 0 4px 14px;
+    }
+
+    .mode-btn {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      height: 26px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: default;
+    }
+
+    .mode-btn.active {
+      background: var(--surface-raised);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .nav-section {
+      margin-bottom: 14px;
+    }
+
+    .nav-section-title {
+      padding: 4px 10px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .nav-item {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 6px 10px;
+      margin: 1px 4px;
+      border-radius: var(--radius);
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: default;
+    }
+
+    .nav-item:hover { background: var(--surface-hover); color: var(--text); }
+
+    .nav-item.active {
+      background: var(--accent-dim);
+      color: var(--text);
+    }
+
+    .nav-item.active::before {
+      content: "";
+      position: absolute;
+      left: -6px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 2px;
+      height: 16px;
+      background: var(--accent);
+      border-radius: 1px;
+      box-shadow: 0 0 8px var(--accent-glow), 0 0 14px var(--accent-glow);
+    }
+
+    .nav-item svg { width: 15px; height: 15px; opacity: 0.85; }
+
+    .nav-item .count {
+      margin-left: auto;
+      font-size: 10px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    .sidebar-footer {
+      margin-top: auto;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+
+    .user-chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: var(--radius);
+    }
+
+    .avatar {
+      width: 22px;
+      height: 22px;
+      border-radius: var(--radius);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .user-name { font-size: 12px; font-weight: 500; }
+
+    /* ---------- Main Area ---------- */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      background: var(--bg);
+    }
+
+    .topbar {
+      height: 48px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(9,9,11,0.7);
+      backdrop-filter: blur(8px);
+    }
+
+    .topbar-title {
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .topbar-title.editable {
+      padding: 4px 8px;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+    }
+
+    .topbar-title.editable:hover { border-color: var(--border); background: var(--surface); }
+
+    .topbar-spacer { flex: 1; }
+
+    .selector {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: 28px;
+      padding: 0 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .selector svg { width: 13px; height: 13px; }
+
+    .icon-btn {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-secondary);
+    }
+
+    .icon-btn:hover { background: var(--surface-hover); color: var(--text); }
+
+    .icon-btn svg { width: 14px; height: 14px; }
+
+    /* ---------- Messages ---------- */
+    .message-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .message-row {
+      display: flex;
+      gap: 12px;
+      max-width: 92%;
+    }
+
+    .message-row.user { align-self: flex-end; flex-direction: row-reverse; }
+
+    .message-avatar {
+      width: 26px;
+      height: 26px;
+      border-radius: var(--radius);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--border);
+    }
+
+    .message-avatar.agent { background: var(--accent-dim); color: var(--accent); }
+    .message-avatar.user { background: var(--surface-raised); color: var(--text-secondary); }
+    .message-avatar svg { width: 14px; height: 14px; }
+
+    .message-bubble {
+      padding: 12px 14px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .message-row.user .message-bubble {
+      background: var(--surface-raised);
+      border-color: var(--border);
+    }
+
+    .message-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .message-meta strong { color: var(--text); font-weight: 500; }
+
+    /* ---------- Tool Card ---------- */
+    .tool-card {
+      margin-left: 38px;
+      max-width: 620px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      overflow: hidden;
+    }
+
+    .tool-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--surface-raised);
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+
+    .tool-header .tool-name {
+      font-family: var(--font-mono);
+      color: var(--accent);
+    }
+
+    .tool-header .tool-status {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--success);
+    }
+
+    .tool-body {
+      padding: 10px 12px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+
+    .tool-key { color: var(--text-muted); }
+    .tool-string { color: #a5b4fc; }
+    .tool-number { color: #fca5a5; }
+
+    /* ---------- Permission Banner ---------- */
+    .permission-banner {
+      margin: 0 24px 16px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-left: 2px solid var(--accent);
+      border-radius: var(--radius);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 0 20px rgba(99,102,241,0.08);
+    }
+
+    .permission-banner svg { width: 18px; height: 18px; color: var(--accent); flex-shrink: 0; }
+
+    .permission-text { flex: 1; }
+    .permission-text strong { color: var(--text); font-weight: 500; }
+    .permission-text p { margin: 2px 0 0; font-size: 12px; color: var(--text-muted); }
+
+    .permission-actions { display: flex; gap: 8px; }
+
+    .btn {
+      height: 28px;
+      padding: 0 14px;
+      border-radius: var(--radius);
+      font-size: 12px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      border: 1px solid var(--border);
+      background: var(--surface-raised);
+      color: var(--text);
+      cursor: default;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      box-shadow: 0 0 14px var(--accent-glow);
+    }
+
+    .btn-ghost { background: transparent; color: var(--text-secondary); }
+
+    /* ---------- Input Area ---------- */
+    .input-area {
+      flex-shrink: 0;
+      padding: 12px 24px 18px;
+    }
+
+    .input-box {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 10px 12px;
+    }
+
+    .input-placeholder {
+      min-height: 22px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    .input-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
+
+    .input-left { display: flex; gap: 6px; }
+
+    .tool-btn {
+      width: 26px;
+      height: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius);
+      color: var(--text-muted);
+    }
+
+    .tool-btn:hover { background: var(--surface-hover); color: var(--text); }
+
+    .tool-btn svg { width: 14px; height: 14px; }
+
+    .input-right { display: flex; align-items: center; gap: 10px; }
+
+    .permission-mode {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .permission-mode select {
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 11px;
+      padding: 3px 6px;
+    }
+
+    .send-btn {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius);
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+
+    .send-btn svg { width: 14px; height: 14px; }
+
+    /* ---------- Right Panel ---------- */
+    .right-panel {
+      width: 260px;
+      flex-shrink: 0;
+      border-left: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .panel-header {
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .panel-header svg { width: 14px; height: 14px; color: var(--text-muted); }
+
+    .file-tree { padding: 8px; }
+
+    .tree-item {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .tree-item:hover { background: var(--surface-hover); color: var(--text); }
+
+    .tree-item svg { width: 14px; height: 14px; color: var(--text-muted); }
+
+    .tree-indent { width: 14px; }
+
+    /* ---------- Campaign Screen ---------- */
+    .campaign-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 18px 24px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .back-btn {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-secondary);
+    }
+
+    .campaign-title { font-size: 18px; font-weight: 600; }
+
+    .badges { display: flex; gap: 8px; }
+
+    .badge {
+      height: 22px;
+      padding: 0 9px;
+      border-radius: var(--radius);
+      font-size: 11px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid var(--border);
+      background: var(--surface-raised);
+      color: var(--text-secondary);
+    }
+
+    .badge.status-active {
+      background: rgba(34, 197, 94, 0.10);
+      border-color: rgba(34, 197, 94, 0.25);
+      color: var(--success);
+    }
+
+    .badge svg { width: 11px; height: 11px; }
+
+    .campaign-actions { margin-left: auto; display: flex; gap: 8px; }
+
+    .info-cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      padding: 16px 24px;
+    }
+
+    .info-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 12px 14px;
+    }
+
+    .info-card-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .info-card-value {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .info-card-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .phase-track {
+      padding: 0 24px 18px;
+    }
+
+    .phase-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .phase-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 14px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .phase-card.active {
+      border-color: rgba(99, 102, 241, 0.35);
+      background: linear-gradient(180deg, var(--surface) 0%, rgba(99,102,241,0.06) 100%);
+    }
+
+    .phase-card.active::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+
+    .phase-card.completed { border-color: rgba(34, 197, 94, 0.25); }
+
+    .phase-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .phase-name { font-size: 13px; font-weight: 600; }
+
+    .phase-status {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--surface-raised);
+      color: var(--text-muted);
+    }
+
+    .phase-status.done { background: rgba(34,197,94,0.12); color: var(--success); }
+    .phase-status.doing { background: var(--accent-dim); color: var(--accent); }
+
+    .phase-desc { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+
+    .phase-progress {
+      margin-top: 10px;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--surface-raised);
+      overflow: hidden;
+    }
+
+    .phase-progress-bar {
+      height: 100%;
+      border-radius: 2px;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+
+    .campaign-tabs {
+      display: flex;
+      gap: 4px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tab {
+      height: 34px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      cursor: default;
+    }
+
+    .tab.active {
+      color: var(--text);
+      border-bottom-color: var(--accent);
+    }
+
+    .tab svg { width: 13px; height: 13px; }
+
+    .campaign-body {
+      flex: 1;
+      padding: 16px 24px;
+      overflow-y: auto;
+    }
+
+    .table-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .table-title { font-size: 13px; font-weight: 600; }
+
+    .table-actions { display: flex; gap: 8px; }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .data-table th,
+    .data-table td {
+      padding: 9px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-secondary);
+    }
+
+    .data-table th {
+      font-weight: 600;
+      color: var(--text-muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      background: var(--surface-raised);
+    }
+
+    .data-table tr:hover td { background: var(--surface-hover); color: var(--text); }
+
+    .score-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      background: rgba(99,102,241,0.12);
+      color: var(--accent);
+    }
+
+    /* ---------- Settings Screen ---------- */
+    .settings-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 32px;
+    }
+
+    .settings-section {
+      max-width: 760px;
+      margin-bottom: 32px;
+    }
+
+    .settings-section-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 14px;
+      color: var(--text);
+    }
+
+    .settings-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 18px;
+    }
+
+    .segmented-control {
+      display: inline-flex;
+      gap: 2px;
+      padding: 3px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg);
+    }
+
+    .segment {
+      height: 30px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      border-radius: 4px;
+      cursor: default;
+    }
+
+    .segment.active {
+      background: var(--surface-raised);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .segment svg { width: 13px; height: 13px; }
+
+    .style-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .style-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface-raised);
+      overflow: hidden;
+      position: relative;
+      cursor: default;
+    }
+
+    .style-card.active { border-color: var(--accent); box-shadow: 0 0 18px var(--accent-glow); }
+
+    .style-preview {
+      height: 92px;
+      position: relative;
+    }
+
+    .style-preview::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: 0.22;
+    }
+
+    .style-preview.polar::after { background: linear-gradient(135deg, #f4f4f5 0%, #e4e4e7 100%); }
+    .style-preview.graphite::after { background: linear-gradient(135deg, #3f3f46 0%, #18181b 100%); }
+    .style-preview.neon::after { background: linear-gradient(135deg, #2e1065 0%, #09090b 100%); }
+    .style-preview.forest::after { background: linear-gradient(135deg, #064e3b 0%, #09090b 100%); }
+    .style-preview.midnight::after { background: linear-gradient(135deg, #172554 0%, #09090b 100%); }
+    .style-preview.amber::after { background: linear-gradient(135deg, #78350f 0%, #09090b 100%); }
+
+    .style-card-body {
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid var(--border);
+    }
+
+    .style-name { font-size: 12px; font-weight: 500; }
+
+    .style-check {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .style-card.active .style-check {
+      background: var(--accent);
+      border-color: var(--accent);
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+
+    .style-check svg { width: 9px; height: 9px; color: #fff; }
+
+    .icon-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .icon-option {
+      aspect-ratio: 1;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface-raised);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .icon-option.active { border-color: var(--accent); box-shadow: 0 0 14px var(--accent-glow); }
+
+    .icon-option svg { width: 42px; height: 42px; }
+
+    .icon-option .check {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .icon-option .check svg { width: 8px; height: 8px; color: #fff; }
+
+    .hint-text {
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* ---------- Scaling helper ---------- */
+    .scaled-stage {
+      transform-origin: top left;
+    }
+  </style>
+</head>
+<body>
+  <div class="page-caption">
+    <div>MAPro Visual Direction Proposal · <span class="accent">Direction A · Precision Tool</span></div>
+    <div>1440 × 900 canvas · Dark mode · Violet-indigo accent</div>
+  </div>
+
+  <!-- Hidden SVG sprite -->
+  <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-message" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M12 11V7a4 4 0 0 1 4-4h.5"/><path d="M8 11V7a4 4 0 0 0-4-4h.5"/><circle cx="12" cy="16" r=".5" fill="currentColor"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></symbol>
+    <symbol id="i-paperclip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6" fill="currentColor"/></symbol>
+    <symbol id="i-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+    <symbol id="i-layout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></symbol>
+    <symbol id="i-command" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+    <symbol id="i-file-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-bar-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></symbol>
+    <symbol id="i-flask" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v7.31"/><path d="M14 2v7.31"/><path d="M8.5 2h7"/><path d="M14 9.3a6.5 6.5 0 1 1-4 0"/></symbol>
+    <symbol id="i-rotate" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></symbol>
+    <symbol id="i-hash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></symbol>
+  </svg>
+
+  <div class="screens-stage" id="stage">
+
+    <!-- Screen 1: Agent Session -->
+    <div class="screen-wrapper">
+      <div class="screen-label"><span class="dot"></span> 屏幕 A · Agent 会话主界面</div>
+      <div class="screen scaled-screen">
+        <aside class="sidebar">
+          <div class="sidebar-header">
+            <div class="logo-mark">
+              <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+                <g transform="translate(100,100) scale(1.03)">
+                  <rect width="800" height="800" rx="180" fill="#000"/>
+                  <rect x="150" y="350" width="90" height="400" rx="15" fill="#FFF" opacity="1"/>
+                  <rect x="270" y="320" width="80" height="360" rx="13" fill="#F0F0F0" opacity="0.85" transform="rotate(-3 310 500)"/>
+                  <rect x="380" y="290" width="70" height="320" rx="11" fill="#E0E0E0" opacity="0.7" transform="rotate(-6 415 450)"/>
+                  <rect x="480" y="260" width="60" height="280" rx="9" fill="#D0D0D0" opacity="0.55" transform="rotate(-9 510 400)"/>
+                  <rect x="570" y="230" width="50" height="240" rx="7" fill="#C0C0C0" opacity="0.4" transform="rotate(-12 595 350)"/>
+                  <rect x="650" y="200" width="40" height="200" rx="5" fill="#B0B0B0" opacity="0.25" transform="rotate(-15 670 300)"/>
+                </g>
+              </svg>
+            </div>
+            <div class="app-name">MAPro</div>
+            <div class="app-version">v0.2.9</div>
+          </div>
+          <div class="mode-switch">
+            <div class="mode-btn"><svg width="13" height="13"><use href="#i-message"/></svg>Chat</div>
+            <div class="mode-btn active"><svg width="13" height="13"><use href="#i-bot"/></svg>Agent</div>
+          </div>
+          <div class="nav-section">
+            <div class="nav-section-title">会话</div>
+            <div class="nav-item active"><svg><use href="#i-bot"/></svg> Campaign 数据分析 <span class="count">Agent</span></div>
+            <div class="nav-item"><svg><use href="#i-bot"/></svg> KOL 候选池筛选</div>
+            <div class="nav-item"><svg><use href="#i-message"/></svg> Claude 3.7 对比</div>
+            <div class="nav-item"><svg><use href="#i-message"/></svg> 周报生成提示词</div>
+          </div>
+          <div class="nav-section">
+            <div class="nav-section-title">Campaign</div>
+            <div class="nav-item"><svg><use href="#i-layout"/></svg> Q3 美妆新品</div>
+            <div class="nav-item"><svg><use href="#i-layout"/></svg> 618 数码大促</div>
+            <div class="nav-item"><svg><use href="#i-plus"/></svg> 新建 Campaign</div>
+          </div>
+          <div class="sidebar-footer">
+            <div class="user-chip">
+              <div class="avatar">M</div>
+              <div class="user-name">Marketing Team</div>
+              <svg width="14" height="14" style="margin-left:auto;color:var(--text-muted)"><use href="#i-settings"/></svg>
+            </div>
+          </div>
+        </aside>
+
+        <main class="main">
+          <header class="topbar">
+            <div class="topbar-title editable">
+              <svg width="14" height="14" style="color:var(--accent)"><use href="#i-bot"/></svg>
+              Campaign 数据分析
+            </div>
+            <div class="selector"><svg><use href="#i-cpu"/></svg> Claude 3.7 Sonnet <svg width="10" height="10"><use href="#i-chevron-left" style="transform:rotate(-90deg);transform-origin:center"/></svg></div>
+            <div class="selector"><svg><use href="#i-folder"/></svg> marketing-workspace</div>
+            <div class="topbar-spacer"></div>
+            <div class="icon-btn"><svg><use href="#i-search"/></svg></div>
+            <div class="icon-btn"><svg><use href="#i-bell"/></svg></div>
+            <div class="icon-btn"><svg><use href="#i-settings"/></svg></div>
+          </header>
+
+          <div class="message-area">
+            <div class="message-row user">
+              <div class="message-avatar user"><svg><use href="#i-user"/></svg></div>
+              <div class="message-bubble">
+                <div class="message-meta"><strong>我</strong> 09:41</div>
+                帮我分析这个 Campaign 的投放数据，找出 ROI 最高的 KOL 组合。
+              </div>
+            </div>
+
+            <div class="message-row agent">
+              <div class="message-avatar agent"><svg><use href="#i-bot"/></svg></div>
+              <div class="message-bubble">
+                <div class="message-meta"><strong>MAPro Agent</strong> 09:41</div>
+                我来分析 Campaign 数据。首先会读取内容追踪数据，然后计算各 KOL 的 ROI、CPE 与内容评分，最后给出组合建议。
+              </div>
+            </div>
+
+            <div class="tool-card">
+              <div class="tool-header">
+                <svg width="14" height="14"><use href="#i-cpu"/></svg>
+                <span class="tool-name">kol-data-mcp</span>
+                <span style="color:var(--text-muted);font-family:var(--font-mono)">→ query_kol_performance</span>
+                <span class="tool-status"><svg width="11" height="11"><use href="#i-check"/></svg> 已完成</span>
+              </div>
+              <div class="tool-body"><span class="tool-key">{</span>
+  <span class="tool-string">"campaign_id"</span><span class="tool-key">:</span> <span class="tool-string">"camp_q3_beauty_01"</span><span class="tool-key">,</span>
+  <span class="tool-string">"metrics"</span><span class="tool-key">: [</span><span class="tool-string">"roi"</span><span class="tool-key">, </span><span class="tool-string">"cpe"</span><span class="tool-key">, </span><span class="tool-string">"engagement_rate"</span><span class="tool-key">],</span>
+  <span class="tool-string">"group_by"</span><span class="tool-key">:</span> <span class="tool-string">"kol_id"</span>
+<span class="tool-key">}</span></div>
+            </div>
+
+            <div class="message-row user">
+              <div class="message-avatar user"><svg><use href="#i-user"/></svg></div>
+              <div class="message-bubble">
+                <div class="message-meta"><strong>我</strong> 09:42</div>
+                继续，基于结果给出优化建议。
+              </div>
+            </div>
+
+            <div class="message-row agent">
+              <div class="message-avatar agent"><svg><use href="#i-bot"/></svg></div>
+              <div class="message-bubble">
+                <div class="message-meta"><strong>MAPro Agent</strong> 09:42</div>
+                已完成分析。Top 3 KOL 组合如下：<br/><br/>
+                <strong>1. 组合 A</strong>：KOL-0421 + KOL-1103，综合 ROI 3.42，内容评分 88<br/>
+                <strong>2. 组合 B</strong>：KOL-0089 + KOL-2044，综合 ROI 2.91，内容评分 82<br/>
+                <strong>3. 组合 C</strong>：KOL-1567 单投，ROI 2.78，CPM 最低<br/><br/>
+                下一步我可以生成一份投放优化报告，或直接将结果写入 Campaign 工作区。
+              </div>
+            </div>
+          </div>
+
+          <div class="permission-banner">
+            <svg><use href="#i-shield"/></svg>
+            <div class="permission-text">
+              <strong>Agent 请求使用 Bash 工具</strong>
+              <p>执行脚本：~/.mapro/agent-workspaces/marketing-workspace/scripts/export_roi_report.sh</p>
+            </div>
+            <div class="permission-actions">
+              <button class="btn btn-ghost">拒绝</button>
+              <button class="btn btn-primary">允许一次</button>
+            </div>
+          </div>
+
+          <div class="input-area">
+            <div class="input-box">
+              <div class="input-placeholder">输入指令，按 ⌘K 聚焦…</div>
+              <div class="input-toolbar">
+                <div class="input-left">
+                  <div class="tool-btn"><svg><use href="#i-paperclip"/></svg></div>
+                  <div class="tool-btn"><svg><use href="#i-folder"/></svg></div>
+                </div>
+                <div class="input-right">
+                  <div class="permission-mode">
+                    <svg width="13" height="13"><use href="#i-shield"/></svg>
+                    <select><option>Safe</option><option>Ask</option><option>Allow all</option></select>
+                  </div>
+                  <button class="send-btn"><svg><use href="#i-send"/></svg></button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <aside class="right-panel">
+          <div class="panel-header">
+            <span>文件浏览器</span>
+            <svg><use href="#i-x"/></svg>
+          </div>
+          <div class="file-tree">
+            <div class="tree-item"><svg><use href="#i-folder"/></svg> marketing-workspace</div>
+            <div class="tree-item"><span class="tree-indent"></span><svg><use href="#i-folder"/></svg> campaigns</div>
+            <div class="tree-item"><span class="tree-indent"></span><span class="tree-indent"></span><svg><use href="#i-file-text"/></svg> q3_beauty_brief.md</div>
+            <div class="tree-item"><span class="tree-indent"></span><span class="tree-indent"></span><svg><use href="#i-file-text"/></svg> kol_shortlist.csv</div>
+            <div class="tree-item"><span class="tree-indent"></span><svg><use href="#i-folder"/></svg> scripts</div>
+            <div class="tree-item" style="color:var(--accent)"><span class="tree-indent"></span><span class="tree-indent"></span><svg><use href="#i-file-text"/></svg> export_roi_report.sh</div>
+            <div class="tree-item"><span class="tree-indent"></span><svg><use href="#i-folder"/></svg> outputs</div>
+            <div class="tree-item"><span class="tree-indent"></span><span class="tree-indent"></span><svg><use href="#i-file-text"/></svg> roi_analysis_2026.md</div>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <!-- Screen 2: Campaign Detail -->
+    <div class="screen-wrapper">
+      <div class="screen-label"><span class="dot"></span> 屏幕 B · Campaign 详情页</div>
+      <div class="screen scaled-screen">
+        <aside class="sidebar">
+          <div class="sidebar-header">
+            <div class="logo-mark">
+              <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+                <g transform="translate(100,100) scale(1.03)">
+                  <rect width="800" height="800" rx="180" fill="#000"/>
+                  <rect x="150" y="350" width="90" height="400" rx="15" fill="#FFF" opacity="1"/>
+                  <rect x="270" y="320" width="80" height="360" rx="13" fill="#F0F0F0" opacity="0.85" transform="rotate(-3 310 500)"/>
+                  <rect x="380" y="290" width="70" height="320" rx="11" fill="#E0E0E0" opacity="0.7" transform="rotate(-6 415 450)"/>
+                  <rect x="480" y="260" width="60" height="280" rx="9" fill="#D0D0D0" opacity="0.55" transform="rotate(-9 510 400)"/>
+                  <rect x="570" y="230" width="50" height="240" rx="7" fill="#C0C0C0" opacity="0.4" transform="rotate(-12 595 350)"/>
+                  <rect x="650" y="200" width="40" height="200" rx="5" fill="#B0B0B0" opacity="0.25" transform="rotate(-15 670 300)"/>
+                </g>
+              </svg>
+            </div>
+            <div class="app-name">MAPro</div>
+            <div class="app-version">v0.2.9</div>
+          </div>
+          <div class="mode-switch">
+            <div class="mode-btn"><svg width="13" height="13"><use href="#i-message"/></svg>Chat</div>
+            <div class="mode-btn"><svg width="13" height="13"><use href="#i-bot"/></svg>Agent</div>
+          </div>
+          <div class="nav-section">
+            <div class="nav-section-title">会话</div>
+            <div class="nav-item"><svg><use href="#i-bot"/></svg> Campaign 数据分析</div>
+            <div class="nav-item"><svg><use href="#i-bot"/></svg> KOL 候选池筛选</div>
+            <div class="nav-item"><svg><use href="#i-message"/></svg> Claude 3.7 对比</div>
+          </div>
+          <div class="nav-section">
+            <div class="nav-section-title">Campaign</div>
+            <div class="nav-item active"><svg><use href="#i-layout"/></svg> Q3 美妆新品 <span class="count">执行中</span></div>
+            <div class="nav-item"><svg><use href="#i-layout"/></svg> 618 数码大促</div>
+            <div class="nav-item"><svg><use href="#i-plus"/></svg> 新建 Campaign</div>
+          </div>
+          <div class="sidebar-footer">
+            <div class="user-chip">
+              <div class="avatar">M</div>
+              <div class="user-name">Marketing Team</div>
+              <svg width="14" height="14" style="margin-left:auto;color:var(--text-muted)"><use href="#i-settings"/></svg>
+            </div>
+          </div>
+        </aside>
+
+        <main class="main">
+          <div class="campaign-header">
+            <button class="back-btn"><svg width="16" height="16"><use href="#i-chevron-left"/></svg></button>
+            <div class="campaign-title">Q3 美妆新品 Campaign</div>
+            <div class="badges">
+              <div class="badge"><svg><use href="#i-hash"/></svg>小红书</div>
+              <div class="badge status-active"><svg><use href="#i-check"/></svg>执行中</div>
+            </div>
+            <div class="campaign-actions">
+              <button class="btn">编辑信息</button>
+              <button class="btn btn-primary">推进阶段</button>
+            </div>
+          </div>
+
+          <div class="info-cards">
+            <div class="info-card">
+              <div class="info-card-label">总预算</div>
+              <div class="info-card-value">¥280,000</div>
+              <div class="info-card-hint">已用 ¥96,400 · 34.4%</div>
+            </div>
+            <div class="info-card">
+              <div class="info-card-label">投放周期</div>
+              <div class="info-card-value">07.01 — 08.15</div>
+              <div class="info-card-hint">剩余 28 天</div>
+            </div>
+            <div class="info-card">
+              <div class="info-card-label">目标城市</div>
+              <div class="info-card-value">上海 / 杭州 / 成都</div>
+              <div class="info-card-hint"> Tier-1 + 新一线</div>
+            </div>
+            <div class="info-card">
+              <div class="info-card-label">目标 KOL</div>
+              <div class="info-card-value">32</div>
+              <div class="info-card-hint">已确认 18 · 待选 14</div>
+            </div>
+          </div>
+
+          <div class="phase-track">
+            <div class="phase-grid">
+              <div class="phase-card completed">
+                <div class="phase-top">
+                  <div class="phase-name">策略制定</div>
+                  <div class="phase-status done">已完成</div>
+                </div>
+                <div class="phase-desc">Brief、目标人群、预算分配与核心信息已完成定稿。</div>
+                <div class="phase-progress"><div class="phase-progress-bar" style="width:100%;background:var(--success);box-shadow:none"></div></div>
+              </div>
+              <div class="phase-card completed">
+                <div class="phase-top">
+                  <div class="phase-name">达人筛选</div>
+                  <div class="phase-status done">已完成</div>
+                </div>
+                <div class="phase-desc">候选池 56 人，已筛选出 32 人进入确认名单。</div>
+                <div class="phase-progress"><div class="phase-progress-bar" style="width:100%;background:var(--success);box-shadow:none"></div></div>
+              </div>
+              <div class="phase-card active">
+                <div class="phase-top">
+                  <div class="phase-name">投放执行</div>
+                  <div class="phase-status doing">进行中</div>
+                </div>
+                <div class="phase-desc">内容审核与发布排期同步进行，已发布 8 篇。</div>
+                <div class="phase-progress"><div class="phase-progress-bar" style="width:42%"></div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="campaign-tabs">
+            <div class="tab active"><svg><use href="#i-users"/></svg>候选池</div>
+            <div class="tab"><svg><use href="#i-file-text"/></svg>Brief</div>
+            <div class="tab"><svg><use href="#i-shield"/></svg>内容审核</div>
+            <div class="tab"><svg><use href="#i-bar-chart"/></svg>内容追踪</div>
+            <div class="tab"><svg><use href="#i-flask"/></svg>AB Test</div>
+            <div class="tab"><svg><use href="#i-rotate"/></svg>复盘</div>
+          </div>
+
+          <div class="campaign-body">
+            <div class="table-toolbar">
+              <div class="table-title">KOL 候选池 · 32 人</div>
+              <div class="table-actions">
+                <div class="selector"><svg><use href="#i-search"/></svg> 搜索 KOL</div>
+                <button class="btn btn-primary"><svg width="12" height="12"><use href="#i-plus"/></svg> 导入</button>
+              </div>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>KOL 昵称</th>
+                  <th>平台</th>
+                  <th>粉丝数</th>
+                  <th>内容评分</th>
+                  <th>报价</th>
+                  <th>预估 ROI</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="color:var(--text);font-weight:500">@小鹿妆教</td>
+                  <td>小红书</td>
+                  <td>42.8w</td>
+                  <td><span class="score-pill">88</span></td>
+                  <td>¥12,000</td>
+                  <td style="color:var(--success);font-weight:500">3.42</td>
+                  <td style="color:var(--success)">已确认</td>
+                </tr>
+                <tr>
+                  <td style="color:var(--text);font-weight:500">@成分党阿白</td>
+                  <td>小红书</td>
+                  <td>18.2w</td>
+                  <td><span class="score-pill">82</span></td>
+                  <td>¥8,500</td>
+                  <td style="color:var(--success);font-weight:500">2.91</td>
+                  <td style="color:var(--success)">已确认</td>
+                </tr>
+                <tr>
+                  <td style="color:var(--text);font-weight:500">@都市护肤日记</td>
+                  <td>小红书</td>
+                  <td>65.1w</td>
+                  <td><span class="score-pill">76</span></td>
+                  <td>¥22,000</td>
+                  <td style="color:var(--warning);font-weight:500">1.85</td>
+                  <td style="color:var(--text-muted)">待评估</td>
+                </tr>
+                <tr>
+                  <td style="color:var(--text);font-weight:500">@彩妆实验室</td>
+                  <td>小红书</td>
+                  <td>31.5w</td>
+                  <td><span class="score-pill">79</span></td>
+                  <td>¥15,000</td>
+                  <td style="color:var(--warning);font-weight:500">2.04</td>
+                  <td style="color:var(--text-muted)">待评估</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <!-- Screen 3: Appearance Settings -->
+    <div class="screen-wrapper">
+      <div class="screen-label"><span class="dot"></span> 屏幕 C · 外观设置页</div>
+      <div class="screen scaled-screen">
+        <aside class="sidebar">
+          <div class="sidebar-header">
+            <div class="logo-mark">
+              <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+                <g transform="translate(100,100) scale(1.03)">
+                  <rect width="800" height="800" rx="180" fill="#000"/>
+                  <rect x="150" y="350" width="90" height="400" rx="15" fill="#FFF" opacity="1"/>
+                  <rect x="270" y="320" width="80" height="360" rx="13" fill="#F0F0F0" opacity="0.85" transform="rotate(-3 310 500)"/>
+                  <rect x="380" y="290" width="70" height="320" rx="11" fill="#E0E0E0" opacity="0.7" transform="rotate(-6 415 450)"/>
+                  <rect x="480" y="260" width="60" height="280" rx="9" fill="#D0D0D0" opacity="0.55" transform="rotate(-9 510 400)"/>
+                  <rect x="570" y="230" width="50" height="240" rx="7" fill="#C0C0C0" opacity="0.4" transform="rotate(-12 595 350)"/>
+                  <rect x="650" y="200" width="40" height="200" rx="5" fill="#B0B0B0" opacity="0.25" transform="rotate(-15 670 300)"/>
+                </g>
+              </svg>
+            </div>
+            <div class="app-name">MAPro</div>
+            <div class="app-version">v0.2.9</div>
+          </div>
+          <div class="mode-switch">
+            <div class="mode-btn"><svg width="13" height="13"><use href="#i-message"/></svg>Chat</div>
+            <div class="mode-btn"><svg width="13" height="13"><use href="#i-bot"/></svg>Agent</div>
+          </div>
+          <div class="nav-section">
+            <div class="nav-section-title">设置</div>
+            <div class="nav-item"><svg><use href="#i-user"/></svg> 通用</div>
+            <div class="nav-item active"><svg><use href="#i-palette"/></svg> 外观</div>
+            <div class="nav-item"><svg><use href="#i-cpu"/></svg> 渠道与模型</div>
+            <div class="nav-item"><svg><use href="#i-bot"/></svg> Agent 配置</div>
+            <div class="nav-item"><svg><use href="#i-folder"/></svg> 工作区</div>
+            <div class="nav-item"><svg><use href="#i-command"/></svg> 快捷键</div>
+          </div>
+          <div class="sidebar-footer">
+            <div class="user-chip">
+              <div class="avatar">M</div>
+              <div class="user-name">Marketing Team</div>
+              <svg width="14" height="14" style="margin-left:auto;color:var(--text-muted)"><use href="#i-settings"/></svg>
+            </div>
+          </div>
+        </aside>
+
+        <main class="main">
+          <header class="topbar">
+            <div class="topbar-title">外观设置</div>
+            <div class="topbar-spacer"></div>
+            <div class="icon-btn"><svg><use href="#i-search"/></svg></div>
+            <div class="icon-btn"><svg><use href="#i-more"/></svg></div>
+          </header>
+
+          <div class="settings-scroll">
+            <div class="settings-section">
+              <div class="settings-section-title">主题模式</div>
+              <div class="settings-card">
+                <div class="segmented-control">
+                  <div class="segment"><svg><use href="#i-sun"/></svg>浅色</div>
+                  <div class="segment active"><svg><use href="#i-moon"/></svg>深色</div>
+                  <div class="segment"><svg><use href="#i-monitor"/></svg>跟随系统</div>
+                  <div class="segment"><svg><use href="#i-sparkles"/></svg>特殊风格</div>
+                </div>
+                <div class="hint-text">当前使用深色模式。特殊风格仅在深色模式下生效，可为不同工作区切换氛围。</div>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="settings-section-title">特殊风格</div>
+              <div class="style-grid">
+                <div class="style-card">
+                  <div class="style-preview polar"></div>
+                  <div class="style-card-body">
+                    <div class="style-name">极地白</div>
+                    <div class="style-check"></div>
+                  </div>
+                </div>
+                <div class="style-card">
+                  <div class="style-preview graphite"></div>
+                  <div class="style-card-body">
+                    <div class="style-name">石墨灰</div>
+                    <div class="style-check"></div>
+                  </div>
+                </div>
+                <div class="style-card active">
+                  <div class="style-preview neon"></div>
+                  <div class="style-card-body">
+                    <div class="style-name">霓虹紫</div>
+                    <div class="style-check"><svg><use href="#i-check"/></svg></div>
+                  </div>
+                </div>
+                <div class="style-card">
+                  <div class="style-preview forest"></div>
+                  <div class="style-card-body">
+                    <div class="style-name">森林绿</div>
+                    <div class="style-check"></div>
+                  </div>
+                </div>
+                <div class="style-card">
+                  <div class="style-preview midnight"></div>
+                  <div class="style-card-body">
+                    <div class="style-name">午夜蓝</div>
+                    <div class="style-check"></div>
+                  </div>
+                </div>
+                <div class="style-card">
+                  <div class="style-preview amber"></div>
+                  <div class="style-card-body">
+                    <div class="style-name">琥珀金</div>
+                    <div class="style-check"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="settings-section-title">应用图标</div>
+              <div class="settings-card">
+                <div class="icon-grid">
+                  <div class="icon-option active">
+                    <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+                      <g transform="translate(100,100) scale(1.03)">
+                        <rect width="800" height="800" rx="180" fill="#000"/>
+                        <rect x="150" y="350" width="90" height="400" rx="15" fill="#FFF" opacity="1"/>
+                        <rect x="270" y="320" width="80" height="360" rx="13" fill="#F0F0F0" opacity="0.85" transform="rotate(-3 310 500)"/>
+                        <rect x="380" y="290" width="70" height="320" rx="11" fill="#E0E0E0" opacity="0.7" transform="rotate(-6 415 450)"/>
+                        <rect x="480" y="260" width="60" height="280" rx="9" fill="#D0D0D0" opacity="0.55" transform="rotate(-9 510 400)"/>
+                        <rect x="570" y="230" width="50" height="240" rx="7" fill="#C0C0C0" opacity="0.4" transform="rotate(-12 595 350)"/>
+                        <rect x="650" y="200" width="40" height="200" rx="5" fill="#B0B0B0" opacity="0.25" transform="rotate(-15 670 300)"/>
+                      </g>
+                    </svg>
+                    <div class="check"><svg><use href="#i-check"/></svg></div>
+                  </div>
+                  <div class="icon-option">
+                    <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+                      <rect width="1024" height="1024" rx="230" fill="#18181b"/>
+                      <rect x="180" y="380" width="110" height="420" rx="20" fill="#6366f1" opacity="1"/>
+                      <rect x="330" y="340" width="100" height="380" rx="18" fill="#818cf8" opacity="0.85" transform="rotate(-3 380 530)"/>
+                      <rect x="470" y="300" width="90" height="340" rx="16" fill="#a5b4fc" opacity="0.7" transform="rotate(-6 515 470)"/>
+                      <rect x="600" y="260" width="80" height="300" rx="14" fill="#c7d2fe" opacity="0.55" transform="rotate(-9 640 410)"/>
+                    </svg>
+                  </div>
+                  <div class="icon-option">
+                    <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+                      <rect width="1024" height="1024" rx="230" fill="#0c0c0e"/>
+                      <circle cx="512" cy="512" r="280" fill="none" stroke="#6366f1" stroke-width="42"/>
+                      <circle cx="512" cy="512" r="180" fill="none" stroke="#818cf8" stroke-width="28" stroke-dasharray="180 113"/>
+                      <circle cx="512" cy="512" r="90" fill="#6366f1"/>
+                    </svg>
+                  </div>
+                  <div class="icon-option">
+                    <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+                      <rect width="1024" height="1024" rx="230" fill="#000"/>
+                      <path d="M512 220 L760 380 V640 L512 800 L264 640 V380 Z" fill="none" stroke="#6366f1" stroke-width="36"/>
+                      <path d="M512 360 L636 440 V600 L512 680 L388 600 V440 Z" fill="#6366f1" opacity="0.9"/>
+                    </svg>
+                  </div>
+                  <div class="icon-option">
+                    <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+                      <rect width="1024" height="1024" rx="230" fill="#09090b"/>
+                      <rect x="280" y="280" width="464" height="464" rx="116" fill="none" stroke="#6366f1" stroke-width="36"/>
+                      <line x1="280" y1="512" x2="744" y2="512" stroke="#6366f1" stroke-width="36"/>
+                      <line x1="512" y1="280" x2="512" y2="744" stroke="#6366f1" stroke-width="36"/>
+                    </svg>
+                  </div>
+                  <div class="icon-option">
+                    <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+                      <rect width="1024" height="1024" rx="230" fill="#111"/>
+                      <circle cx="512" cy="512" r="240" fill="#6366f1" opacity="0.15"/>
+                      <circle cx="512" cy="512" r="160" fill="#6366f1" opacity="0.35"/>
+                      <circle cx="512" cy="512" r="80" fill="#6366f1"/>
+                    </svg>
+                  </div>
+                </div>
+                <div class="hint-text">应用图标更改可能需要重启 MAPro 才能完全生效。</div>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="settings-section-title">界面缩放</div>
+              <div class="settings-card">
+                <div class="segmented-control">
+                  <div class="segment">90%</div>
+                  <div class="segment active">100%</div>
+                  <div class="segment">110%</div>
+                  <div class="segment">125%</div>
+                </div>
+                <div class="hint-text">界面缩放仅影响渲染尺寸，不影响实际窗口大小。建议使用 100% 以获得最佳信息密度。</div>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    (function () {
+      const screens = document.querySelectorAll('.scaled-screen');
+      function scale() {
+        const target = 1440;
+        const available = window.innerWidth - 48;
+        const s = Math.min(1, available / target);
+        screens.forEach(function (el) {
+          el.style.transform = 'scale(' + s + ')';
+          el.parentElement.style.height = (900 * s) + 'px';
+        });
+      }
+      scale();
+      window.addEventListener('resize', scale);
+    })();
+  </script>
+</body>
+</html>
