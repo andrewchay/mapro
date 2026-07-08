@@ -340,10 +340,15 @@ export class CampaignRepository {
   async createCampaign(input: CreateCampaignInput): Promise<Campaign> {
     const now = Date.now()
     const id = generateId()
-    const phasePlans = normalizePhasePlans(input.phasePlans, input.budget, input.durationMonths)
+    const budget = input.budget ?? 0
+    const durationMonths = input.durationMonths ?? 1
+    const platform = input.platform ?? 'xiaohongshu'
+    const targetCity = input.targetCity ?? []
+    const targetAudience = input.targetAudience ?? ''
+    const phasePlans = normalizePhasePlans(input.phasePlans, budget, durationMonths)
     const creativePlan = normalizeCreativePlan(input.creativePlan, {
       brand: input.brand,
-      targetAudience: input.targetAudience,
+      targetAudience,
     })
 
     await this.db.execute(
@@ -353,11 +358,11 @@ export class CampaignRepository {
         id,
         input.name,
         input.brand,
-        input.platform,
-        input.budget,
-        input.durationMonths,
-        JSON.stringify(input.targetCity),
-        input.targetAudience,
+        platform,
+        budget,
+        durationMonths,
+        JSON.stringify(targetCity),
+        targetAudience,
         1,
         JSON.stringify(phasePlans),
         JSON.stringify(creativePlan),
@@ -373,11 +378,11 @@ export class CampaignRepository {
       id,
       name: input.name,
       brand: input.brand,
-      platform: input.platform,
-      budget: input.budget,
-      durationMonths: input.durationMonths,
-      targetCity: input.targetCity,
-      targetAudience: input.targetAudience,
+      platform,
+      budget,
+      durationMonths,
+      targetCity,
+      targetAudience,
       currentPhase: 1,
       phasePlans,
       creativePlan,
