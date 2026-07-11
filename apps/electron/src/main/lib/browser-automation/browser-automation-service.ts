@@ -14,6 +14,7 @@ import { mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { getConfigDir } from '../config-paths.ts'
+import { completePrompt } from '../ma-tools/llm-service.ts'
 
 export interface ScrapingTaskInput {
   /** 任务自然语言描述 */
@@ -84,7 +85,15 @@ async function generateScrapingScript(
 
   const systemPrompt = `你是一名专业的 Web 爬虫工程师。请根据用户任务生成一个完整的、可独立运行的 Python + Playwright 脚本。
 
-要求：
+反爬与风控要求：
+1. 每次页面操作（点击、输入、滚动、跳转）后必须添加随机时间间隔
+2. 随机等待时间范围：0.5 秒到 3 秒（使用 random.uniform(0.5, 3.0) 或 random.randint(500, 3000)）
+3. 不要在脚本中使用固定 sleep 时间
+4. 滚动加载时，每滚动一屏后随机等待 1-3 秒再继续
+5. 翻页/加载更多时，每页之间随机等待 2-4 秒
+6. 遇到反爬或验证码时，保存当前截图并优雅退出，不要无限重试
+
+技术要求：
 1. 使用 Playwright 同步 API（from playwright.sync_api import sync_playwright）
 2. 使用 headless 模式启动 Chromium
 3. 只访问用户指定的 URL 及其同域名页面
@@ -93,9 +102,8 @@ async function generateScrapingScript(
 6. 将结果保存到 RESULT_FILE 指定的路径
 7. 同时保存一张最终页面截图到 SCREENSHOT_FILE 指定的路径
 8. 添加 try/finally 确保浏览器关闭
-9. 遇到反爬或验证码时，保存当前截图并优雅退出，不要无限重试
-10. 脚本中通过环境变量读取 RESULT_FILE 和 SCREENSHOT_FILE
-11. 只输出可执行的 Python 代码，不要输出任何解释文字或 markdown 代码块标记`
+9. 脚本中通过环境变量读取 RESULT_FILE 和 SCREENSHOT_FILE
+10. 只输出可执行的 Python 代码，不要输出任何解释文字或 markdown 代码块标记`
 
   const prompt = `任务：${input.task}
 目标 URL：${input.url}
@@ -108,7 +116,6 @@ async function generateScrapingScript(
 - 使用 json/csv/markdown 库按格式保存数据
 - 输出简洁的爬取结果摘要到 stdout`
 
-  const { completePrompt } = await import('../ma-tools/llm-service.ts')
   const llmResult = await completePrompt(prompt, systemPrompt, { jsonMode: false })
   if (!llmResult.success || !llmResult.text) {
     return { scriptPath, success: false, error: llmResult.error ?? '脚本生成失败' }
