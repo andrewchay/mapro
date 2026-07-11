@@ -11,6 +11,7 @@ import type { FileAttachment } from '@ma-proma/shared'
 import { CHAT_IPC_CHANNELS } from '@ma-proma/shared'
 import { isMemoryToolCall, executeMemoryTool } from './chat-tools/memory-tool'
 import { isWebSearchToolCall, executeWebSearchTool } from './chat-tools/web-search-tool'
+import { isWebScraperToolCall, executeWebScraperTool } from './chat-tools/web-scraper-tool'
 import { isCustomHttpToolCall, executeHttpTool } from './chat-tools/http-tool-executor'
 import { isAgentRecommendToolCall, executeAgentRecommendTool } from './chat-tools/agent-recommend-tool'
 import { isNanoBananaToolCall, executeNanoBananaTool } from './chat-tools/nano-banana-tool'
@@ -85,6 +86,8 @@ export async function executeToolCalls(
       result = await executeMemoryTool(tc)
     } else if (isWebSearchToolCall(tc.name)) {
       result = await executeWebSearchTool(tc)
+    } else if (isWebScraperToolCall(tc.name)) {
+      result = await executeWebScraperTool(tc)
     } else if (isAgentRecommendToolCall(tc.name)) {
       result = await executeAgentRecommendTool(tc)
     } else if (isNanoBananaToolCall(tc.name)) {
