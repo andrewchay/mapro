@@ -115,6 +115,7 @@ const STEP_DIR: Record<CampaignWorkflowStepId, string> = {
   add_to_pool: 'kol-search',
   generate_briefs: 'briefs',
   ab_test: 'ab-test',
+  campaign_optimization: 'campaign-optimization',
 }
 
 // ===== 每步合格产物内容（覆盖全部语义锚点 + 字数达标） =====
@@ -554,12 +555,19 @@ KPI 必须可追踪、可复盘：
 - 爆文率 > 10%
 - 搜索量增长 200%
 - ROI > 1:3
-量化指标全部可追踪，按周复盘确保 KPI 达成路径清晰。`,
+量化指标全部可追踪，按周复盘确保 KPI 达成路径清晰。
+
+## 目标优先级
+首要目标：建立品类认知。次要目标：验证内容模型、完成搜索转化。
+当预算或资源冲突时，优先保障品类认知目标的达成。`,
   },
   ab_test: [
     {
       filename: 'ab-test-plan.md',
       content: `# A/B 测试方案
+
+## 测试假设
+验证情感向标题是否能显著提升 CTR。核心假设：B 组情感标题的 CTR 比 A 组标准标题高 15% 以上。
 
 ## 测试变量
 本次 A/B 测试变量为标题文案。变量对照：A 组标准标题（品牌原有风格），
@@ -580,47 +588,63 @@ B 组测试组用情感标题。分组方案确保两组人群年龄性别地域
 样本量计算：显著性水平 α=0.05，检验功效 0.8。计算得每组需至少 5000 次有效曝光。
 统计：总曝光 200 万，远超最低样本要求，显著性充足。7 天完成测试，每日监控数据。
 
+## 测试预算
+测试预算 4 万元，占正式预算 10%。其中小红书 2.4 万，抖音 1.6 万。
+
 ## 止损线
 若前 3 天 CTR 差异 < 1% 或 CPE > 15 元，暂停该组测试并分析原因。`,
     },
+  ],
+  campaign_optimization: [
     {
-      filename: 'ab-test-review.md',
-      content: `# 阶段复盘框架
+      filename: 'test-data-analysis.md',
+      content: `# 测试数据分析
 
-## 数据回收清单
-回收字段：曝光、浏览、点赞、收藏、评论、转发、CPM、CPE、CTR、互动率。
-数据源：小红书/抖音平台后台、内容追踪系统、投流数据。
+## 关键发现
+1. 腰部达人 + 场景种草组合在小红书 CPE 最低，比头部达人低 40%。
+2. 情感向标题的 CTR 比标准标题高 18%，统计显著 p<0.05。
+3. 抖音真实体验类内容完播率高于测评类 25%。
+4. 周末晚间发布的内容互动率比工作日上午高 30%。
+5. KOC 组合在抖音的转化效率优于腰部达人。
 
-## 分析维度
-- 达人层级：头部 / 腰部 / KOC 各层级表现
-- 平台：小红书 vs 抖音
-- 内容风格：场景种草 / 产品测评 / 真实体验
-- 发布时段：工作日 vs 周末、上午 vs 晚间
-- Brief 版本：标准版 vs 情感向版
+## 最佳组合
+- 腰部达人 + 场景种草 + 小红书
+- KOC + 真实体验 + 抖音
 
-## 核心发现模板
-- 最佳组合：互动率最高、CPE 最低的达人层级 + 平台 + 内容风格
-- 表现不佳元素：CTR 低、完播率低或评论区负面率高的组合
-- 异常值说明：单个达人异常表现及可能原因
+## 表现不佳元素
+- 头部达人的品牌大片在小红书互动率低
+- 纯产品测评类内容在抖音完播率不足 30%`,
+    },
+    {
+      filename: 'optimization-strategy.md',
+      content: `# 策略优化
 
-## 目标达成判定
-对比测试计划中的通过阈值，判定 CTR、CPE、互动率是否达成。
-未达成原因假设：内容风格不匹配、达人粉丝画像偏差、投放时机不佳。
-测试结束后将调用 ma-phase-reviewer 生成阶段复盘报告。`,
+## 达人配比调整
+正式投放达人配比：头部 10%、腰部 50%、KOC 40%。
+测试期配比为头部 20%、腰部 40%、KOC 40%。
+调整理由：测试显示头部 ROI 偏低，缩减至品牌背书角色；腰部在小红书 CPE 最低，加大投入。
+
+## 平台预算重分配
+小红书预算占比从 50% 提升至 60%，抖音维持 40%。
+理由：小红书 CTR 与互动率均优于抖音，且情感向标题表现突出。
+
+## 内容策略调整
+场景种草内容占比从 30% 提升至 60%，真实体验占比 30%，保留少量测评 10%。
+理由：场景种草互动率是测评类的 2 倍。`,
     },
     {
       filename: 'scale-up-plan.md',
-      content: `# 调优与放量方案
+      content: `# 正式投放方案
 
 ## 调优规则
-- 若腰部达人 + 场景种草组合 CPE 最低，则正式投放提高该组合占比 20%
-- 若小红书 CTR 显著高于抖音，则小红书预算占比提升至 60%
+- 腰部达人 + 场景种草组合占比提升至 60%
 - 砍掉测试中 CTR < 1% 或 CPE > 15 元的达人/内容组合
+- 小红书预算占比提升至 60%
+- 周末晚间作为集中发布时段
 
 ## 放量决策标准
-Go / No-go 门槛：
-- Go：CPE < 5 元、互动率 > 5%、ROI > 1:3、统计显著 p<0.05
-- No-go：CPE > 10 元、互动率 < 2%、ROI < 1:2 或未达显著性
+Go 门槛：CPE < 5 元、互动率 > 5%、ROI > 1:3、统计显著 p<0.05
+No-go 门槛：CPE > 10 元、互动率 < 2%、ROI < 1:2
 
 ## 正式投放方案
 放量预算：剩余 80% 预算。达人组合：腰部 50%、KOC 40%、头部 10%。
@@ -737,17 +761,17 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     expect(step?.outputSummary).toBe(summary)
 
     // 5. 进度递增验证
-    const expectedProgress = Math.round(((stepIndex + 1) / 14) * 100)
+    const expectedProgress = Math.round(((stepIndex + 1) / 15) * 100)
     expect(workflowService.getWorkflowProgress(campaignId)).toBe(expectedProgress)
   }
 
   // ===== 前置：Campaign 创建 + 工作流初始化 =====
 
-  it('前置: Campaign 创建成功 + 工作流初始化为 14 步 pending', () => {
+  it('前置: Campaign 创建成功 + 工作流初始化为 15 步 pending', () => {
     const workflow = workflowService.loadCampaignWorkflow(campaignId)
 
     expect(workflow.campaignId).toBe(campaignId)
-    expect(workflow.steps).toHaveLength(14)
+    expect(workflow.steps).toHaveLength(15)
     expect(workflow.currentStepIndex).toBe(-1)
     expect(workflow.steps.every((s) => s.status === 'pending')).toBe(true)
     expect(workflowService.getWorkflowProgress(campaignId)).toBe(0)
@@ -756,14 +780,14 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${campaignId}`)
     for (const dir of ['market-analysis', 'competitor-analysis', 'user-analysis', 'brand-dna',
       'brand-fact-check', 'brand-concept', 'goal-setting', 'creative-concept', 'platform-matrix',
-      'kol-pyramid', 'kol-search', 'briefs', 'ab-test', '.context']) {
+      'kol-pyramid', 'kol-search', 'briefs', 'ab-test', 'campaign-optimization', '.context']) {
       expect(existsSync(join(workspaceDir, dir))).toBe(true)
     }
     expect(existsSync(join(workspaceDir, '.context', 'todo.md'))).toBe(true)
     expect(existsSync(join(workspaceDir, '.context', 'campaign.md'))).toBe(true)
   })
 
-  // ===== 14 步顺序执行 =====
+  // ===== 15 步顺序执行 =====
 
   it('步骤1 market_analysis: 市场分析', () => {
     runStep('market_analysis', 0, '已完成：市场分析')
@@ -846,13 +870,17 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     runStep('generate_briefs', 12, '已完成：达人 Brief 生成')
   })
 
-  it('步骤14 ab_test: 投放测试、阶段复盘与放量决策', () => {
-    runStep('ab_test', 13, '已完成：投放测试、阶段复盘与放量决策')
+  it('步骤14 ab_test: 小规模测试', () => {
+    runStep('ab_test', 13, '已完成：小规模测试')
+  })
+
+  it('步骤15 campaign_optimization: 投放优化', () => {
+    runStep('campaign_optimization', 14, '已完成：投放优化')
   })
 
   // ===== 终态验证 =====
 
-  it('终态: 14 步全完成 → isWorkflowComplete=true, progress=100', () => {
+  it('终态: 15 步全完成 → isWorkflowComplete=true, progress=100', () => {
     expect(workflowService.isWorkflowComplete(campaignId)).toBe(true)
     expect(workflowService.getWorkflowProgress(campaignId)).toBe(100)
 
@@ -862,14 +890,14 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     expect(workflow.steps.every((s) => s.outputSummary !== undefined)).toBe(true)
   })
 
-  it('终态: history.md 累积 14 条完成记录', () => {
+  it('终态: history.md 累积 15 条完成记录', () => {
     const historyPath = join(TEST_DIR, 'agent-workspaces', `campaign-${campaignId}`, '.context', 'history.md')
     expect(existsSync(historyPath)).toBe(true)
 
     const content = readFileSync(historyPath, 'utf-8')
     expect(content).toContain('Campaign 执行历史')
     const completedCount = (content.match(/✅ 完成/g) || []).length
-    expect(completedCount).toBe(14)
+    expect(completedCount).toBe(15)
     // 每步都应记录步骤 ID
     for (const stepId of Object.keys(STEP_ARTIFACTS) as CampaignWorkflowStepId[]) {
       expect(content).toContain(stepId)
@@ -884,9 +912,9 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     expect(content).not.toContain('## ⏳ 待完成')
     expect(content).not.toContain('## 🔵 当前步骤')
 
-    // 14 个步骤全部勾选
+    // 15 个步骤全部勾选
     const checkedCount = (content.match(/- \[x\]/g) || []).length
-    expect(checkedCount).toBe(14)
+    expect(checkedCount).toBe(15)
   })
 
   it('终态: 候选池保留 3 个 KOL 且状态为 candidate', () => {
@@ -903,10 +931,10 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
 
   // ===== 回归：重置工作流 =====
 
-  it('回归: 重置工作流恢复 14 步 pending 初始状态', () => {
+  it('回归: 重置工作流恢复 15 步 pending 初始状态', () => {
     const workflow = workflowService.resetWorkflow(campaignId)
 
-    expect(workflow.steps).toHaveLength(14)
+    expect(workflow.steps).toHaveLength(15)
     expect(workflow.steps.every((s) => s.status === 'pending')).toBe(true)
     expect(workflow.steps.every((s) => s.completedAt === undefined)).toBe(true)
     expect(workflow.currentStepIndex).toBe(-1)
