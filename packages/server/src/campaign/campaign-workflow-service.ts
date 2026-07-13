@@ -3,7 +3,7 @@
  *
  * 阶段 B2 Slice 1：
  * - 从 Electron 主进程迁移工作流状态机 CRUD 与 Workspace 文件同步。
- * - 保留 15 步标准工作流定义。
+ * - 保留 13 步标准工作流定义。
  * - 产物校验（validateStepArtifacts）与 Agent 兜底落盘放到 Slice 2/3。
  *
  * 存储位置：{AppContext.getAgentWorkspacePath('campaign-{id}')}/
@@ -41,7 +41,6 @@ const ARTIFACT_DIRS = [
   'kol-search',
   'briefs',
   'ab-test',
-  'campaign-optimization',
   '.context',
 ]
 
@@ -60,11 +59,10 @@ export const STEP_DIR_MAP: Record<CampaignWorkflowStepId, string> = {
   add_to_pool: 'kol-search',
   generate_briefs: 'briefs',
   ab_test: 'ab-test',
-  campaign_optimization: 'campaign-optimization',
 }
 
 // =====================================================================
-// 默认 15 步工作流定义
+// 默认 13 步工作流定义
 // =====================================================================
 
 export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'completedAt'>[] = [
@@ -309,17 +307,16 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
     id: 'goal_setting',
     title: '目标设定',
     description: '基于品牌诊断，设定总目标、分层目标与量化指标（KPI）',
-    toolName: 'ma-goal-setting',
+    toolName: 'ma-campaign-optimizer',
     minArtifactLength: 300,
     artifactRequirements: [
       { name: '总目标', aliases: ['总目标', '核心问题', '品类认知', '内容模型', '搜索转化'] },
       { name: '分层目标', aliases: ['分层', '平台', '阶段', '人群', '测试期', '爆文模型'] },
       { name: '量化指标', aliases: ['KPI', '指标', '互动率', 'CPE', '爆文率', '搜索量', 'ROI', '可追踪'] },
-      { name: '目标优先级', aliases: ['优先级', '首要目标', '次要目标', '取舍'] },
     ],
     agentPrompt: `## 步骤 6: 目标设定
 
-目标：基于品牌诊断（步骤4产物），使用 ma-goal-setting 工具设定 Campaign 的总目标、分层目标与量化指标。
+目标：基于品牌诊断（步骤4产物），设定Campaign的总目标、分层目标与量化指标。
 
 目标框架：
 1. **总目标**：本阶段要解决的核心问题
@@ -328,16 +325,14 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
    - 示例：小红书测试期：找到1组可复制的爆文模型
 3. **量化指标**：KPI必须可追踪、可复盘
    - 示例：互动率、CPE、爆文率、搜索量、ROI
-4. **目标优先级**：当资源冲突时明确首要目标与次要目标
 
 执行要求：
-1. 使用 ma-goal-setting 工具设定目标
+1. 使用 ma-campaign-optimizer 工具设定目标
 2. 产出必须保存到：\`goal-setting/\`
 3. 文件命名建议：\`goal-setting.md\`
 4. 完成标准（校验时会检查）：
    - goal-setting.md 必须包含总目标、分层目标、量化指标（至少300字）
-   - 指标必须具体、可量化、可追踪，并说明数据来源
-   - 必须明确目标优先级
+   - 指标必须具体、可量化、可追踪
 
 前置产物：\`brand-dna/\` 目录中的品牌诊断文件
 完成后，请返回 "已完成：目标设定"并附上产物摘要。`,
@@ -567,25 +562,25 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
   },
   {
     id: 'ab_test',
-    title: '小规模测试',
-    description: '设计系统性的 A/B 测试方案，用可控预算验证核心假设',
+    title: '投放测试、阶段复盘与放量决策',
+    description: '设计 A/B 测试方案，并预设阶段复盘框架、调优规则与放量/止损决策标准',
     toolName: 'ma-campaign-tester',
     minArtifactLength: 300,
-    requiredFiles: ['ab-test-plan.md'],
+    requiredFiles: ['ab-test-plan.md', 'ab-test-review.md', 'scale-up-plan.md'],
     artifactRequirements: [
-      { name: '测试假设', aliases: ['假设', '测试目标', '验证', '核心问题'] },
       { name: '测试变量', aliases: ['变量', '测试变量', 'A/B测试', '对比', '测试方案'] },
       { name: '分组方案', aliases: ['分组', '受众分组', '分组方案', '测试组', '对照组'] },
       { name: '指标', aliases: ['指标', 'KPI', '关键指标', '成功指标', '统计指标'] },
       { name: '样本量', aliases: ['样本量', '样本', '计算', '统计', '显著性'] },
-      { name: '测试预算', aliases: ['预算', '测试预算', '预算分配', '周期'] },
-      { name: '止损线', aliases: ['止损', '止损线', '暂停', '阈值'] },
+      { name: '数据复盘', aliases: ['数据复盘', '阶段复盘', '复盘', '数据分析', '核心发现'] },
+      { name: '调优方案', aliases: ['调优', '优化方案', '策略调整', '组合优化'] },
+      { name: '放量决策', aliases: ['放量', '放量决策', 'go/no-go', 'scale', '正式投放'] },
     ],
-    agentPrompt: `## 步骤 13: 小规模测试
+    agentPrompt: `## 步骤 13: 投放测试、阶段复盘与放量决策
 
-目标：在正式大规模投放前，使用 ma-campaign-tester 工具设计系统性的 A/B 测试方案，用可控预算验证核心假设。
+目标：为 Campaign 设计 A/B 测试方案，并提前建立“测试 → 复盘 → 调优 → 放量/止损”的完整衔接机制。本步骤不能只停留在测试设计，还要明确测试结束后如何读取数据、如何判断是否放量、如何调整达人组合与预算。
 
-产出框架（保存到 \`ab-test/\`）：
+产出框架：
 1. **A/B 测试方案**（保存到 \`ab-test-plan.md\`）
    - 测试假设与目标：要验证的核心问题（如“腰部达人 vs KOC 的 CPE 差异”）
    - 测试变量：每次只测一个变量，避免混淆
@@ -595,65 +590,34 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
    - 测试预算与周期：建议为正式预算的 10-20%，周期 7-14 天
    - 止损线：如“前 3 天 CPE > 15 元即暂停该组”
 
+2. **阶段复盘框架**（保存到 \`ab-test-review.md\`）
+   - 数据回收清单：曝光、浏览、点赞、收藏、评论、转发、CPM、CPE、CTR、互动率
+   - 分析维度：达人层级、平台、内容风格、发布时段、Brief 版本
+   - 核心发现模板：最佳组合、表现不佳元素、异常值说明
+   - 与目标的对比：哪些指标达成、哪些未达成、原因假设
+   - 复盘触发条件：测试结束后自动调用 ma-phase-reviewer 生成阶段复盘报告
+
+3. **调优与放量方案**（保存到 \`scale-up-plan.md\`）
+   - 调优规则：基于测试数据的组合调整、预算重分配、内容策略调整
+   - 放量决策标准：Go / No-go 的量化门槛（如“CPE < 5 元且 ROI > 1:3”则放量）
+   - 正式投放方案：放量预算、达人组合比例、平台分配、时间线
+   - 风险预案：效果稀释、达人档期、内容同质化等风险及应对措施
+   - 若测试未达标：明确止损动作、预算回收、二次测试条件
+
 执行要求：
 1. 使用 ma-campaign-tester 工具设计 A/B 测试方案
-2. 产出必须保存到：\`ab-test/\`
-3. 文件命名建议：\`ab-test-plan.md\`
-4. 完成标准（校验时会检查）：
-   - ab-test-plan.md 必须包含测试假设、变量、分组、指标、样本量、预算、周期、止损线（至少300字）
-   - 测试变量每次只测一个，避免混淆
-   - 成功标准必须具体可量化
+2. 使用 ma-campaign-optimizer 工具生成测试后的调优规则与放量方案
+3. 测试结束后，使用 ma-phase-reviewer 工具基于真实数据进行阶段复盘
+4. 产出必须保存到：\`ab-test/\`
+5. 文件命名建议：\`ab-test-plan.md\`、\`ab-test-review.md\`、\`scale-up-plan.md\`
+6. 完成标准（校验时会检查）：
+   - ab-test-plan.md 必须包含测试目标、变量、分组、指标、样本量、预算、周期、止损线（至少300字）
+   - ab-test-review.md 必须包含数据回收清单、分析维度、核心发现模板、目标达成判定（至少300字）
+   - scale-up-plan.md 必须包含调优规则、放量决策标准、正式投放方案、风险预案（至少300字）
+   - 三份文件均与创意概念、平台矩阵、达人金字塔保持一致
 
 前置产物：\`creative-concept/\`、\`platform-matrix/\`、\`kol-pyramid/\` 目录中的文件
-完成后，请返回 "已完成：小规模测试"并附上产物摘要。`,
-  },
-  {
-    id: 'campaign_optimization',
-    title: '投放优化',
-    description: '基于小规模测试数据，系统性优化投放策略并生成正式投放方案',
-    toolName: 'ma-campaign-optimizer',
-    minArtifactLength: 300,
-    requiredFiles: ['scale-up-plan.md'],
-    artifactRequirements: [
-      { name: '测试数据分析', aliases: ['数据分析', '关键发现', '最佳组合', '表现不佳'] },
-      { name: '策略优化', aliases: ['优化', '策略调整', '达人配比', '预算分配', '内容策略'] },
-      { name: '正式投放方案', aliases: ['正式投放', '放量方案', 'scale-up', '预算重分配'] },
-      { name: '预期提升', aliases: ['ROI', 'CPE', '互动率', '预期提升', '效率增益'] },
-      { name: '风险评估', aliases: ['风险', '风险因素', '风险预案', '效果稀释'] },
-    ],
-    agentPrompt: `## 步骤 14: 投放优化
-
-目标：基于小规模测试数据，使用 ma-campaign-optimizer 工具系统性优化投放策略，并生成正式投放方案。
-
-产出框架（保存到 \`campaign-optimization/\`）：
-1. **测试数据分析**（保存到 \`test-data-analysis.md\`）
-   - 关键发现：测试中最有价值的 3-5 个数据洞察
-   - 最佳组合：表现最优的达人层级+内容风格+平台组合
-   - 表现不佳元素：需要剔除或调整的策略元素
-
-2. **策略优化**（保存到 \`optimization-strategy.md\`）
-   - 达人配比调整：头部/腰部/KOC 的比例调整及数据支撑
-   - 平台预算重分配：各平台预算占比的调整理由
-   - 内容策略调整：保留/放弃/新增的内容方向
-
-3. **正式投放方案**（保存到 \`scale-up-plan.md\`）
-   - 放量预算：正式投放的总预算
-   - 达人组合比例：正式投放的达人层级配比
-   - 平台分配：各平台预算占比
-   - 时间线：正式投放的节奏与关键节点
-   - 风险预案：效果稀释、达人档期、内容同质化等风险及应对措施
-
-执行要求：
-1. 使用 ma-campaign-optimizer 工具生成优化方案
-2. 产出必须保存到：\`campaign-optimization/\`
-3. 文件命名建议：\`test-data-analysis.md\`、\`optimization-strategy.md\`、\`scale-up-plan.md\`
-4. 完成标准（校验时会检查）：
-   - scale-up-plan.md 必须包含调优规则、放量决策标准、正式投放方案、风险预案（至少300字）
-   - 每个优化建议必须有测试数据支撑
-   - 优化幅度控制在 20-40% 的合理范围内
-
-前置产物：\`ab-test/\` 目录中的 A/B 测试方案文件
-完成后，请返回 "已完成：投放优化"并附上产物摘要。`,
+完成后，请返回 "已完成：投放测试、阶段复盘与放量决策"并附上产物摘要。`,
   },
 ]
 
@@ -1138,7 +1102,6 @@ kol-pyramid/          — KOL 金字塔
 kol-search/           — 达人搜索
 briefs/               — KOL Briefs
 ab-test/              — A/B 测试
-campaign-optimization/ — 投放优化方案（基于测试数据的正式投放方案）
 \`\`\`
 
 ## 历史记录

@@ -139,13 +139,13 @@ describe('CampaignWorkflowService', () => {
     }
   })
 
-  test('首次加载时创建默认 15 步工作流', async () => {
+  test('首次加载时创建默认 14 步工作流', async () => {
     const workflow = await service.loadCampaignWorkflow('test-1')
     expect(workflow.campaignId).toBe('test-1')
-    expect(workflow.steps).toHaveLength(15)
+    expect(workflow.steps).toHaveLength(14)
     expect(workflow.currentStepIndex).toBe(-1)
     expect(workflow.steps[0]?.id).toBe('market_analysis')
-    expect(workflow.steps[workflow.steps.length - 1]?.id).toBe('campaign_optimization')
+    expect(workflow.steps[workflow.steps.length - 1]?.id).toBe('ab_test')
   })
 
   test('加载后自动同步 todo.md 与 campaign.md', async () => {

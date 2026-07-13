@@ -358,7 +358,6 @@ export type CampaignWorkflowStepId =
   | 'add_to_pool'
   | 'generate_briefs'
   | 'ab_test'
-  | 'campaign_optimization'
 
 /** 工作流步骤状态 */
 export type CampaignWorkflowStepStatus = 'pending' | 'in_progress' | 'completed' | 'skipped' | 'failed'
