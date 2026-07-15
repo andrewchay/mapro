@@ -253,8 +253,9 @@ describe('computer-use-service', () => {
       callLLM,
     )
 
+    expect(driver.initOptions).toBeDefined()
     expect(driver.initOptions).toMatchObject(options)
-    expect(typeof driver.initOptions.taskDir).toBe('string')
+    expect(typeof driver.initOptions?.taskDir).toBe('string')
   })
 })
 

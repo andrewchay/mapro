@@ -732,6 +732,21 @@ export class AgentOrchestrator {
   }
 
   /**
+   * 注入 Computer Use 视觉浏览器自动化 MCP Server
+   */
+  private async injectComputerUseTools(
+    sdk: typeof import('@anthropic-ai/claude-agent-sdk'),
+    mcpServers: Record<string, Record<string, unknown>>,
+  ): Promise<void> {
+    try {
+      const { injectComputerUseMcpServer } = await import('./chat-tools/computer-use-mcp')
+      await injectComputerUseMcpServer(sdk, mcpServers)
+    } catch (err) {
+      console.error(`[Agent 编排] 注入 Computer Use MCP 失败:`, err)
+    }
+  }
+
+  /**
    * 生成 Agent 会话标题
    *
    * 使用 Provider 适配器系统，支持所有渠道。任何错误返回 null。
@@ -1179,6 +1194,7 @@ export class AgentOrchestrator {
       await this.injectMemoryTools(sdk, mcpServers)
       await this.injectNanoBananaTools(sdk, mcpServers, sessionId, agentCwd)
       await this.injectKOLDataTools(sdk, mcpServers)
+      await this.injectComputerUseTools(sdk, mcpServers)
 
       // 合并外部注入的自定义 MCP 服务器（如飞书群聊工具）
       if (customMcpServers) {
