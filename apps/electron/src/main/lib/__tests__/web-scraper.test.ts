@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 mock.module(join(__dirname, '..', 'ma-tools', 'llm-service.ts'), () => ({
   completePrompt: async () => ({ success: false, text: '', error: 'mocked-llm' }),
+  complete: async () => ({ success: false, text: '', error: 'mocked-llm' }),
 }))
 
 // ===== 测试环境 =====

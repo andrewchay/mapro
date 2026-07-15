@@ -19,9 +19,21 @@ import type { ProviderType } from '@ma-proma/shared'
 // 类型定义
 // =====================================================================
 
+export interface LLMTextPart {
+  type: 'text'
+  text: string
+}
+
+export interface LLMImagePart {
+  type: 'image_url'
+  image_url: { url: string }
+}
+
+export type LLMContentPart = LLMTextPart | LLMImagePart
+
 export interface LLMMessage {
   role: 'system' | 'user' | 'assistant'
-  content: string
+  content: string | LLMContentPart[]
 }
 
 export interface LLMCompleteOptions {
@@ -48,6 +60,78 @@ export interface LLMCompleteResult {
   error?: string
   /** 使用的渠道信息 */
   channelInfo?: { id: string; name: string; provider: ProviderType; modelId: string }
+}
+
+/** 提取文本内容（用于 system prompt 等场景） */
+function extractTextFromContent(content: string | LLMContentPart[]): string {
+  if (typeof content === 'string') return content
+  return content
+    .filter((part): part is LLMTextPart => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n')
+}
+
+/** 解析 data URL，返回 mime type 和 base64 数据 */
+function parseDataUrl(url: string): { mediaType: string; data: string } | null {
+  const match = url.match(/^data:([^;]+);base64,(.+)$/)
+  if (!match) return null
+  return { mediaType: match[1]!, data: match[2]! }
+}
+
+/** 转换为 OpenAI 兼容格式 */
+function convertContentToOpenAI(content: string | LLMContentPart[]): string | unknown[] {
+  if (typeof content === 'string') return content
+  return content.map((part) => {
+    if (part.type === 'text') {
+      return { type: 'text', text: part.text }
+    }
+    return { type: 'image_url', image_url: { url: part.image_url.url } }
+  })
+}
+
+/** 转换为 Anthropic 兼容格式 */
+function convertContentToAnthropic(content: string | LLMContentPart[]): string | unknown[] {
+  if (typeof content === 'string') return content
+  return content.map((part) => {
+    if (part.type === 'text') {
+      return { type: 'text', text: part.text }
+    }
+    const parsed = parseDataUrl(part.image_url.url)
+    if (!parsed) {
+      // fallback：当作 text 说明
+      return { type: 'text', text: `[image: ${part.image_url.url}]` }
+    }
+    return {
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: parsed.mediaType,
+        data: parsed.data,
+      },
+    }
+  })
+}
+
+/** 转换为 Google Gemini 兼容格式 */
+function convertContentToGoogle(content: string | LLMContentPart[], role: string): unknown[] {
+  if (typeof content === 'string') {
+    return [{ text: `[${role}] ${content}` }]
+  }
+  return content.map((part) => {
+    if (part.type === 'text') {
+      return { text: `[${role}] ${part.text}` }
+    }
+    const parsed = parseDataUrl(part.image_url.url)
+    if (!parsed) {
+      return { text: `[image: ${part.image_url.url}]` }
+    }
+    return {
+      inline_data: {
+        mime_type: parsed.mediaType,
+        data: parsed.data,
+      },
+    }
+  })
 }
 
 // =====================================================================
@@ -169,7 +253,7 @@ async function completeOpenAICompatible(
 
   const body: Record<string, unknown> = {
     model: modelId,
-    messages: messages.map((m) => ({ role: m.role, content: m.content })),
+    messages: messages.map((m) => ({ role: m.role, content: convertContentToOpenAI(m.content) })),
     temperature: options.temperature ?? 0.7,
     stream: false,
   }
@@ -228,10 +312,11 @@ async function completeAnthropicCompatible(
   const url = `${baseUrl.replace(/\/$/, '')}/messages`
 
   // 分离 system 消息
-  const systemContent = options.systemPrompt ?? messages.find((m) => m.role === 'system')?.content ?? ''
+  const systemContent =
+    options.systemPrompt ?? extractTextFromContent(messages.find((m) => m.role === 'system')?.content ?? '')
   const chatMessages = messages.filter((m) => m.role !== 'system').map((m) => ({
     role: m.role,
-    content: m.content,
+    content: convertContentToAnthropic(m.content),
   }))
 
   const body: Record<string, unknown> = {
@@ -293,7 +378,7 @@ async function completeGoogle(
   const url = `${baseUrl.replace(/\/$/, '')}/models/${modelId}:generateContent?key=${apiKey}`
 
   // 合并 system 和 user
-  const parts: Array<{ text: string }> = messages.map((m) => ({ text: `[${m.role}] ${m.content}` }))
+  const parts = messages.flatMap((m) => convertContentToGoogle(m.content, m.role))
 
   const body = {
     contents: [{ role: 'user', parts }],

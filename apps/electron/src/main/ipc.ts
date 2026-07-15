@@ -1896,6 +1896,13 @@ export function registerIpcHandlers(): void {
         const { available, message } = getWebScraperAvailability()
         return { success: available, message }
       }
+      // 视觉浏览器自动化工具测试
+      if (toolId === 'computer-use') {
+        const { getComputerUseAvailability, refreshComputerUseAvailability } = await import('./lib/chat-tools/computer-use-tool')
+        refreshComputerUseAvailability()
+        const { available, message } = getComputerUseAvailability()
+        return { success: available, message }
+      }
       // Nano Banana 生图工具测试
       if (toolId === 'nano-banana') {
         const { getToolCredentials: getCredentials } = await import('./lib/chat-tool-config')

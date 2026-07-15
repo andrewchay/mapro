@@ -200,8 +200,16 @@ function WebSearchSettings(): React.ReactElement {
   )
 }
 
-/** 网页爬取工具设置区域 */
-function WebScraperSettings(): React.ReactElement {
+interface BrowserAutomationSettingsProps {
+  toolId: string
+  title: string
+  description: string
+  guideTitle: string
+  guideContent: React.ReactNode
+}
+
+/** 浏览器自动化工具通用设置组件（网页爬取 / 视觉浏览器自动化共享） */
+function BrowserAutomationSettings({ toolId, title, description, guideTitle, guideContent }: BrowserAutomationSettingsProps): React.ReactElement {
   const setChatTools = useSetAtom(chatToolsAtom)
   const [enabled, setEnabled] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
@@ -220,9 +228,9 @@ function WebScraperSettings(): React.ReactElement {
   React.useEffect(() => {
     Promise.all([
       window.electronAPI.getChatTools(),
-      window.electronAPI.getChatToolCredentials('web-scraper'),
+      window.electronAPI.getChatToolCredentials(toolId),
     ]).then(([tools, credentials]) => {
-      const tool = tools.find((t) => t.meta.id === 'web-scraper')
+      const tool = tools.find((t) => t.meta.id === toolId)
       if (tool) setEnabled(tool.enabled)
       setUserDataDir(credentials.userDataDir || '')
       setCookies(credentials.cookies || '')
@@ -232,11 +240,11 @@ function WebScraperSettings(): React.ReactElement {
       setTimeoutSec(credentials.timeoutMs || '60')
       savedCredentialsRef.current = { ...credentials }
     }).catch((err: unknown) => {
-      console.error('[网页爬取设置] 加载失败:', err)
+      console.error(`[${title} 设置] 加载失败:`, err)
     }).finally(() => {
       setLoading(false)
     })
-  }, [])
+  }, [toolId, title])
 
   const buildCredentials = React.useCallback((): Record<string, string> => {
     return {
@@ -266,22 +274,22 @@ function WebScraperSettings(): React.ReactElement {
     if (!hasChanged()) return
     try {
       const credentials = buildCredentials()
-      await window.electronAPI.updateChatToolCredentials('web-scraper', credentials)
+      await window.electronAPI.updateChatToolCredentials(toolId, credentials)
       savedCredentialsRef.current = credentials
       await refreshChatTools(setChatTools)
-      toast.success('网页爬取设置已保存')
+      toast.success(`${title} 设置已保存`)
     } catch (error) {
-      console.error('[网页爬取设置] 保存失败:', error)
+      console.error(`[${title} 设置] 保存失败:`, error)
     }
-  }, [buildCredentials, hasChanged, setChatTools])
+  }, [buildCredentials, hasChanged, setChatTools, toolId, title])
 
   const handleToggle = async (checked: boolean): Promise<void> => {
     try {
-      await window.electronAPI.updateChatToolState('web-scraper', { enabled: checked })
+      await window.electronAPI.updateChatToolState(toolId, { enabled: checked })
       setEnabled(checked)
       await refreshChatTools(setChatTools)
     } catch (error) {
-      console.error('[网页爬取设置] 切换失败:', error)
+      console.error(`[${title} 设置] 切换失败:`, error)
     }
   }
 
@@ -297,7 +305,7 @@ function WebScraperSettings(): React.ReactElement {
         toast.error(`打开目录失败: ${error}`)
       }
     } catch (error) {
-      console.error('[网页爬取设置] 打开目录失败:', error)
+      console.error(`[${title} 设置] 打开目录失败:`, error)
     }
   }
 
@@ -306,7 +314,7 @@ function WebScraperSettings(): React.ReactElement {
     setTesting(true)
     setTestResult(null)
     try {
-      const result = await window.electronAPI.testChatTool('web-scraper')
+      const result = await window.electronAPI.testChatTool(toolId)
       setTestResult(result)
     } catch (error) {
       setTestResult({ success: false, message: error instanceof Error ? error.message : String(error) })
@@ -321,8 +329,8 @@ function WebScraperSettings(): React.ReactElement {
 
   return (
     <SettingsSection
-      title="网页爬取"
-      description="启用后 AI 可以使用浏览器自动化抓取网页数据"
+      title={title}
+      description={description}
       action={
         <Switch
           checked={enabled}
@@ -333,13 +341,8 @@ function WebScraperSettings(): React.ReactElement {
       <SettingsCard divided={false}>
         <div className="space-y-4 p-4">
           <div className="rounded-lg bg-muted/50 p-3 space-y-2 text-sm text-muted-foreground">
-            <p>网页爬取基于 <span className="font-medium text-foreground">Playwright</span> 浏览器自动化，可用于抓取 KOL 主页、商品列表、小红书后台等页面。</p>
-            <p className="text-xs">配置步骤：</p>
-            <ol className="text-xs list-decimal list-inside space-y-1">
-              <li>确保本地已安装 python3 和 playwright（点击“检测环境”查看）</li>
-              <li>如需登录，关闭 headless 模式，首次运行时手动在弹出浏览器中登录</li>
-              <li>登录态会自动保存到 Profile 目录，后续任务可复用</li>
-            </ol>
+            <p className="font-medium text-foreground">{guideTitle}</p>
+            {guideContent}
           </div>
 
           <div className="space-y-1.5">
@@ -449,6 +452,43 @@ function WebScraperSettings(): React.ReactElement {
         </div>
       </SettingsCard>
     </SettingsSection>
+  )
+}
+
+/** 网页爬取工具设置区域 */
+function WebScraperSettings(): React.ReactElement {
+  return (
+    <BrowserAutomationSettings
+      toolId="web-scraper"
+      title="网页爬取"
+      description="启用后 AI 可以使用浏览器自动化抓取网页数据"
+      guideTitle="网页爬取基于 Playwright 浏览器自动化，可用于抓取 KOL 主页、商品列表、小红书后台等页面。"
+      guideContent={
+        <ol className="text-xs list-decimal list-inside space-y-1">
+          <li>确保本地已安装 python3 和 playwright（点击“检测环境”查看）</li>
+          <li>如需登录，关闭 headless 模式，首次运行时手动在弹出浏览器中登录</li>
+          <li>登录态会自动保存到 Profile 目录，后续任务可复用</li>
+        </ol>
+      }
+    />
+  )
+}
+
+/** 视觉浏览器自动化工具设置区域 */
+function ComputerUseSettings(): React.ReactElement {
+  return (
+    <BrowserAutomationSettings
+      toolId="computer-use"
+      title="视觉浏览器自动化"
+      description="启用后 AI 可以通过截图和视觉推理自动操作浏览器"
+      guideTitle="适合复杂动态页面、需要视觉判断的任务（如识别按钮位置、处理验证码、多步交互）。"
+      guideContent={
+        <>
+          <p className="text-xs">AI 每步都会看截图并决定下一步操作，直到完成任务或达到最大步数。</p>
+          <p className="text-xs mt-1">注意：每步都要发送截图给多模态 LLM，token 消耗较高。</p>
+        </>
+      }
+    />
   )
 }
 
@@ -981,6 +1021,9 @@ export function ToolSettings(): React.ReactElement {
 
       {/* 网页爬取工具 */}
       <WebScraperSettings />
+
+      {/* 视觉浏览器自动化工具 */}
+      <ComputerUseSettings />
 
       {/* Nano Banana 生图工具 */}
       <NanoBananaSettings />
