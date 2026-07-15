@@ -22,6 +22,11 @@ import {
   isWebSearchAvailable,
 } from './chat-tools/web-search-tool'
 import {
+  WEB_SCRAPER_TOOL_META,
+  WEB_SCRAPER_TOOL_DEFINITIONS,
+  isWebScraperAvailable,
+} from './chat-tools/web-scraper-tool'
+import {
   AGENT_RECOMMEND_TOOL_META,
   AGENT_RECOMMEND_TOOL_DEFINITIONS,
   isAgentRecommendAvailable,
@@ -106,6 +111,11 @@ const BUILTIN_TOOLS: BuiltinToolEntry[] = [
     meta: WEB_SEARCH_TOOL_META,
     getDefinitions: () => WEB_SEARCH_TOOL_DEFINITIONS,
     checkAvailable: isWebSearchAvailable,
+  },
+  {
+    meta: WEB_SCRAPER_TOOL_META,
+    getDefinitions: () => WEB_SCRAPER_TOOL_DEFINITIONS,
+    checkAvailable: isWebScraperAvailable,
   },
   {
     meta: AGENT_RECOMMEND_TOOL_META,

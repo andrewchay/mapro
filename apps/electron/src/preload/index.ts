@@ -167,6 +167,8 @@ export interface ElectronAPI {
 
   /** 在系统默认浏览器中打开外部链接 */
   openExternal: (url: string) => Promise<void>
+  /** 在系统文件管理器中打开指定路径 */
+  openPath: (path: string) => Promise<string>
 
   // ===== 窗口控制（Windows 自定义标题栏）=====
 
@@ -1149,6 +1151,10 @@ const electronAPI: ElectronAPI = {
   // 通用工具
   openExternal: (url: string) => {
     return ipcRenderer.invoke(IPC_CHANNELS.OPEN_EXTERNAL, url)
+  },
+
+  openPath: (path: string) => {
+    return ipcRenderer.invoke(IPC_CHANNELS.OPEN_PATH, path)
   },
 
   // 窗口控制

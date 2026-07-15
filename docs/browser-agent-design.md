@@ -136,7 +136,37 @@
 | 敏感操作禁用 | 禁止下载/执行额外文件、禁止访问本地文件 |
 | 审计 | 保存原始脚本、截图、执行日志 |
 
-### 3.6 失败处理
+### 3.6 登录态与反爬支持（已实现）
+
+针对小红书后台、蒲公英、抖音星图等需要登录态或带有反爬机制的页面，模式 A 提供以下增强能力（均已落地）：
+
+#### 持久浏览器 Profile
+
+- 每个域名拥有独立的 `userDataDir`（默认 `~/.mapro/browser-profiles/{hostname}/`）。
+- 首次登录可关闭 `headless` 模式，在弹出的真实浏览器窗口中完成扫码/短信登录。
+- 登录态（Cookie、localStorage、IndexedDB）会自动保存到 Profile，后续 `headless` 任务复用。
+- 多任务并发时，系统会先把 Profile 复制到任务目录，任务成功后再写回，避免状态冲突。
+
+#### Cookie 注入
+
+- 支持在设置面板中粘贴 Cookie：
+  - Playwright 格式的 JSON Cookie 数组
+  - Netscape `cookies.txt` 格式
+- Cookie 会在创建浏览器上下文后通过 `context.add_cookies()` 注入，作为 Profile 的补充。
+
+#### 反检测参数
+
+- 启动参数加入 `--disable-blink-features=AutomationControlled`。
+- 设置常见 viewport（1280x800）、locale（zh-CN）、timezone（Asia/Shanghai）。
+- 支持自定义 User-Agent 和代理服务器。
+- 生成脚本的提示词中强制要求随机等待、限制翻页速度、遇到验证码优雅退出。
+
+#### 环境检查
+
+- 工具可用性 `isWebScraperAvailable()` 会真实检查 `python3` 和 `playwright` Python 包。
+- 设置页提供「检测环境」按钮，缺失时给出安装命令。
+
+### 3.7 失败处理
 
 - 脚本执行超时：返回超时信息 + 已保存的截图
 - 元素未找到：返回错误 + 页面截图供人工判断
@@ -277,12 +307,15 @@ type Action =
 
 ### Phase 1：模式 A MVP（1-2 周）
 
-- [ ] 实现 `BrowserAutomationService`
-- [ ] 实现 `web_scraper` Chat 工具
-- [ ] 接入 Chat 工具执行流程
-- [ ] 支持 JSON/Markdown 输出
-- [ ] 运行 3-5 个真实爬取案例
-- [ ] 添加基础安全约束（超时、目录隔离）
+- [x] 实现 `BrowserAutomationService`
+- [x] 实现 `web_scraper` Chat 工具
+- [x] 接入 Chat 工具执行流程
+- [x] 支持 JSON/Markdown 输出
+- [ ] 运行 3-5 个真实爬取案例（待手动验证小红书后台等登录态页面）
+- [x] 添加基础安全约束（超时、目录隔离）
+- [x] 持久浏览器 Profile + Cookie 注入 + 反检测参数（见 3.6 节，已落地）
+- [x] 前端配置面板（`ToolSettings` 的「网页爬取」设置区）
+- [x] 真实环境检查（`checkPythonAndPlaywright` + 「检测环境」按钮）
 
 ### Phase 2：模式 A 增强（2-3 周）
 
@@ -316,7 +349,12 @@ type Action =
 
 | 文件 | 说明 |
 |------|------|
-| `apps/electron/src/main/lib/browser-automation/` | 模式 A 实现目录 |
-| `apps/electron/src/main/lib/chat-tools/web-scraper-tool.ts` | web_scraper 工具实现 |
-| `packages/server/src/agent/chat-tool-config.ts` | 工具注册配置 |
+| `apps/electron/src/main/lib/browser-automation/browser-automation-service.ts` | 模式 A 核心：脚本生成、Profile/Cookie 准备、环境变量注入、超时与结果收集 |
+| `apps/electron/src/main/lib/chat-tools/web-scraper-tool.ts` | web_scraper Chat 工具：元数据、工具定义、可用性检查、执行入口 |
+| `apps/electron/src/main/lib/chat-tool-config.ts` | Chat 工具配置（`~/.mapro/chat-tools.json` 读写，web-scraper 默认启用） |
+| `apps/electron/src/main/lib/chat-tool-registry.ts` | Chat 工具注册表（web-scraper 已注册） |
+| `apps/electron/src/main/ipc.ts` | `TEST_TOOL` 通道支持 web-scraper 环境检测 |
+| `apps/electron/src/renderer/components/settings/ToolSettings.tsx` | 「网页爬取」设置面板（Profile/Cookie/headless/代理/UA/超时/环境检测） |
+| `apps/electron/src/main/lib/__tests__/web-scraper.test.ts` | 单元/集成测试（Profile 目录、Cookie 解析、环境检查缓存、环境变量注入） |
+| `docs/web-scraper-login-anti-crawl-plan.md` | 登录态与反爬落地计划（Phase 1 已实现） |
 

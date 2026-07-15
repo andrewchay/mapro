@@ -7,7 +7,13 @@
 
 import type { ToolCall, ToolResult, ToolDefinition } from '@ma-proma/core'
 import type { ChatToolMeta } from '@ma-proma/shared'
-import { executeScrapingTask } from '../browser-automation/browser-automation-service.ts'
+import {
+  executeScrapingTask,
+  getDefaultUserDataDir,
+  checkPythonAndPlaywright,
+  resetPythonPlaywrightCheck,
+} from '../browser-automation/browser-automation-service.ts'
+import { getToolCredentials } from '../chat-tool-config'
 
 // ===== 工具元数据 =====
 
@@ -36,6 +42,10 @@ export const WEB_SCRAPER_TOOL_META: ChatToolMeta = {
 - url：目标网页的完整 URL
 - task：清晰具体的任务描述，包括要提取的字段、数量限制、筛选条件
 - outputFormat：可选，默认 json
+
+**登录态说明：**
+- 如果目标页面需要登录，请在设置中配置浏览器 Profile 或 Cookie。
+- 首次登录可以关闭 headless 模式，在弹出的浏览器窗口中手动扫码/短信登录，系统会自动保存登录态供后续任务复用。
 
 **调用后处理：**
 - 向用户总结抓取到的数据
@@ -67,11 +77,24 @@ export const WEB_SCRAPER_TOOL_DEFINITIONS: ToolDefinition[] = [
 /**
  * 检查网页爬取工具是否可用
  *
- * 当前只要系统安装了 python3 和 playwright 即认为可用。
- * 实际执行时若缺失依赖会返回具体错误。
+ * 检查本地是否已安装 python3 和 playwright Python 包。
  */
 export function isWebScraperAvailable(): boolean {
-  return true
+  return checkPythonAndPlaywright().available
+}
+
+/**
+ * 获取网页爬取工具的可用性状态和提示信息
+ */
+export function getWebScraperAvailability(): { available: boolean; message: string } {
+  return checkPythonAndPlaywright()
+}
+
+/**
+ * 刷新网页爬取工具的可用性检查结果
+ */
+export function refreshWebScraperAvailability(): void {
+  resetPythonPlaywrightCheck()
 }
 
 // ===== 工具执行 =====
@@ -106,8 +129,29 @@ export async function executeWebScraperTool(toolCall: ToolCall): Promise<ToolRes
     }
   }
 
+  // 读取用户配置的凭据
+  const credentials = getToolCredentials('web-scraper')
+  const userDataDir =
+    typeof credentials.userDataDir === 'string' && credentials.userDataDir.trim()
+      ? credentials.userDataDir.trim()
+      : getDefaultUserDataDir(url)
+  const headless = credentials.headless !== 'false'
+
   try {
-    const result = await executeScrapingTask({ url, task, outputFormat })
+    const result = await executeScrapingTask(
+      { url, task, outputFormat },
+      {
+        userDataDir,
+        cookies: typeof credentials.cookies === 'string' ? credentials.cookies : undefined,
+        headless,
+        proxy: typeof credentials.proxy === 'string' ? credentials.proxy : undefined,
+        userAgent: typeof credentials.userAgent === 'string' ? credentials.userAgent : undefined,
+        timeoutMs:
+          typeof credentials.timeoutMs === 'string' || typeof credentials.timeoutMs === 'number'
+            ? Number(credentials.timeoutMs) || 60_000
+            : 60_000,
+      },
+    )
 
     if (result.success) {
       return {

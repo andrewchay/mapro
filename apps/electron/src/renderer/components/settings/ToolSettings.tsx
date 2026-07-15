@@ -11,10 +11,12 @@ import { toast } from 'sonner'
 import {
   ExternalLink, Eye, EyeOff, Loader2, CheckCircle2, XCircle, Trash2, Users,
   Brain, Target, Search, MessageSquare, Sparkles, Lightbulb, BarChart3,
+  FolderOpen,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { MemorySettings } from './MemorySettings'
 import { SettingsSection, SettingsCard } from './primitives'
 import { chatToolsAtom } from '@/atoms/chat-tool-atoms'
@@ -184,6 +186,258 @@ function WebSearchSettings(): React.ReactElement {
                 {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
+          </div>
+
+          {testResult && (
+            <div className={`flex items-start gap-2 rounded-lg p-3 text-sm ${testResult.success ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-destructive/10 text-destructive'}`}>
+              {testResult.success ? <CheckCircle2 size={16} className="mt-0.5 shrink-0" /> : <XCircle size={16} className="mt-0.5 shrink-0" />}
+              <span>{testResult.message}</span>
+            </div>
+          )}
+        </div>
+      </SettingsCard>
+    </SettingsSection>
+  )
+}
+
+/** 网页爬取工具设置区域 */
+function WebScraperSettings(): React.ReactElement {
+  const setChatTools = useSetAtom(chatToolsAtom)
+  const [enabled, setEnabled] = React.useState(false)
+  const [loading, setLoading] = React.useState(true)
+  const [testing, setTesting] = React.useState(false)
+  const [testResult, setTestResult] = React.useState<{ success: boolean; message: string } | null>(null)
+
+  const [userDataDir, setUserDataDir] = React.useState('')
+  const [cookies, setCookies] = React.useState('')
+  const [headless, setHeadless] = React.useState(true)
+  const [proxy, setProxy] = React.useState('')
+  const [userAgent, setUserAgent] = React.useState('')
+  const [timeoutSec, setTimeoutSec] = React.useState('60')
+
+  const savedCredentialsRef = React.useRef<Record<string, string>>({})
+
+  React.useEffect(() => {
+    Promise.all([
+      window.electronAPI.getChatTools(),
+      window.electronAPI.getChatToolCredentials('web-scraper'),
+    ]).then(([tools, credentials]) => {
+      const tool = tools.find((t) => t.meta.id === 'web-scraper')
+      if (tool) setEnabled(tool.enabled)
+      setUserDataDir(credentials.userDataDir || '')
+      setCookies(credentials.cookies || '')
+      setHeadless(credentials.headless !== 'false')
+      setProxy(credentials.proxy || '')
+      setUserAgent(credentials.userAgent || '')
+      setTimeoutSec(credentials.timeoutMs || '60')
+      savedCredentialsRef.current = { ...credentials }
+    }).catch((err: unknown) => {
+      console.error('[网页爬取设置] 加载失败:', err)
+    }).finally(() => {
+      setLoading(false)
+    })
+  }, [])
+
+  const buildCredentials = React.useCallback((): Record<string, string> => {
+    return {
+      userDataDir: userDataDir.trim(),
+      cookies: cookies.trim(),
+      headless: headless ? 'true' : 'false',
+      proxy: proxy.trim(),
+      userAgent: userAgent.trim(),
+      timeoutMs: timeoutSec.trim() || '60',
+    }
+  }, [userDataDir, cookies, headless, proxy, userAgent, timeoutSec])
+
+  const hasChanged = React.useCallback((): boolean => {
+    const current = buildCredentials()
+    const saved = savedCredentialsRef.current
+    return (
+      current.userDataDir !== (saved.userDataDir || '') ||
+      current.cookies !== (saved.cookies || '') ||
+      current.headless !== (saved.headless !== 'false' ? 'true' : 'false') ||
+      current.proxy !== (saved.proxy || '') ||
+      current.userAgent !== (saved.userAgent || '') ||
+      current.timeoutMs !== (saved.timeoutMs || '60')
+    )
+  }, [buildCredentials])
+
+  const handleSave = React.useCallback(async (): Promise<void> => {
+    if (!hasChanged()) return
+    try {
+      const credentials = buildCredentials()
+      await window.electronAPI.updateChatToolCredentials('web-scraper', credentials)
+      savedCredentialsRef.current = credentials
+      await refreshChatTools(setChatTools)
+      toast.success('网页爬取设置已保存')
+    } catch (error) {
+      console.error('[网页爬取设置] 保存失败:', error)
+    }
+  }, [buildCredentials, hasChanged, setChatTools])
+
+  const handleToggle = async (checked: boolean): Promise<void> => {
+    try {
+      await window.electronAPI.updateChatToolState('web-scraper', { enabled: checked })
+      setEnabled(checked)
+      await refreshChatTools(setChatTools)
+    } catch (error) {
+      console.error('[网页爬取设置] 切换失败:', error)
+    }
+  }
+
+  const handleOpenProfileDir = async (): Promise<void> => {
+    const dir = userDataDir.trim()
+    if (!dir) {
+      toast.info('请先填写 Profile 目录')
+      return
+    }
+    try {
+      const error = await window.electronAPI.openPath(dir)
+      if (error) {
+        toast.error(`打开目录失败: ${error}`)
+      }
+    } catch (error) {
+      console.error('[网页爬取设置] 打开目录失败:', error)
+    }
+  }
+
+  const handleTest = async (): Promise<void> => {
+    await handleSave()
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const result = await window.electronAPI.testChatTool('web-scraper')
+      setTestResult(result)
+    } catch (error) {
+      setTestResult({ success: false, message: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  if (loading) {
+    return <div className="text-sm text-muted-foreground py-8 text-center">加载中...</div>
+  }
+
+  return (
+    <SettingsSection
+      title="网页爬取"
+      description="启用后 AI 可以使用浏览器自动化抓取网页数据"
+      action={
+        <Switch
+          checked={enabled}
+          onCheckedChange={handleToggle}
+        />
+      }
+    >
+      <SettingsCard divided={false}>
+        <div className="space-y-4 p-4">
+          <div className="rounded-lg bg-muted/50 p-3 space-y-2 text-sm text-muted-foreground">
+            <p>网页爬取基于 <span className="font-medium text-foreground">Playwright</span> 浏览器自动化，可用于抓取 KOL 主页、商品列表、小红书后台等页面。</p>
+            <p className="text-xs">配置步骤：</p>
+            <ol className="text-xs list-decimal list-inside space-y-1">
+              <li>确保本地已安装 python3 和 playwright（点击“检测环境”查看）</li>
+              <li>如需登录，关闭 headless 模式，首次运行时手动在弹出浏览器中登录</li>
+              <li>登录态会自动保存到 Profile 目录，后续任务可复用</li>
+            </ol>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">浏览器 Profile 目录</label>
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!userDataDir.trim()}
+                  onClick={handleOpenProfileDir}
+                >
+                  <FolderOpen size={14} className="mr-1.5" />
+                  打开目录
+                </Button>
+              </div>
+            </div>
+            <Input
+              type="text"
+              placeholder="留空则按目标域名自动生成：~/.mapro/browser-profiles/{hostname}/"
+              value={userDataDir}
+              onChange={(e) => setUserDataDir(e.target.value)}
+              onBlur={handleSave}
+            />
+            <p className="text-xs text-muted-foreground">登录态、Cookie 等会保存在该目录，不同域名建议分开</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Cookie 文本（可选）</label>
+            <Textarea
+              placeholder='支持两种格式：
+1. Playwright cookie JSON 数组：[{"name":"session","value":"xxx","domain":".xiaohongshu.com","path":"/"}]
+2. Netscape cookies.txt 格式'
+              value={cookies}
+              onChange={(e) => setCookies(e.target.value)}
+              onBlur={handleSave}
+              rows={4}
+            />
+            <p className="text-xs text-muted-foreground">填写后会在启动浏览器时自动注入 Cookie</p>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-border/50 p-3">
+            <div className="space-y-0.5">
+              <div className="text-sm font-medium">headless 模式</div>
+              <p className="text-xs text-muted-foreground">关闭后会弹出真实浏览器窗口，方便扫码/短信登录</p>
+            </div>
+            <Switch
+              checked={headless}
+              onCheckedChange={async (checked) => {
+                setHeadless(checked)
+                await handleSave()
+              }}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">代理服务器（可选）</label>
+            <Input
+              type="text"
+              placeholder="http://user:pass@host:port"
+              value={proxy}
+              onChange={(e) => setProxy(e.target.value)}
+              onBlur={handleSave}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">User-Agent（可选）</label>
+            <Input
+              type="text"
+              placeholder="留空使用 Playwright 默认"
+              value={userAgent}
+              onChange={(e) => setUserAgent(e.target.value)}
+              onBlur={handleSave}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">超时时间（秒）</label>
+            <Input
+              type="number"
+              min={10}
+              max={600}
+              value={timeoutSec}
+              onChange={(e) => setTimeoutSec(e.target.value)}
+              onBlur={handleSave}
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={testing}
+              onClick={handleTest}
+            >
+              {testing ? <><Loader2 size={14} className="animate-spin mr-1.5" />检测中...</> : '检测环境'}
+            </Button>
           </div>
 
           {testResult && (
@@ -724,6 +978,9 @@ export function ToolSettings(): React.ReactElement {
 
       {/* 联网搜索工具 */}
       <WebSearchSettings />
+
+      {/* 网页爬取工具 */}
+      <WebScraperSettings />
 
       {/* Nano Banana 生图工具 */}
       <NanoBananaSettings />

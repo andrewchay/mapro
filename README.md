@@ -21,6 +21,7 @@ MAPro 是一个本地优先的 AI 桌面应用，把多模型 Chat、通用 Agen
 - **Skills & MCP**：每个工作区可以独立配置 Skills、MCP Server 和工作区文件，适合沉淀可复用能力。
 - **远程机器人**：支持飞书 / Lark 机器人桥接，并已提供钉钉、微信桥接入口，用手机或群聊触发本机 Agent 工作流。
 - **记忆与工具**：Chat 和 Agent 可共享记忆能力，并支持联网搜索、内置 Chat 工具、Agent 推荐等辅助能力。
+- **网页爬取（Browser Agent）**：内置 `web_scraper` 工具，AI 自动生成 Playwright 脚本抓取网页数据，支持持久浏览器 Profile、Cookie 注入、反检测参数和代理，可抓取小红书后台等需要登录态的页面。在 **设置 > 工具 > 网页爬取** 配置，需本地安装 python3 + playwright。
 - **本地优先**：会话、工作区、附件、配置、Skills 等默认存储在 `~/.mapro/`，使用 JSON / JSONL 文件组织；Campaign / KOL 等需要关系查询的业务数据使用 SQLite。
 - **桌面体验**：自动更新、代理设置、文件预览、全局快捷键、快速任务窗口、语音输入、亮色 / 暗色 / 跟随系统主题。
 

@@ -326,6 +326,8 @@ export const IPC_CHANNELS = {
   GET_DIFF_CONTENTS: 'git:get-diff-contents',
   /** 在系统默认浏览器中打开外部链接 */
   OPEN_EXTERNAL: 'shell:open-external',
+  /** 在系统文件管理器中打开指定路径 */
+  OPEN_PATH: 'shell:open-path',
   /** 用系统默认应用打开任意文件 */
   SYSTEM_OPEN_FILE: 'shell:system-open-file',
   /** 扫描系统中可用的编辑器应用 */

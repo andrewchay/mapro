@@ -572,6 +572,15 @@ export function registerIpcHandlers(): void {
     }
   )
 
+  // 在系统文件管理器中打开指定路径
+  ipcMain.handle(
+    IPC_CHANNELS.OPEN_PATH,
+    async (_, path: string): Promise<string> => {
+      const result = await shell.openPath(path)
+      return result
+    }
+  )
+
   // 用系统默认应用打开任意文件（appName 需在 KNOWN_EDITORS 白名单内）
   ipcMain.handle(
     IPC_CHANNELS.SYSTEM_OPEN_FILE,
@@ -1879,6 +1888,13 @@ export function registerIpcHandlers(): void {
           const msg = error instanceof Error ? error.message : String(error)
           return { success: false, message: `连接失败: ${msg}` }
         }
+      }
+      // 网页爬取工具测试
+      if (toolId === 'web-scraper') {
+        const { getWebScraperAvailability, refreshWebScraperAvailability } = await import('./lib/chat-tools/web-scraper-tool')
+        refreshWebScraperAvailability()
+        const { available, message } = getWebScraperAvailability()
+        return { success: available, message }
       }
       // Nano Banana 生图工具测试
       if (toolId === 'nano-banana') {
