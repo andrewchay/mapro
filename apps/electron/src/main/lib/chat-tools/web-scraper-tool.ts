@@ -12,6 +12,7 @@ import {
   getDefaultUserDataDir,
   checkPythonAndPlaywright,
   resetPythonPlaywrightCheck,
+  resolveTimeoutMs,
 } from '../browser-automation/browser-automation-service.ts'
 import { getToolCredentials } from '../chat-tool-config'
 
@@ -133,12 +134,17 @@ export async function executeWebScraperTool(toolCall: ToolCall): Promise<ToolRes
   const url = typeof args.url === 'string' ? args.url : ''
   const urls = parseUrlsArg(args)
   const task = typeof args.task === 'string' ? args.task : ''
+
+  // 读取用户配置的凭据（需要在 outputFormat / importToKolDatabase 默认值之前）
+  const credentials = getToolCredentials('web-scraper')
+
   const outputFormat =
     args.outputFormat === 'json' || args.outputFormat === 'csv' || args.outputFormat === 'markdown'
       ? args.outputFormat
       : 'json'
   const maxRetries = typeof args.maxRetries === 'number' ? args.maxRetries : undefined
-  const importToKolDatabase = args.importToKolDatabase === true
+  const importToKolDatabase =
+    args.importToKolDatabase === true || credentials.importToKolDatabase === 'true'
 
   if ((!url && (!urls || urls.length === 0)) || !task) {
     return {
@@ -147,9 +153,6 @@ export async function executeWebScraperTool(toolCall: ToolCall): Promise<ToolRes
       isError: true,
     }
   }
-
-  // 读取用户配置的凭据
-  const credentials = getToolCredentials('web-scraper')
   const targetUrl = url || urls?.[0] || ''
   const userDataDir =
     typeof credentials.userDataDir === 'string' && credentials.userDataDir.trim()
@@ -176,10 +179,7 @@ export async function executeWebScraperTool(toolCall: ToolCall): Promise<ToolRes
         headless,
         proxy: typeof credentials.proxy === 'string' ? credentials.proxy : undefined,
         userAgent: typeof credentials.userAgent === 'string' ? credentials.userAgent : undefined,
-        timeoutMs:
-          typeof credentials.timeoutMs === 'string' || typeof credentials.timeoutMs === 'number'
-            ? Number(credentials.timeoutMs) || 60_000
-            : 60_000,
+        timeoutMs: resolveTimeoutMs(credentials.timeoutMs),
         maxRetries: maxRetries ?? defaultMaxRetries,
         scriptTemplate:
           typeof credentials.scriptTemplate === 'string' ? credentials.scriptTemplate : undefined,

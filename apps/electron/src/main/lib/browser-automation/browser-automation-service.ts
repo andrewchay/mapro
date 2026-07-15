@@ -84,6 +84,20 @@ const DEFAULT_OUTPUT_FORMAT: NonNullable<ScrapingTaskInput['outputFormat']> = 'j
 const DEFAULT_SCRIPT_TIMEOUT_MS = 60_000
 const DEFAULT_MAX_RETRIES = 0
 
+/**
+ * 解析用户配置的 timeoutMs
+ *
+ * 兼容旧版本按秒保存的凭据：
+ * - 数值 >= 1000 视为毫秒
+ * - 数值 < 1000 视为秒，转换为毫秒
+ */
+export function resolveTimeoutMs(timeoutMs: string | number | undefined): number {
+  if (timeoutMs === undefined || timeoutMs === '') return DEFAULT_SCRIPT_TIMEOUT_MS
+  const numeric = typeof timeoutMs === 'number' ? timeoutMs : Number(timeoutMs)
+  if (Number.isNaN(numeric) || numeric <= 0) return DEFAULT_SCRIPT_TIMEOUT_MS
+  return numeric < 1000 ? numeric * 1000 : numeric
+}
+
 /** 环境检查结果缓存 */
 let pythonPlaywrightCheckCache: { available: boolean; message: string } | null = null
 

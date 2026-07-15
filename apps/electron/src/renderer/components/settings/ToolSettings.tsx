@@ -209,6 +209,18 @@ interface BrowserAutomationSettingsProps {
   guideContent: React.ReactNode
 }
 
+/**
+ * 把保存的 timeoutMs 统一解析为毫秒
+ *
+ * 旧版本按秒保存（如 '60'），新版本按毫秒保存（如 '60000'）。
+ */
+function normalizeTimeoutMs(value: string | undefined): number {
+  if (!value) return 60_000
+  const numeric = Number(value)
+  if (Number.isNaN(numeric) || numeric <= 0) return 60_000
+  return numeric < 1000 ? numeric * 1000 : numeric
+}
+
 /** 浏览器自动化工具通用设置组件（网页爬取 / 视觉浏览器自动化共享） */
 function BrowserAutomationSettings({ toolId, title, description, guideTitle, guideContent }: BrowserAutomationSettingsProps): React.ReactElement {
   const setChatTools = useSetAtom(chatToolsAtom)
@@ -244,7 +256,7 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
       setHeadless(credentials.headless !== 'false')
       setProxy(credentials.proxy || '')
       setUserAgent(credentials.userAgent || '')
-      setTimeoutSec(credentials.timeoutMs || '60')
+      setTimeoutSec(String(Math.round(normalizeTimeoutMs(credentials.timeoutMs) / 1000)))
       if (isWebScraper) {
         setMaxRetries(credentials.maxRetries || '0')
         setScriptTemplate(credentials.scriptTemplate || '')
@@ -265,7 +277,7 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
       headless: headless ? 'true' : 'false',
       proxy: proxy.trim(),
       userAgent: userAgent.trim(),
-      timeoutMs: timeoutSec.trim() || '60',
+      timeoutMs: String((Number(timeoutSec.trim()) || 60) * 1000),
     }
     if (isWebScraper) {
       base.maxRetries = maxRetries.trim() || '0'
@@ -284,7 +296,7 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
       current.headless !== (saved.headless !== 'false' ? 'true' : 'false') ||
       current.proxy !== (saved.proxy || '') ||
       current.userAgent !== (saved.userAgent || '') ||
-      current.timeoutMs !== (saved.timeoutMs || '60')
+      current.timeoutMs !== String(normalizeTimeoutMs(saved.timeoutMs))
     if (!isWebScraper) return baseChanged
     return (
       baseChanged ||
@@ -294,18 +306,30 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
     )
   }, [buildCredentials, isWebScraper])
 
+  const saveCredentials = React.useCallback(
+    async (patch?: Record<string, string>, silent?: boolean): Promise<void> => {
+      const credentials = buildCredentials()
+      if (patch) {
+        Object.assign(credentials, patch)
+      }
+      try {
+        await window.electronAPI.updateChatToolCredentials(toolId, credentials)
+        savedCredentialsRef.current = credentials
+        await refreshChatTools(setChatTools)
+        if (!silent) {
+          toast.success(`${title} 设置已保存`)
+        }
+      } catch (error) {
+        console.error(`[${title} 设置] 保存失败:`, error)
+      }
+    },
+    [buildCredentials, setChatTools, toolId, title],
+  )
+
   const handleSave = React.useCallback(async (): Promise<void> => {
     if (!hasChanged()) return
-    try {
-      const credentials = buildCredentials()
-      await window.electronAPI.updateChatToolCredentials(toolId, credentials)
-      savedCredentialsRef.current = credentials
-      await refreshChatTools(setChatTools)
-      toast.success(`${title} 设置已保存`)
-    } catch (error) {
-      console.error(`[${title} 设置] 保存失败:`, error)
-    }
-  }, [buildCredentials, hasChanged, setChatTools, toolId, title])
+    await saveCredentials()
+  }, [hasChanged, saveCredentials])
 
   const handleToggle = async (checked: boolean): Promise<void> => {
     try {
@@ -417,7 +441,7 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
               checked={headless}
               onCheckedChange={async (checked) => {
                 setHeadless(checked)
-                await handleSave()
+                await saveCredentials({ headless: checked ? 'true' : 'false' }, true)
               }}
             />
           </div>
@@ -492,7 +516,7 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
                   checked={importToKolDatabase}
                   onCheckedChange={async (checked) => {
                     setImportToKolDatabase(checked)
-                    await handleSave()
+                    await saveCredentials({ importToKolDatabase: checked ? 'true' : 'false' }, true)
                   }}
                 />
               </div>

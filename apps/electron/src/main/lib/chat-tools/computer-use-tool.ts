@@ -13,6 +13,7 @@ import {
   getDefaultUserDataDir,
   checkPythonAndPlaywright,
   resetPythonPlaywrightCheck,
+  resolveTimeoutMs,
 } from '../browser-automation/browser-automation-service.ts'
 import { getToolCredentials } from '../chat-tool-config'
 
@@ -120,10 +121,7 @@ export async function executeComputerUseTool(toolCall: ToolCall): Promise<ToolRe
         headless,
         proxy: typeof credentials.proxy === 'string' ? credentials.proxy : undefined,
         userAgent: typeof credentials.userAgent === 'string' ? credentials.userAgent : undefined,
-        timeoutMs:
-          typeof credentials.timeoutMs === 'string' || typeof credentials.timeoutMs === 'number'
-            ? Number(credentials.timeoutMs) || 60_000
-            : 60_000,
+        timeoutMs: resolveTimeoutMs(credentials.timeoutMs),
       },
       driver,
       callLLM,

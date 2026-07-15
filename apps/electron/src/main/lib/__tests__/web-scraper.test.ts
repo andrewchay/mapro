@@ -49,6 +49,7 @@ interface BrowserAutomationModule {
     input: import('../browser-automation/browser-automation-service').ScrapingTaskInput,
     options?: import('../browser-automation/browser-automation-service').ScrapingTaskOptions,
   ) => Promise<import('../browser-automation/browser-automation-service').ScrapingTaskResult>
+  resolveTimeoutMs: (value: string | number | undefined) => number
   getScrapedRootDir?: () => string
 }
 
@@ -165,7 +166,28 @@ describe('web-scraper 网页爬取工具', () => {
     })
   })
 
-  // ===== 3. 环境检查与缓存 =====
+  // ===== 3. 超时时间解析 =====
+
+  describe('resolveTimeoutMs', () => {
+    it('把秒数值转换为毫秒', () => {
+      expect(browserAutomation.resolveTimeoutMs('60')).toBe(60_000)
+      expect(browserAutomation.resolveTimeoutMs(60)).toBe(60_000)
+    })
+
+    it('保留毫秒数值', () => {
+      expect(browserAutomation.resolveTimeoutMs('60000')).toBe(60_000)
+      expect(browserAutomation.resolveTimeoutMs(120_000)).toBe(120_000)
+    })
+
+    it('空值/非法值回退到默认 60 秒', () => {
+      expect(browserAutomation.resolveTimeoutMs(undefined)).toBe(60_000)
+      expect(browserAutomation.resolveTimeoutMs('')).toBe(60_000)
+      expect(browserAutomation.resolveTimeoutMs('abc')).toBe(60_000)
+      expect(browserAutomation.resolveTimeoutMs(0)).toBe(60_000)
+    })
+  })
+
+  // ===== 4. 环境检查与缓存 =====
 
   describe('checkPythonAndPlaywright', () => {
     it('返回带 available 和 message 字段的结果', () => {

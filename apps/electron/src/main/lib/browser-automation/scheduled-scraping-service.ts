@@ -11,7 +11,12 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { getConfigDir } from '../config-paths.ts'
 import type { ScheduledScrapingTask } from '@ma-proma/shared'
-import { executeScrapingTask } from './browser-automation-service'
+import {
+  executeScrapingTask,
+  getDefaultUserDataDir,
+  resolveTimeoutMs,
+} from './browser-automation-service'
+import { getToolCredentials } from '../chat-tool-config'
 
 const SCHEDULED_SCRAPING_FILE_NAME = 'scheduled-scraping.json'
 
@@ -124,6 +129,11 @@ async function runScheduledTask(id: string): Promise<void> {
   console.log(`[Scheduled Scraping] 开始执行任务: ${task.name}`)
 
   try {
+    const credentials = getToolCredentials('web-scraper')
+    const targetUrl = task.urls?.[0] ?? ''
+    const userDataDir =
+      credentials.userDataDir?.trim() || (targetUrl ? getDefaultUserDataDir(targetUrl) : undefined)
+
     const result = await executeScrapingTask(
       {
         task: task.task,
@@ -132,9 +142,14 @@ async function runScheduledTask(id: string): Promise<void> {
         importToKolDatabase: task.importToKolDatabase ?? false,
       },
       {
-        headless: true,
+        userDataDir,
+        cookies: typeof credentials.cookies === 'string' ? credentials.cookies : undefined,
+        headless: credentials.headless !== 'false',
+        proxy: typeof credentials.proxy === 'string' ? credentials.proxy : undefined,
+        userAgent: typeof credentials.userAgent === 'string' ? credentials.userAgent : undefined,
+        timeoutMs: resolveTimeoutMs(credentials.timeoutMs) || 120_000,
         maxRetries: task.maxRetries ?? 1,
-        timeoutMs: 120_000,
+        scriptTemplate: typeof credentials.scriptTemplate === 'string' ? credentials.scriptTemplate : undefined,
       },
     )
 
