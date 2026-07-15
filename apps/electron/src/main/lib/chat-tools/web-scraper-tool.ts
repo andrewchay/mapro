@@ -20,11 +20,14 @@ import { getToolCredentials } from '../chat-tool-config'
 export const WEB_SCRAPER_TOOL_META: ChatToolMeta = {
   id: 'web-scraper',
   name: '网页爬取',
-  description: '使用浏览器自动化访问网页并提取结构化数据',
+  description: '使用浏览器自动化访问网页并提取结构化数据，支持批量 URL、重试和导入 KOL 数据库',
   params: [
-    { name: 'url', type: 'string', description: '要访问的目标网页 URL', required: true },
+    { name: 'url', type: 'string', description: '要访问的目标网页 URL（与 urls 二选一）', required: true },
+    { name: 'urls', type: 'string', description: '批量 URL，用换行或逗号分隔（与 url 二选一）', required: false },
     { name: 'task', type: 'string', description: '具体的爬取任务描述，例如"提取前 20 个商品的名称和价格"', required: true },
     { name: 'outputFormat', type: 'string', description: '输出格式：json、csv、markdown，默认 json', required: false },
+    { name: 'maxRetries', type: 'number', description: '失败重试次数，默认使用设置中的配置', required: false },
+    { name: 'importToKolDatabase', type: 'boolean', description: '是否将 JSON 结果导入 KOL 数据库', required: false },
   ],
   icon: 'Globe',
   category: 'builtin',
@@ -59,15 +62,18 @@ export const WEB_SCRAPER_TOOL_META: ChatToolMeta = {
 export const WEB_SCRAPER_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'web_scraper',
-    description: 'Use browser automation to visit a webpage and extract structured data. Use this when the user asks to scrape, crawl, or extract information from a specific URL.',
+    description: 'Use browser automation to visit a webpage and extract structured data. Supports batch URLs, retries, and importing results into the KOL database. Use this when the user asks to scrape, crawl, or extract information from specific URLs.',
     parameters: {
       type: 'object',
       properties: {
-        url: { type: 'string', description: 'Target webpage URL' },
+        url: { type: 'string', description: 'Target webpage URL (use this or urls)' },
+        urls: { type: 'string', description: 'Batch URLs separated by newline or comma (use this or url)' },
         task: { type: 'string', description: 'Specific scraping task description, e.g. "Extract the titles and prices of the first 20 products"' },
         outputFormat: { type: 'string', enum: ['json', 'csv', 'markdown'], description: 'Output format, default is json' },
+        maxRetries: { type: 'number', description: 'Number of retries on failure (default from settings)' },
+        importToKolDatabase: { type: 'boolean', description: 'Whether to import JSON results into the KOL database' },
       },
-      required: ['url', 'task'],
+      required: ['task'],
     },
   },
 ]
@@ -112,34 +118,58 @@ export function isWebScraperToolCall(toolName: string): boolean {
 /**
  * 执行网页爬取工具
  */
+function parseUrlsArg(args: Record<string, unknown>): string[] | undefined {
+  if (typeof args.urls === 'string' && args.urls.trim()) {
+    return args.urls
+      .split(/[\n,]/)
+      .map((u) => u.trim())
+      .filter(Boolean)
+  }
+  return undefined
+}
+
 export async function executeWebScraperTool(toolCall: ToolCall): Promise<ToolResult> {
   const args = toolCall.arguments
   const url = typeof args.url === 'string' ? args.url : ''
+  const urls = parseUrlsArg(args)
   const task = typeof args.task === 'string' ? args.task : ''
   const outputFormat =
     args.outputFormat === 'json' || args.outputFormat === 'csv' || args.outputFormat === 'markdown'
       ? args.outputFormat
       : 'json'
+  const maxRetries = typeof args.maxRetries === 'number' ? args.maxRetries : undefined
+  const importToKolDatabase = args.importToKolDatabase === true
 
-  if (!url || !task) {
+  if ((!url && (!urls || urls.length === 0)) || !task) {
     return {
       toolCallId: toolCall.id,
-      content: '缺少必要参数：url 和 task 必填',
+      content: '缺少必要参数：url 或 urls 至少填一个，task 必填',
       isError: true,
     }
   }
 
   // 读取用户配置的凭据
   const credentials = getToolCredentials('web-scraper')
+  const targetUrl = url || urls?.[0] || ''
   const userDataDir =
     typeof credentials.userDataDir === 'string' && credentials.userDataDir.trim()
       ? credentials.userDataDir.trim()
-      : getDefaultUserDataDir(url)
+      : getDefaultUserDataDir(targetUrl)
   const headless = credentials.headless !== 'false'
+  const defaultMaxRetries =
+    typeof credentials.maxRetries === 'string' || typeof credentials.maxRetries === 'number'
+      ? Number(credentials.maxRetries) || 0
+      : 0
 
   try {
     const result = await executeScrapingTask(
-      { url, task, outputFormat },
+      {
+        url: url || undefined,
+        urls,
+        task,
+        outputFormat,
+        importToKolDatabase,
+      },
       {
         userDataDir,
         cookies: typeof credentials.cookies === 'string' ? credentials.cookies : undefined,
@@ -150,6 +180,9 @@ export async function executeWebScraperTool(toolCall: ToolCall): Promise<ToolRes
           typeof credentials.timeoutMs === 'string' || typeof credentials.timeoutMs === 'number'
             ? Number(credentials.timeoutMs) || 60_000
             : 60_000,
+        maxRetries: maxRetries ?? defaultMaxRetries,
+        scriptTemplate:
+          typeof credentials.scriptTemplate === 'string' ? credentials.scriptTemplate : undefined,
       },
     )
 

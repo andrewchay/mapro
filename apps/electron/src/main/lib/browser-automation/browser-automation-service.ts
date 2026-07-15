@@ -5,8 +5,7 @@
  * 1. 根据任务描述生成 Python + Playwright 脚本
  * 2. 在隔离目录中执行脚本
  * 3. 收集结果文件与截图
- *
- * 当前为模式 A（脚本自动化）的实现基础。
+ * 4. 支持批量 URL、失败重试、自定义脚本模板、KOL 数据库导入
  */
 
 import { join, dirname } from 'node:path'
@@ -22,14 +21,19 @@ import { spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { getConfigDir } from '../config-paths.ts'
 import { completePrompt } from '../ma-tools/llm-service.ts'
+import { upsertKOL, type KOLRecord } from '../ma-tools/kol-data-service.ts'
 
 export interface ScrapingTaskInput {
   /** 任务自然语言描述 */
   task: string
-  /** 起始 URL */
-  url: string
+  /** 起始 URL（与 urls 二选一） */
+  url?: string
+  /** 批量 URL 列表（与 url 二选一） */
+  urls?: string[]
   /** 输出格式 */
   outputFormat?: 'json' | 'csv' | 'markdown'
+  /** 成功后是否将 JSON 结果导入 KOL 数据库 */
+  importToKolDatabase?: boolean
 }
 
 export interface ScrapingTaskOptions {
@@ -45,6 +49,10 @@ export interface ScrapingTaskOptions {
   userAgent?: string
   /** 任务超时（毫秒），默认 60000 */
   timeoutMs?: number
+  /** 失败重试次数，默认 0 */
+  maxRetries?: number
+  /** 自定义脚本模板（支持 {{task}} {{url}} 等占位符） */
+  scriptTemplate?: string
 }
 
 export interface ScrapingTaskResult {
@@ -54,20 +62,27 @@ export interface ScrapingTaskResult {
   summary: string
   /** 任务目录路径 */
   taskDir: string
-  /** 结果文件相对路径 */
+  /** 单 URL 结果文件相对路径 */
   resultFile?: string
-  /** 截图文件相对路径 */
+  /** 批量结果文件相对路径列表 */
+  resultFiles?: string[]
+  /** 单 URL 截图文件相对路径 */
   screenshotFile?: string
+  /** 批量截图文件相对路径列表 */
+  screenshotFiles?: string[]
   /** 原始脚本文件相对路径 */
   scriptFile?: string
   /** 错误信息 */
   error?: string
+  /** KOL 数据库导入结果 */
+  kolImport?: { inserted: number; errors: string[] }
 }
 
 const SCRAPED_DIR_NAME = 'scraped'
 const PROFILES_DIR_NAME = 'browser-profiles'
 const DEFAULT_OUTPUT_FORMAT: NonNullable<ScrapingTaskInput['outputFormat']> = 'json'
 const DEFAULT_SCRIPT_TIMEOUT_MS = 60_000
+const DEFAULT_MAX_RETRIES = 0
 
 /** 环境检查结果缓存 */
 let pythonPlaywrightCheckCache: { available: boolean; message: string } | null = null
@@ -289,6 +304,7 @@ function writeBackUserDataDir(
 ): void {
   if (!sourceDir || !taskProfileDir) return
   if (!existsSync(taskProfileDir)) return
+  if (sourceDir === taskProfileDir) return
   try {
     // 源目录可能在此过程中被其他任务修改，简单覆盖。
     // 如需严格并发控制，后续可加文件锁。
@@ -299,6 +315,54 @@ function writeBackUserDataDir(
 }
 
 /**
+ * 替换脚本模板中的占位符
+ */
+function renderScriptTemplate(
+  template: string,
+  variables: Record<string, string>,
+): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => variables[key] ?? `{{${key}}}`)
+}
+
+/**
+ * 生成默认的系统提示词
+ */
+function buildDefaultSystemPrompt(options: {
+  hasUserDataDir: boolean
+  hasCookies: boolean
+  hasProxy: boolean
+  hasUserAgent: boolean
+}): string {
+  return `你是一名专业的 Web 爬虫工程师。请根据用户任务生成一个完整的、可独立运行的 Python + Playwright 脚本。
+
+反爬与风控要求：
+1. 每次页面操作（点击、输入、滚动、跳转）后必须添加随机时间间隔
+2. 随机等待时间范围：0.5 秒到 3 秒（使用 random.uniform(0.5, 3.0) 或 random.randint(500, 3000)）
+3. 不要在脚本中使用固定 sleep 时间
+4. 滚动加载时，每滚动一屏后随机等待 1-3 秒再继续
+5. 翻页/加载更多时，每页之间随机等待 2-4 秒
+6. 遇到反爬或验证码时，保存当前截图并优雅退出，不要无限重试
+
+技术要求：
+1. 使用 Playwright 同步 API（from playwright.sync_api import sync_playwright）
+2. 通过环境变量 HEADLESS 控制是否 headless（HEADLESS == 'true' 时用 headless，否则用有界面窗口）
+3. ${options.hasUserDataDir ? '通过环境变量 USER_DATA_DIR 读取持久 Profile 路径，使用 browser.launch_persistent_context(USER_DATA_DIR, ...)' : '使用 browser.new_context() 创建新上下文'}
+4. ${options.hasCookies ? '通过环境变量 COOKIES_FILE 读取 cookies.json 路径，在创建 context 后调用 context.add_cookies(json.load(open(COOKIES_FILE))) 注入登录态' : '不需要注入 Cookie'}
+5. ${options.hasProxy ? '通过环境变量 PROXY 设置代理，在 launch/context 中传入 proxy={"server": PROXY}' : '不需要代理'}
+6. ${options.hasUserAgent ? '通过环境变量 USER_AGENT 自定义 User-Agent，在 context 创建时传入 user_agent=USER_AGENT' : '使用正常浏览器 User-Agent，不要暴露 Playwright/HeadlessChrome'}
+7. 启动参数加入 ["--disable-blink-features=AutomationControlled"] 以降低被检测概率
+8. 设置 viewport={"width": 1280, "height": 800}、locale='zh-CN'、timezone_id='Asia/Shanghai'
+9. 只访问用户指定的 URL 及其同域名页面
+10. 等待关键元素加载完成后再提取数据
+11. 处理滚动加载、分页等常见情况，但限制总条目数不超过 50 条
+12. 将结果保存到 RESULT_FILE 指定的路径
+13. 同时保存一张最终页面截图到 SCREENSHOT_FILE 指定的路径
+14. 添加 try/finally 确保浏览器关闭
+15. 脚本中通过环境变量读取 RESULT_FILE 和 SCREENSHOT_FILE
+16. 只输出可执行的 Python 代码，不要输出任何解释文字或 markdown 代码块标记`
+}
+
+/**
  * 生成 Playwright Python 脚本
  */
 async function generateScrapingScript(
@@ -306,7 +370,7 @@ async function generateScrapingScript(
   taskDir: string,
   outputFormat: NonNullable<ScrapingTaskInput['outputFormat']>,
   options: Required<Pick<ScrapingTaskOptions, 'headless'>> &
-    Pick<ScrapingTaskOptions, 'userDataDir' | 'proxy' | 'userAgent'>,
+    Pick<ScrapingTaskOptions, 'userDataDir' | 'proxy' | 'userAgent' | 'scriptTemplate'>,
   cookiesPath?: string,
 ): Promise<{ scriptPath: string; success: boolean; error?: string }> {
   const resultFileName = `result.${outputFormat === 'markdown' ? 'md' : outputFormat}`
@@ -322,36 +386,29 @@ async function generateScrapingScript(
   const hasProxy = !!options.proxy
   const hasUserAgent = !!options.userAgent
 
-  const systemPrompt = `你是一名专业的 Web 爬虫工程师。请根据用户任务生成一个完整的、可独立运行的 Python + Playwright 脚本。
+  const variables: Record<string, string> = {
+    task: input.task,
+    url: input.url ?? '',
+    urls: input.urls ? JSON.stringify(input.urls) : '[]',
+    outputFormat,
+    resultFile: resultFilePath,
+    screenshotFile: screenshotFilePath,
+    userDataDir: options.userDataDir ?? '',
+    cookiesFile: cookiesPath ?? '',
+    proxy: options.proxy ?? '',
+    userAgent: options.userAgent ?? '',
+    headless: options.headless ? 'true' : 'false',
+  }
 
-反爬与风控要求：
-1. 每次页面操作（点击、输入、滚动、跳转）后必须添加随机时间间隔
-2. 随机等待时间范围：0.5 秒到 3 秒（使用 random.uniform(0.5, 3.0) 或 random.randint(500, 3000)）
-3. 不要在脚本中使用固定 sleep 时间
-4. 滚动加载时，每滚动一屏后随机等待 1-3 秒再继续
-5. 翻页/加载更多时，每页之间随机等待 2-4 秒
-6. 遇到反爬或验证码时，保存当前截图并优雅退出，不要无限重试
+  let scriptCode: string
 
-技术要求：
-1. 使用 Playwright 同步 API（from playwright.sync_api import sync_playwright）
-2. 通过环境变量 HEADLESS 控制是否 headless（HEADLESS == 'true' 时用 headless，否则用有界面窗口）
-3. ${hasUserDataDir ? '通过环境变量 USER_DATA_DIR 读取持久 Profile 路径，使用 browser.launch_persistent_context(USER_DATA_DIR, ...)' : '使用 browser.new_context() 创建新上下文'}
-4. ${hasCookies ? '通过环境变量 COOKIES_FILE 读取 cookies.json 路径，在创建 context 后调用 context.add_cookies(json.load(open(COOKIES_FILE))) 注入登录态' : '不需要注入 Cookie'}
-5. ${hasProxy ? '通过环境变量 PROXY 设置代理，在 launch/context 中传入 proxy={"server": PROXY}' : '不需要代理'}
-6. ${hasUserAgent ? '通过环境变量 USER_AGENT 自定义 User-Agent，在 context 创建时传入 user_agent=USER_AGENT' : '使用正常浏览器 User-Agent，不要暴露 Playwright/HeadlessChrome'}
-7. 启动参数加入 ["--disable-blink-features=AutomationControlled"] 以降低被检测概率
-8. 设置 viewport={"width": 1280, "height": 800}、locale='zh-CN'、timezone_id='Asia/Shanghai'
-9. 只访问用户指定的 URL 及其同域名页面
-10. 等待关键元素加载完成后再提取数据
-11. 处理滚动加载、分页等常见情况，但限制总条目数不超过 50 条
-12. 将结果保存到 RESULT_FILE 指定的路径
-13. 同时保存一张最终页面截图到 SCREENSHOT_FILE 指定的路径
-14. 添加 try/finally 确保浏览器关闭
-15. 脚本中通过环境变量读取 RESULT_FILE 和 SCREENSHOT_FILE
-16. 只输出可执行的 Python 代码，不要输出任何解释文字或 markdown 代码块标记`
-
-  const prompt = `任务：${input.task}
-目标 URL：${input.url}
+  if (options.scriptTemplate) {
+    // 使用自定义脚本模板，直接渲染变量后作为最终脚本，跳过 LLM
+    scriptCode = renderScriptTemplate(options.scriptTemplate, variables)
+  } else {
+    const systemPrompt = buildDefaultSystemPrompt({ hasUserDataDir, hasCookies, hasProxy, hasUserAgent })
+    const prompt = `任务：${input.task}
+目标 URL：${input.url ?? input.urls?.join(', ') ?? ''}
 输出格式：${outputFormat}
 ${hasUserDataDir ? `持久 Profile 路径（环境变量 USER_DATA_DIR）：${options.userDataDir}` : '不使用持久 Profile'}
 ${hasCookies ? `Cookie 文件路径（环境变量 COOKIES_FILE）：${cookiesPath}` : '不注入 Cookie'}
@@ -365,17 +422,18 @@ ${hasUserAgent ? `User-Agent（环境变量 USER_AGENT）：${options.userAgent}
 - 使用 json/csv/markdown 库按格式保存数据
 - 输出简洁的爬取结果摘要到 stdout`
 
-  const llmResult = await completePrompt(prompt, systemPrompt, { jsonMode: false })
-  if (!llmResult.success || !llmResult.text) {
-    return { scriptPath, success: false, error: llmResult.error ?? '脚本生成失败' }
-  }
+    const llmResult = await completePrompt(prompt, systemPrompt, { jsonMode: false })
+    if (!llmResult.success || !llmResult.text) {
+      return { scriptPath, success: false, error: llmResult.error ?? '脚本生成失败' }
+    }
 
-  // 清理可能的 markdown 代码块标记
-  let scriptCode = llmResult.text.trim()
-  if (scriptCode.startsWith('```python')) {
-    scriptCode = scriptCode.replace(/^```python\n?/, '').replace(/\n?```$/, '')
-  } else if (scriptCode.startsWith('```')) {
-    scriptCode = scriptCode.replace(/^```\n?/, '').replace(/\n?```$/, '')
+    // 清理可能的 markdown 代码块标记
+    scriptCode = llmResult.text.trim()
+    if (scriptCode.startsWith('```python')) {
+      scriptCode = scriptCode.replace(/^```python\n?/, '').replace(/\n?```$/, '')
+    } else if (scriptCode.startsWith('```')) {
+      scriptCode = scriptCode.replace(/^```\n?/, '').replace(/\n?```$/, '')
+    }
   }
 
   writeFileSync(scriptPath, scriptCode, 'utf-8')
@@ -444,6 +502,36 @@ function runPythonScript(
 }
 
 /**
+ * 执行 Python 脚本（带重试）
+ */
+async function runPythonScriptWithRetries(
+  scriptPath: string,
+  taskDir: string,
+  env: Record<string, string>,
+  timeoutMs: number,
+  maxRetries: number,
+): Promise<ReturnType<typeof runPythonScript> extends Promise<infer T> ? T : never> {
+  let lastResult = await runPythonScript(scriptPath, taskDir, env, timeoutMs)
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const resultFileName = `result.${env.OUTPUT_FORMAT ?? 'json'}`
+    const resultPath = join(taskDir, resultFileName)
+    const screenshotPath = join(taskDir, 'screenshot.png')
+    const resultExists = existsSync(resultPath)
+    const screenshotExists = existsSync(screenshotPath)
+
+    if (lastResult.success && resultExists) {
+      return lastResult
+    }
+
+    console.warn(`[Browser Automation] 第 ${attempt} 次重试...`)
+    lastResult = await runPythonScript(scriptPath, taskDir, env, timeoutMs)
+  }
+
+  return lastResult
+}
+
+/**
  * 读取结果文件内容摘要
  */
 function readResultSummary(taskDir: string, outputFormat: string): string {
@@ -462,35 +550,131 @@ function readResultSummary(taskDir: string, outputFormat: string): string {
 }
 
 /**
- * 执行爬取任务
+ * 将爬取结果导入 KOL 数据库
+ *
+ * 期望 result.json 为对象数组，每个对象至少包含 name、platform、followers 等字段。
+ * 缺少的字段会填充默认值。
  */
-export async function executeScrapingTask(
-  input: ScrapingTaskInput,
-  options: ScrapingTaskOptions = {},
-): Promise<ScrapingTaskResult> {
-  const taskDir = createTaskDir()
-  const outputFormat: NonNullable<ScrapingTaskInput['outputFormat']> =
-    input.outputFormat ?? DEFAULT_OUTPUT_FORMAT
-  const timeoutMs = options.timeoutMs ?? DEFAULT_SCRIPT_TIMEOUT_MS
-  const headless = options.headless ?? true
+export function importScrapedResultToKolDatabase(
+  resultPath: string,
+): { inserted: number; errors: string[] } {
+  const result: { inserted: number; errors: string[] } = { inserted: 0, errors: [] }
 
-  // 准备 Profile 和 Cookie
-  const userDataDir = options.userDataDir
-    ? prepareUserDataDir(options.userDataDir, taskDir)
-    : undefined
-  const cookiesPath = options.cookies ? prepareCookiesFile(options.cookies, taskDir) : undefined
+  if (!existsSync(resultPath)) {
+    result.errors.push('结果文件不存在')
+    return result
+  }
+
+  let items: unknown[]
+  try {
+    const content = readFileSync(resultPath, 'utf-8')
+    const parsed = JSON.parse(content)
+    items = Array.isArray(parsed) ? parsed : [parsed]
+  } catch (error) {
+    result.errors.push(`解析结果文件失败: ${error instanceof Error ? error.message : String(error)}`)
+    return result
+  }
+
+  for (const raw of items) {
+    if (typeof raw !== 'object' || raw === null) {
+      result.errors.push('跳过非对象条目')
+      continue
+    }
+
+    const item = raw as Record<string, unknown>
+    const name = String(item.name ?? item.nickname ?? item.username ?? '')
+    if (!name) {
+      result.errors.push('跳过缺少 name 的条目')
+      continue
+    }
+
+    const platform = String(item.platform ?? 'unknown')
+    const id = String(item.id ?? `${platform}-${name}`)
+    const followers = String(item.followers ?? item.fanCount ?? item.fans ?? 0)
+    const engagement = String(item.engagement ?? item.engagementRate ?? item.interaction ?? 0)
+    const category = String(item.category ?? item.tag ?? '')
+    const price = String(item.price ?? item.quote ?? 0)
+    const city = String(item.city ?? '')
+    const avatar = String(item.avatar ?? item.avatarUrl ?? item.profileImage ?? '')
+    const source = String(item.source ?? 'web-scraper')
+
+    try {
+      upsertKOL({
+        id,
+        name,
+        platform,
+        followers,
+        engagement,
+        category,
+        price,
+        city,
+        avatar,
+        source,
+        rawData: JSON.stringify(item),
+        extendedData: item.extendedData as KOLRecord['extendedData'],
+        valueTags: Array.isArray(item.valueTags) ? item.valueTags.map(String) : undefined,
+        riskFlags: Array.isArray(item.riskFlags) ? item.riskFlags.map(String) : undefined,
+      } as Parameters<typeof upsertKOL>[0])
+      result.inserted++
+    } catch (error) {
+      result.errors.push(`导入 ${name} 失败: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  return result
+}
+
+interface SingleScrapingRunOptions {
+  headless: boolean
+  userDataDir?: string
+  proxy?: string
+  userAgent?: string
+  timeoutMs: number
+  maxRetries: number
+  scriptTemplate?: string
+}
+
+/**
+ * 执行单 URL 爬取（内部辅助）
+ */
+async function executeSingleScrapingTask(
+  input: Omit<ScrapingTaskInput, 'urls'> & { url: string },
+  options: SingleScrapingRunOptions,
+  taskDir: string,
+  subDir: string,
+  sharedCookiesPath?: string,
+  sharedUserDataDir?: string,
+): Promise<{
+  success: boolean
+  summary: string
+  resultFile?: string
+  screenshotFile?: string
+  scriptFile?: string
+  error?: string
+}> {
+  const baseDir = subDir ? join(taskDir, subDir) : taskDir
+  if (subDir) {
+    mkdirSync(baseDir, { recursive: true })
+  }
+
+  const outputFormat: 'json' | 'csv' | 'markdown' = input.outputFormat ?? DEFAULT_OUTPUT_FORMAT
+  const headless = options.headless
+
+  // 准备 Profile 和 Cookie（单任务复用共享的；如无共享则按原逻辑准备）
+  const userDataDir = sharedUserDataDir ?? prepareUserDataDir(options.userDataDir, baseDir)
+  const cookiesPath = sharedCookiesPath
 
   try {
-    // 1. 生成脚本
     const scriptResult = await generateScrapingScript(
       input,
-      taskDir,
+      baseDir,
       outputFormat,
       {
         headless,
         userDataDir,
         proxy: options.proxy,
         userAgent: options.userAgent,
+        scriptTemplate: options.scriptTemplate,
       },
       cookiesPath,
     )
@@ -498,15 +682,14 @@ export async function executeScrapingTask(
       return {
         success: false,
         summary: '',
-        taskDir,
         error: scriptResult.error,
       }
     }
 
-    // 2. 执行脚本
     const env: Record<string, string> = {
-      RESULT_FILE: join(taskDir, `result.${outputFormat === 'markdown' ? 'md' : outputFormat}`),
-      SCREENSHOT_FILE: join(taskDir, 'screenshot.png'),
+      RESULT_FILE: join(baseDir, `result.${outputFormat === 'markdown' ? 'md' : outputFormat}`),
+      SCREENSHOT_FILE: join(baseDir, 'screenshot.png'),
+      OUTPUT_FORMAT: outputFormat,
       HEADLESS: headless ? 'true' : 'false',
     }
     if (userDataDir) env.USER_DATA_DIR = userDataDir
@@ -514,29 +697,34 @@ export async function executeScrapingTask(
     if (options.proxy) env.PROXY = options.proxy
     if (options.userAgent) env.USER_AGENT = options.userAgent
 
-    const runResult = await runPythonScript(scriptResult.scriptPath, taskDir, env, timeoutMs)
+    const runResult = await runPythonScriptWithRetries(
+      scriptResult.scriptPath,
+      baseDir,
+      env,
+      options.timeoutMs,
+      options.maxRetries,
+    )
 
-    // 3. 写回 Profile（保留登录态）
+    // 写回 Profile（保留登录态）
     if (runResult.success && options.userDataDir && userDataDir) {
       writeBackUserDataDir(options.userDataDir, userDataDir)
     }
 
-    // 4. 检查结果文件
     const resultFileName = `result.${outputFormat === 'markdown' ? 'md' : outputFormat}`
-    const resultPath = join(taskDir, resultFileName)
-    const screenshotPath = join(taskDir, 'screenshot.png')
+    const resultPath = join(baseDir, resultFileName)
+    const screenshotPath = join(baseDir, 'screenshot.png')
 
     const resultExists = existsSync(resultPath)
     const screenshotExists = existsSync(screenshotPath)
 
-    const resultSummary = readResultSummary(taskDir, outputFormat)
+    const resultSummary = readResultSummary(baseDir, outputFormat)
     const summaryLines: string[] = []
 
     if (runResult.success && resultExists) {
       summaryLines.push(`✅ 爬取任务完成`)
-      summaryLines.push(`结果文件：${resultFileName}`)
+      summaryLines.push(`结果文件：${subDir ? `${subDir}/${resultFileName}` : resultFileName}`)
       if (screenshotExists) {
-        summaryLines.push(`页面截图：screenshot.png`)
+        summaryLines.push(`页面截图：${subDir ? `${subDir}/screenshot.png` : 'screenshot.png'}`)
       }
       if (resultSummary) {
         summaryLines.push(`数据预览：\n${resultSummary}`)
@@ -550,17 +738,136 @@ export async function executeScrapingTask(
         summaryLines.push(`stderr：${runResult.stderr.slice(0, 500)}`)
       }
       if (screenshotExists) {
-        summaryLines.push(`已保存页面截图：screenshot.png`)
+        summaryLines.push(`已保存页面截图：${subDir ? `${subDir}/screenshot.png` : 'screenshot.png'}`)
       }
     }
 
     return {
       success: runResult.success && resultExists,
       summary: summaryLines.join('\n'),
+      resultFile: resultExists ? (subDir ? `${subDir}/${resultFileName}` : resultFileName) : undefined,
+      screenshotFile: screenshotExists ? (subDir ? `${subDir}/screenshot.png` : 'screenshot.png') : undefined,
+      scriptFile: subDir ? `${subDir}/script.py` : 'script.py',
+    }
+  } catch (error) {
+    return {
+      success: false,
+      summary: '',
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+/**
+ * 执行爬取任务
+ *
+ * 支持单 URL 与批量 URL，批量时会为每个 URL 创建子目录并聚合结果。
+ */
+export async function executeScrapingTask(
+  input: ScrapingTaskInput,
+  options: ScrapingTaskOptions = {},
+): Promise<ScrapingTaskResult> {
+  const taskDir = createTaskDir()
+  const outputFormat = input.outputFormat ?? DEFAULT_OUTPUT_FORMAT
+  const timeoutMs = options.timeoutMs ?? DEFAULT_SCRIPT_TIMEOUT_MS
+  const headless = options.headless ?? true
+  const maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES
+
+  // 准备共享 Profile 和 Cookie
+  const sharedUserDataDir = options.userDataDir
+    ? prepareUserDataDir(options.userDataDir, taskDir)
+    : undefined
+  const sharedCookiesPath = options.cookies ? prepareCookiesFile(options.cookies, taskDir) : undefined
+
+  const runOptions: SingleScrapingRunOptions = {
+    headless,
+    userDataDir: options.userDataDir,
+    proxy: options.proxy,
+    userAgent: options.userAgent,
+    timeoutMs,
+    maxRetries,
+    scriptTemplate: options.scriptTemplate,
+  }
+
+  try {
+    const urls: string[] =
+      input.urls && input.urls.length > 0
+        ? input.urls
+        : input.url
+          ? [input.url]
+          : []
+
+    if (urls.length === 0) {
+      return {
+        success: false,
+        summary: '',
+        taskDir,
+        error: '缺少 URL 参数',
+      }
+    }
+
+    const perUrlResults: Awaited<ReturnType<typeof executeSingleScrapingTask>>[] = []
+
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i]!
+      const subDir: string = urls.length > 1 ? `url-${i + 1}` : ''
+      const result = await executeSingleScrapingTask(
+        { task: input.task, url, outputFormat },
+        runOptions,
+        taskDir,
+        subDir,
+        sharedCookiesPath,
+        sharedUserDataDir,
+      )
+      perUrlResults.push(result)
+    }
+
+    // 批量任务结束后再写回一次 Profile（单任务已在内部写回）
+    if (options.userDataDir && sharedUserDataDir) {
+      writeBackUserDataDir(options.userDataDir, sharedUserDataDir)
+    }
+
+    const allSuccess = perUrlResults.every((r) => r.success)
+    const resultFiles = perUrlResults.map((r) => r.resultFile).filter(Boolean) as string[]
+    const screenshotFiles = perUrlResults.map((r) => r.screenshotFile).filter(Boolean) as string[]
+    const combinedError = perUrlResults.map((r) => r.error).filter(Boolean).join('\n')
+
+    const summaryLines: string[] = []
+    if (urls.length > 1) {
+      summaryLines.push(`批量爬取：共 ${urls.length} 个 URL，成功 ${perUrlResults.filter((r) => r.success).length} 个`)
+    }
+    perUrlResults.forEach((r, i) => {
+      summaryLines.push(`\n--- URL ${i + 1}: ${urls[i]} ---`)
+      summaryLines.push(r.summary)
+      if (r.error) {
+        summaryLines.push(`错误：${r.error}`)
+      }
+    })
+
+    // KOL 数据库导入
+    let kolImport: { inserted: number; errors: string[] } | undefined
+    if (input.importToKolDatabase && resultFiles.length > 0) {
+      kolImport = { inserted: 0, errors: [] }
+      for (const relativePath of resultFiles) {
+        const fullPath = join(taskDir, relativePath)
+        const partial = importScrapedResultToKolDatabase(fullPath)
+        kolImport.inserted += partial.inserted
+        kolImport.errors.push(...partial.errors)
+      }
+      summaryLines.push(`\n[ KOL 数据库导入 ] 成功 ${kolImport.inserted} 条，失败 ${kolImport.errors.length} 条`)
+    }
+
+    return {
+      success: allSuccess,
+      summary: summaryLines.join('\n'),
       taskDir,
-      resultFile: resultExists ? resultFileName : undefined,
-      screenshotFile: screenshotExists ? 'screenshot.png' : undefined,
-      scriptFile: 'script.py',
+      resultFile: urls.length === 1 ? resultFiles[0] : undefined,
+      resultFiles: urls.length > 1 ? resultFiles : undefined,
+      screenshotFile: urls.length === 1 ? screenshotFiles[0] : undefined,
+      screenshotFiles: urls.length > 1 ? screenshotFiles : undefined,
+      scriptFile: urls.length === 1 ? perUrlResults[0]?.scriptFile : undefined,
+      error: combinedError || undefined,
+      kolImport,
     }
   } catch (error) {
     return {

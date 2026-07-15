@@ -76,6 +76,7 @@ import type {
   ChatToolInfo,
   ChatToolState,
   ChatToolMeta,
+  ScheduledScrapingTask,
   MoveSessionToWorkspaceInput,
   ForkSessionInput,
   RewindSessionInput,
@@ -597,6 +598,12 @@ export interface ElectronAPI {
 
   /** 测试工具连接 */
   testChatTool: (toolId: string) => Promise<{ success: boolean; message: string }>
+
+  /** 获取定时爬取任务列表 */
+  getScheduledScrapingTasks: () => Promise<ScheduledScrapingTask[]>
+
+  /** 保存定时爬取任务列表 */
+  saveScheduledScrapingTasks: (tasks: ScheduledScrapingTask[]) => Promise<void>
 
   // ===== AskUserQuestion 交互式问答 =====
 
@@ -1741,6 +1748,14 @@ const electronAPI: ElectronAPI = {
 
   testChatTool: (toolId: string) => {
     return ipcRenderer.invoke(CHAT_TOOL_IPC_CHANNELS.TEST_TOOL, toolId)
+  },
+
+  getScheduledScrapingTasks: () => {
+    return ipcRenderer.invoke(CHAT_TOOL_IPC_CHANNELS.GET_SCHEDULED_SCRAPING_TASKS)
+  },
+
+  saveScheduledScrapingTasks: (tasks: ScheduledScrapingTask[]) => {
+    return ipcRenderer.invoke(CHAT_TOOL_IPC_CHANNELS.SAVE_SCHEDULED_SCRAPING_TASKS, tasks)
   },
 
   // AskUserQuestion 交互式问答

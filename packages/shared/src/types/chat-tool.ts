@@ -88,6 +88,28 @@ export interface ChatToolInfo {
   available: boolean
 }
 
+/** 定时爬取任务 */
+export interface ScheduledScrapingTask {
+  /** 任务唯一 ID */
+  id: string
+  /** 任务名称 */
+  name: string
+  /** 要爬取的 URL 列表 */
+  urls: string[]
+  /** 爬取任务描述（传给 LLM 生成脚本） */
+  task: string
+  /** 输出格式 */
+  outputFormat?: 'json' | 'csv' | 'markdown'
+  /** 执行间隔（分钟） */
+  intervalMinutes: number
+  /** 失败重试次数 */
+  maxRetries?: number
+  /** 是否自动导入 KOL 数据库 */
+  importToKolDatabase?: boolean
+  /** 是否启用 */
+  enabled: boolean
+}
+
 // ===== IPC 通道 =====
 
 export const CHAT_TOOL_IPC_CHANNELS = {
@@ -107,4 +129,8 @@ export const CHAT_TOOL_IPC_CHANNELS = {
   DELETE_CUSTOM_TOOL: 'chat-tool:delete-custom',
   /** 自定义工具配置变更通知（文件监听触发） */
   CUSTOM_TOOL_CHANGED: 'chat-tool:custom-tool-changed',
+  /** 获取定时爬取任务列表 */
+  GET_SCHEDULED_SCRAPING_TASKS: 'chat-tool:get-scheduled-scraping-tasks',
+  /** 保存定时爬取任务列表 */
+  SAVE_SCHEDULED_SCRAPING_TASKS: 'chat-tool:save-scheduled-scraping-tasks',
 } as const

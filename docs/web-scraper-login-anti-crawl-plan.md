@@ -67,6 +67,7 @@
 | `apps/electron/src/main/lib/chat-tools/computer-use-mcp.ts` | Agent 模式 `computer_use` MCP Server 注入 |
 | `apps/electron/src/main/lib/browser-automation/computer-use-service.ts` | 自研视觉循环服务 |
 | `apps/electron/src/main/lib/browser-automation/computer-use-llm.ts` | 多模态 LLM caller |
+| `apps/electron/src/main/lib/browser-automation/scheduled-scraping-service.ts` | 定时/周期性爬取任务管理 |
 | `apps/electron/src/main/lib/browser-automation/playwright-browser-driver.ts` | Playwright Python 浏览器驱动 |
 | `apps/electron/src/main/lib/ma-tools/llm-service.ts` | 扩展 vision 内容部分 |
 | `packages/shared/src/types/chat-tool.ts` | 如有需要，补充 `WebScraperCredentials` / `ComputerUseCredentials` 类型（可选） |
@@ -175,6 +176,22 @@ export function isWebScraperAvailable(): boolean {
 - 默认 headless：`true`。
 - 默认超时：`60000` ms。
 
+### Phase 2 补充：模式 A 增强能力（已落地）
+
+在方案 A 的登录态与反爬能力基础上，进一步扩展了脚本自动化的工程能力：
+
+- **批量 URL 爬取**：`executeScrapingTask` 支持 `urls` 数组，为每个 URL 生成 `url-{index}/` 子目录并聚合结果。
+- **失败重试**：`ScrapingTaskOptions.maxRetries` 控制脚本执行失败后的重试次数。
+- **自定义脚本模板**：设置面板可配置 `scriptTemplate`，提供模板时直接渲染为 Python 脚本并跳过 LLM 生成。
+- **定时 / 周期性爬取**：新增 `scheduled-scraping-service.ts`，任务持久化到 `~/.mapro/scheduled-scraping.json`，应用启动后自动调度启用任务。
+- **KOL 数据库对接**：`importToKolDatabase: true` 时自动将 JSON 结果导入 `kol-database.sqlite`。
+
+新增/改动文件：
+
+- `apps/electron/src/main/lib/browser-automation/scheduled-scraping-service.ts`
+- `apps/electron/src/main/lib/__tests__/scheduled-scraping-service.test.ts`
+- `apps/electron/src/main/lib/__tests__/web-scraper.test.ts`（补充批量、重试、模板、KOL 导入测试）
+
 ### Phase 2：方案 B（Computer Use 视觉浏览器自动化）
 
 #### 1. 新增 `computer-use-service.ts`
@@ -256,6 +273,11 @@ LLM 返回 JSON：
 1. **单元/集成测试**：
    - `isWebScraperAvailable()` 在 python3/playwright 缺失时返回 `false`。
    - `executeScrapingTask` 能正确把 `userDataDir`、`cookies`、`headless` 写入环境变量并生成脚本。
+   - 批量 URL 爬取生成子目录并聚合 `resultFiles`。
+   - `maxRetries` 重试后成功。
+   - 自定义 `scriptTemplate` 跳过 LLM 并渲染变量。
+   - `importToKolDatabase` 调用 `upsertKOL` 导入数据。
+   - `scheduled-scraping-service` 的 CRUD、持久化与启停逻辑。
 2. **手动测试**：
    - 抓取一个无需登录的公开页面（如豆瓣电影 Top 250），确认结构化数据返回。
    - 抓取小红书蒲公英/创作者后台列表页，验证登录态复用。

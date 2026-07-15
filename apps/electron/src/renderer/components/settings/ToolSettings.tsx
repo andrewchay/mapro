@@ -11,8 +11,9 @@ import { toast } from 'sonner'
 import {
   ExternalLink, Eye, EyeOff, Loader2, CheckCircle2, XCircle, Trash2, Users,
   Brain, Target, Search, MessageSquare, Sparkles, Lightbulb, BarChart3,
-  FolderOpen,
+  FolderOpen, Plus,
 } from 'lucide-react'
+import type { ScheduledScrapingTask } from '@ma-proma/shared'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
@@ -223,6 +224,12 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
   const [userAgent, setUserAgent] = React.useState('')
   const [timeoutSec, setTimeoutSec] = React.useState('60')
 
+  // 网页爬取专属高级选项
+  const isWebScraper = toolId === 'web-scraper'
+  const [maxRetries, setMaxRetries] = React.useState('0')
+  const [scriptTemplate, setScriptTemplate] = React.useState('')
+  const [importToKolDatabase, setImportToKolDatabase] = React.useState(false)
+
   const savedCredentialsRef = React.useRef<Record<string, string>>({})
 
   React.useEffect(() => {
@@ -238,6 +245,11 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
       setProxy(credentials.proxy || '')
       setUserAgent(credentials.userAgent || '')
       setTimeoutSec(credentials.timeoutMs || '60')
+      if (isWebScraper) {
+        setMaxRetries(credentials.maxRetries || '0')
+        setScriptTemplate(credentials.scriptTemplate || '')
+        setImportToKolDatabase(credentials.importToKolDatabase === 'true')
+      }
       savedCredentialsRef.current = { ...credentials }
     }).catch((err: unknown) => {
       console.error(`[${title} 设置] 加载失败:`, err)
@@ -247,7 +259,7 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
   }, [toolId, title])
 
   const buildCredentials = React.useCallback((): Record<string, string> => {
-    return {
+    const base: Record<string, string> = {
       userDataDir: userDataDir.trim(),
       cookies: cookies.trim(),
       headless: headless ? 'true' : 'false',
@@ -255,20 +267,32 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
       userAgent: userAgent.trim(),
       timeoutMs: timeoutSec.trim() || '60',
     }
-  }, [userDataDir, cookies, headless, proxy, userAgent, timeoutSec])
+    if (isWebScraper) {
+      base.maxRetries = maxRetries.trim() || '0'
+      base.scriptTemplate = scriptTemplate
+      base.importToKolDatabase = importToKolDatabase ? 'true' : 'false'
+    }
+    return base
+  }, [userDataDir, cookies, headless, proxy, userAgent, timeoutSec, isWebScraper, maxRetries, scriptTemplate, importToKolDatabase])
 
   const hasChanged = React.useCallback((): boolean => {
     const current = buildCredentials()
     const saved = savedCredentialsRef.current
-    return (
+    const baseChanged =
       current.userDataDir !== (saved.userDataDir || '') ||
       current.cookies !== (saved.cookies || '') ||
       current.headless !== (saved.headless !== 'false' ? 'true' : 'false') ||
       current.proxy !== (saved.proxy || '') ||
       current.userAgent !== (saved.userAgent || '') ||
       current.timeoutMs !== (saved.timeoutMs || '60')
+    if (!isWebScraper) return baseChanged
+    return (
+      baseChanged ||
+      current.maxRetries !== (saved.maxRetries || '0') ||
+      current.scriptTemplate !== (saved.scriptTemplate || '') ||
+      current.importToKolDatabase !== (saved.importToKolDatabase === 'true' ? 'true' : 'false')
     )
-  }, [buildCredentials])
+  }, [buildCredentials, isWebScraper])
 
   const handleSave = React.useCallback(async (): Promise<void> => {
     if (!hasChanged()) return
@@ -432,6 +456,49 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
             />
           </div>
 
+          {isWebScraper && (
+            <>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">失败重试次数（默认 0）</label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={10}
+                  value={maxRetries}
+                  onChange={(e) => setMaxRetries(e.target.value)}
+                  onBlur={handleSave}
+                />
+                <p className="text-xs text-muted-foreground">脚本失败或结果文件缺失时自动重试</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">自定义脚本模板（可选）</label>
+                <Textarea
+                  placeholder='覆盖默认 LLM 系统提示词。可用占位符：{{task}} {{url}} {{urls}} {{outputFormat}} {{resultFile}} {{screenshotFile}} {{userDataDir}} {{cookiesFile}} {{proxy}} {{userAgent}} {{headless}}'
+                  value={scriptTemplate}
+                  onChange={(e) => setScriptTemplate(e.target.value)}
+                  onBlur={handleSave}
+                  rows={5}
+                />
+                <p className="text-xs text-muted-foreground">留空使用默认提示词。高级用户可完全控制生成的 Python 脚本。</p>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border border-border/50 p-3">
+                <div className="space-y-0.5">
+                  <div className="text-sm font-medium">默认导入 KOL 数据库</div>
+                  <p className="text-xs text-muted-foreground">JSON 结果会自动写入本地 KOL 数据库（可被工具参数覆盖）</p>
+                </div>
+                <Switch
+                  checked={importToKolDatabase}
+                  onCheckedChange={async (checked) => {
+                    setImportToKolDatabase(checked)
+                    await handleSave()
+                  }}
+                />
+              </div>
+            </>
+          )}
+
           <div className="flex items-center gap-2">
             <Button
               size="sm"
@@ -489,6 +556,177 @@ function ComputerUseSettings(): React.ReactElement {
         </>
       }
     />
+  )
+}
+
+/** 定时爬取任务设置区域 */
+function ScheduledScrapingSettings(): React.ReactElement {
+  const [tasks, setTasks] = React.useState<ScheduledScrapingTask[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [saving, setSaving] = React.useState(false)
+
+  React.useEffect(() => {
+    window.electronAPI.getScheduledScrapingTasks()
+      .then(setTasks)
+      .catch((err: unknown) => console.error('[定时爬取设置] 加载失败:', err))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const handleSave = React.useCallback(async (updatedTasks: ScheduledScrapingTask[]) => {
+    setSaving(true)
+    try {
+      await window.electronAPI.saveScheduledScrapingTasks(updatedTasks)
+      toast.success('定时爬取任务已保存')
+    } catch (error) {
+      console.error('[定时爬取设置] 保存失败:', error)
+      toast.error('保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }, [])
+
+  const updateTask = (index: number, updates: Partial<ScheduledScrapingTask>) => {
+    const next = tasks.map((t, i) => (i === index ? { ...t, ...updates } : t))
+    setTasks(next)
+  }
+
+  const addTask = () => {
+    const newTask: ScheduledScrapingTask = {
+      id: crypto.randomUUID(),
+      name: '新任务',
+      urls: [''],
+      task: '',
+      outputFormat: 'json',
+      intervalMinutes: 60,
+      maxRetries: 1,
+      importToKolDatabase: false,
+      enabled: false,
+    }
+    setTasks([...tasks, newTask])
+  }
+
+  const removeTask = (index: number) => {
+    const next = tasks.filter((_, i) => i !== index)
+    setTasks(next)
+    handleSave(next)
+  }
+
+  if (loading) {
+    return <div className="text-sm text-muted-foreground py-8 text-center">加载中...</div>
+  }
+
+  return (
+    <SettingsSection
+      title="定时爬取"
+      description="按固定周期自动执行网页爬取任务"
+    >
+      <SettingsCard divided={false}>
+        <div className="space-y-4 p-4">
+          <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+            <p>配置周期性爬取任务。启用后应用会在后台按间隔自动调用 web_scraper。</p>
+          </div>
+
+          {tasks.map((task, index) => (
+            <div key={task.id} className="space-y-3 rounded-lg border border-border/50 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <Input
+                  value={task.name}
+                  onChange={(e) => updateTask(index, { name: e.target.value })}
+                  placeholder="任务名称"
+                  className="flex-1"
+                />
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-destructive shrink-0"
+                  onClick={() => removeTask(index)}
+                >
+                  <Trash2 size={16} />
+                </Button>
+              </div>
+
+              <Textarea
+                value={task.urls.join('\n')}
+                onChange={(e) => updateTask(index, { urls: e.target.value.split(/\n|,/).map((u) => u.trim()).filter(Boolean) })}
+                placeholder="批量 URL，每行一个或逗号分隔"
+                rows={3}
+              />
+
+              <Textarea
+                value={task.task}
+                onChange={(e) => updateTask(index, { task: e.target.value })}
+                placeholder="爬取任务描述，例如：提取页面中的商品名称和价格"
+                rows={2}
+              />
+
+              <div className="grid grid-cols-3 gap-2">
+                <select
+                  value={task.outputFormat ?? 'json'}
+                  onChange={(e) => updateTask(index, { outputFormat: e.target.value as ScheduledScrapingTask['outputFormat'] })}
+                  className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                >
+                  <option value="json">JSON</option>
+                  <option value="csv">CSV</option>
+                  <option value="markdown">Markdown</option>
+                </select>
+                <Input
+                  type="number"
+                  min={1}
+                  value={task.intervalMinutes}
+                  onChange={(e) => updateTask(index, { intervalMinutes: Number(e.target.value) || 1 })}
+                  placeholder="间隔分钟"
+                />
+                <Input
+                  type="number"
+                  min={0}
+                  max={10}
+                  value={task.maxRetries ?? 1}
+                  onChange={(e) => updateTask(index, { maxRetries: Number(e.target.value) || 0 })}
+                  placeholder="重试"
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={task.enabled}
+                      onChange={(e) => updateTask(index, { enabled: e.target.checked })}
+                      className="rounded border-input"
+                    />
+                    启用
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={task.importToKolDatabase ?? false}
+                      onChange={(e) => updateTask(index, { importToKolDatabase: e.target.checked })}
+                      className="rounded border-input"
+                    />
+                    导入 KOL 库
+                  </label>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={addTask}>
+              <Plus size={14} className="mr-1.5" />
+              添加任务
+            </Button>
+            <Button
+              size="sm"
+              disabled={saving}
+              onClick={() => handleSave(tasks)}
+            >
+              {saving ? <><Loader2 size={14} className="animate-spin mr-1.5" />保存中...</> : '保存并应用'}
+            </Button>
+          </div>
+        </div>
+      </SettingsCard>
+    </SettingsSection>
   )
 }
 
@@ -1024,6 +1262,9 @@ export function ToolSettings(): React.ReactElement {
 
       {/* 视觉浏览器自动化工具 */}
       <ComputerUseSettings />
+
+      {/* 定时爬取任务 */}
+      <ScheduledScrapingSettings />
 
       {/* Nano Banana 生图工具 */}
       <NanoBananaSettings />

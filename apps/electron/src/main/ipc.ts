@@ -79,6 +79,7 @@ import type {
   ChatToolInfo,
   ChatToolState,
   ChatToolMeta,
+  ScheduledScrapingTask,
   MoveSessionToWorkspaceInput,
   ForkSessionInput,
   RewindSessionInput,
@@ -1835,6 +1836,30 @@ export function registerIpcHandlers(): void {
     CHAT_TOOL_IPC_CHANNELS.DELETE_CUSTOM_TOOL,
     async (_, toolId: string): Promise<void> => {
       deleteCustomTool(toolId)
+    }
+  )
+
+  // 获取定时爬取任务列表
+  ipcMain.handle(
+    CHAT_TOOL_IPC_CHANNELS.GET_SCHEDULED_SCRAPING_TASKS,
+    async (): Promise<ScheduledScrapingTask[]> => {
+      const { getScheduledScrapingTasks } = await import('./lib/browser-automation/scheduled-scraping-service')
+      return getScheduledScrapingTasks()
+    }
+  )
+
+  // 保存定时爬取任务列表
+  ipcMain.handle(
+    CHAT_TOOL_IPC_CHANNELS.SAVE_SCHEDULED_SCRAPING_TASKS,
+    async (_, tasks: ScheduledScrapingTask[]): Promise<void> => {
+      const {
+        saveScheduledScrapingTasks,
+        stopAllScheduledTasks,
+        startScheduledScrapingService,
+      } = await import('./lib/browser-automation/scheduled-scraping-service')
+      stopAllScheduledTasks()
+      saveScheduledScrapingTasks(tasks)
+      startScheduledScrapingService()
     }
   )
 

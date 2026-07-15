@@ -397,6 +397,12 @@ async function bootstrap(): Promise<void> {
   // 必须在其他初始化之前执行，确保环境变量正确加载
   await safeAwait('initializeRuntime', () => initializeRuntime())
 
+  // 启动定时爬取服务
+  await safeAwait('startScheduledScrapingService', async () => {
+    const { startScheduledScrapingService } = await import('./lib/browser-automation/scheduled-scraping-service')
+    startScheduledScrapingService()
+  })
+
   // 同步默认 Skills 模板到 ~/.mapro/default-skills/
   safeRun('seedDefaultSkills', seedDefaultSkills)
 
@@ -567,6 +573,11 @@ app.on('before-quit', () => {
   stopChatToolsWatcher()
   // 停止所有 Bridge
   stopAllBridges()
+  // 停止定时爬取服务
+  safeRun('stopAllScheduledTasks', async () => {
+    const { stopAllScheduledTasks } = await import('./lib/browser-automation/scheduled-scraping-service')
+    stopAllScheduledTasks()
+  })
   // 注销全局快捷键
   unregisterAllGlobalShortcuts()
   // 销毁快速任务窗口

@@ -173,6 +173,39 @@
 - 反爬拦截：返回截图，提示用户切换视觉模式
 - 数据为空：返回截图，让 LLM 分析原因并尝试重试
 
+### 3.8 Phase 2 模式 A 增强能力（已落地）
+
+#### 批量 URL 爬取
+
+- `executeScrapingTask` 同时支持 `url` 与 `urls` 参数。
+- 批量任务会为每个 URL 创建 `url-{index}/` 子目录，各自保存 `result.json` 与 `screenshot.png`。
+- 返回结果中 `resultFiles` / `screenshotFiles` 聚合所有子目录产物，便于 Agent 统一总结。
+
+#### 失败重试
+
+- `ScrapingTaskOptions.maxRetries` 控制失败后的重试次数（默认 0）。
+- 只有 `runPythonScript` 返回非零退出码或抛出异常时才会重试；超时、结果文件缺失同样会触发重试。
+- 每次重试前打印 `[Browser Automation] 第 N 次重试...` 日志，便于审计。
+
+#### 自定义脚本模板
+
+- 用户可在设置面板中为 `web-scraper` 配置 `scriptTemplate`。
+- 模板支持 `{{task}}`、`{{url}}`、`{{urls}}`、`{{outputFormat}}`、`{{resultFile}}`、`{{screenshotFile}}` 等占位符。
+- 提供模板时，系统直接渲染模板作为最终 Python 脚本，**跳过 LLM 脚本生成**，适合固定逻辑或需要完全控制脚本内容的场景。
+
+#### 定时 / 周期性爬取
+
+- 新增 `scheduled-scraping-service.ts`，任务列表持久化到 `~/.mapro/scheduled-scraping.json`。
+- 每个任务包含：名称、URL 列表、任务描述、输出格式、间隔分钟数、重试次数、是否启用、是否导入 KOL 数据库。
+- 应用启动时调用 `startScheduledScrapingService()` 自动启动所有启用任务；退出前调用 `stopAllScheduledTasks()` 清理定时器。
+- 任务执行时防止重叠运行（`runningTasks` Set）。
+
+#### KOL 数据库直接对接
+
+- `ScrapingTaskInput.importToKolDatabase` 为 `true` 时，任务成功后将 JSON 结果数组逐条写入 `kol-database.sqlite`。
+- 复用 `kol-data-service.ts` 的 `upsertKOL`，缺失字段会自动填充默认值。
+- 返回结果中包含 `kolImport: { inserted, errors }`，Agent 可直接汇报导入数量。
+
 ---
 
 ## 四、模式 B：视觉 Computer Use（Vision Mode）
@@ -284,12 +317,18 @@ type ComputerAction =
 {workspace}/
   scraped/
     {taskId}/
-      script.py          # 生成的脚本
+      script.py          # 生成的脚本（批量任务每个子目录各一份）
       result.json        # 提取结果
       result.csv         # 如需要
       screenshot.png     # 关键截图
       execution.log      # 执行日志
       har/               # 可选：网络请求记录
+      url-1/             # 批量任务子目录
+        script.py
+        result.json
+        screenshot.png
+      url-2/
+        ...
 ```
 
 ### 5.2 与 KOL 数据库联动
@@ -324,11 +363,11 @@ type ComputerAction =
 
 ### Phase 2：模式 A 增强（2-3 周）
 
-- [ ] 支持批量 URL 爬取
-- [ ] 支持定时/周期性爬取
-- [ ] 添加任务重试机制
-- [ ] 支持自定义脚本模板
-- [ ] 与 KOL 数据库直接对接
+- [x] 支持批量 URL 爬取
+- [x] 支持定时/周期性爬取
+- [x] 添加任务重试机制
+- [x] 支持自定义脚本模板
+- [x] 与 KOL 数据库直接对接
 
 ### Phase 3：模式 B 视觉控制（4-6 周）
 
@@ -363,6 +402,8 @@ type ComputerAction =
 | `apps/electron/src/main/ipc.ts` | `TEST_TOOL` 通道支持 web-scraper / computer-use 环境检测 |
 | `apps/electron/src/renderer/components/settings/ToolSettings.tsx` | 「网页爬取」+「视觉浏览器自动化」设置面板 |
 | `apps/electron/src/main/lib/__tests__/web-scraper.test.ts` | 模式 A 单元/集成测试 |
+| `apps/electron/src/main/lib/browser-automation/scheduled-scraping-service.ts` | 定时/周期性爬取任务管理 |
+| `apps/electron/src/main/lib/__tests__/scheduled-scraping-service.test.ts` | 定时爬取服务单元测试 |
 | **模式 B** |
 | `apps/electron/src/main/lib/browser-automation/computer-use-types.ts` | Computer Use 类型定义（任务输入、选项、action schema、驱动接口） |
 | `apps/electron/src/main/lib/browser-automation/computer-use-service.ts` | 视觉循环核心：截图 → LLM → 执行 action → 循环 |

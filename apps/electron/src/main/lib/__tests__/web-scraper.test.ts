@@ -29,6 +29,12 @@ mock.module(join(__dirname, '..', 'ma-tools', 'llm-service.ts'), () => ({
   complete: async () => ({ success: false, text: '', error: 'mocked-llm' }),
 }))
 
+// ===== Mock KOL 数据服务，避免测试写入真实 SQLite =====
+const upsertKOLMock = mock((kol: unknown) => {})
+mock.module(join(__dirname, '..', 'ma-tools', 'kol-data-service.ts'), () => ({
+  upsertKOL: upsertKOLMock,
+}))
+
 // ===== 测试环境 =====
 
 const TEST_DIR = join(tmpdir(), `mapro-web-scraper-test-${Date.now()}`)
@@ -283,7 +289,140 @@ describe('web-scraper 网页爬取工具', () => {
     })
   })
 
-  // ===== 5. web-scraper-tool 元数据 =====
+  // ===== 5. Phase 2 增强功能 =====
+
+  describe('Phase 2 增强功能', () => {
+    beforeEach(() => {
+      upsertKOLMock.mockClear()
+    })
+
+    it('批量 URL 爬取为每个 URL 创建子目录并聚合 resultFiles', async () => {
+      const llmModule = await import('../ma-tools/llm-service')
+      const script = [
+        'import os, json',
+        'with open(os.environ["RESULT_FILE"], "w") as f: json.dump({"ok": True}, f)',
+        'open(os.environ["SCREENSHOT_FILE"], "w").write("")',
+      ].join('\n')
+      const restore = spyOn(llmModule, 'completePrompt').mockResolvedValue({
+        success: true,
+        text: script,
+      })
+
+      try {
+        const result = await browserAutomation.executeScrapingTask(
+          {
+            urls: ['https://a.example.com', 'https://b.example.com'],
+            task: '批量抓取',
+          },
+          { headless: true, timeoutMs: 15_000 },
+        )
+
+        expect(result.success).toBe(true)
+        expect(result.resultFiles).toBeDefined()
+        expect(result.resultFiles!.length).toBe(2)
+        expect(result.resultFiles!).toContain('url-1/result.json')
+        expect(result.resultFiles!).toContain('url-2/result.json')
+        expect(existsSync(join(result.taskDir, 'url-1', 'result.json'))).toBe(true)
+        expect(existsSync(join(result.taskDir, 'url-2', 'result.json'))).toBe(true)
+      } finally {
+        restore.mockRestore()
+      }
+    })
+
+    it('失败重试：第一次脚本失败、第二次重试成功', async () => {
+      const llmModule = await import('../ma-tools/llm-service')
+      const script = [
+        'import os, sys, json',
+        'flag = os.path.join(os.path.dirname(os.environ["RESULT_FILE"]), "retry.flag")',
+        'if os.path.exists(flag):',
+        '    with open(os.environ["RESULT_FILE"], "w") as f: json.dump({"retried": True}, f)',
+        '    open(os.environ["SCREENSHOT_FILE"], "w").write("")',
+        'else:',
+        '    open(flag, "w").write("x")',
+        '    sys.exit(1)',
+      ].join('\n')
+      const restore = spyOn(llmModule, 'completePrompt').mockResolvedValue({
+        success: true,
+        text: script,
+      })
+
+      try {
+        const result = await browserAutomation.executeScrapingTask(
+          { url: 'https://example.com', task: '重试测试' },
+          { headless: true, timeoutMs: 15_000, maxRetries: 1 },
+        )
+
+        expect(result.success).toBe(true)
+        expect(result.resultFile).toBe('result.json')
+        const data = JSON.parse(readFileSync(join(result.taskDir, 'result.json'), 'utf-8'))
+        expect(data.retried).toBe(true)
+      } finally {
+        restore.mockRestore()
+      }
+    })
+
+    it('自定义脚本模板绕过 LLM 并渲染变量', async () => {
+      const llmModule = await import('../ma-tools/llm-service')
+      const restore = spyOn(llmModule, 'completePrompt')
+
+      try {
+        const template = [
+          'import os, json',
+          'with open(os.environ["RESULT_FILE"], "w") as f:',
+          '    json.dump({"task": "{{task}}", "url": "{{url}}", "fmt": "{{outputFormat}}"}, f)',
+          'open(os.environ["SCREENSHOT_FILE"], "w").write("")',
+        ].join('\n')
+
+        const result = await browserAutomation.executeScrapingTask(
+          { url: 'https://template.example.com', task: '模板任务' },
+          { headless: true, timeoutMs: 15_000, scriptTemplate: template },
+        )
+
+        expect(result.success).toBe(true)
+        expect(restore.mock.calls.length).toBe(0)
+        const data = JSON.parse(readFileSync(join(result.taskDir, 'result.json'), 'utf-8'))
+        expect(data.task).toBe('模板任务')
+        expect(data.url).toBe('https://template.example.com')
+        expect(data.fmt).toBe('json')
+      } finally {
+        restore.mockRestore()
+      }
+    })
+
+    it('importToKolDatabase 将 JSON 结果导入 KOL 数据库', async () => {
+      const llmModule = await import('../ma-tools/llm-service')
+      const script = [
+        'import os, json',
+        'rows = [{"name": "测试 KOL", "platform": "xiaohongshu", "followers": 10000}]',
+        'with open(os.environ["RESULT_FILE"], "w") as f: json.dump(rows, f)',
+        'open(os.environ["SCREENSHOT_FILE"], "w").write("")',
+      ].join('\n')
+      const restore = spyOn(llmModule, 'completePrompt').mockResolvedValue({
+        success: true,
+        text: script,
+      })
+
+      try {
+        const result = await browserAutomation.executeScrapingTask(
+          {
+            url: 'https://kol.example.com',
+            task: '抓取 KOL 列表',
+            importToKolDatabase: true,
+          },
+          { headless: true, timeoutMs: 15_000 },
+        )
+
+        expect(result.success).toBe(true)
+        expect(result.kolImport).toBeDefined()
+        expect(result.kolImport!.inserted).toBe(1)
+        expect(upsertKOLMock).toHaveBeenCalledTimes(1)
+      } finally {
+        restore.mockRestore()
+      }
+    })
+  })
+
+  // ===== 6. web-scraper-tool 元数据 =====
 
   describe('web-scraper-tool 元数据', () => {
     it('工具元数据 id 为 web-scraper，参数含 url/task', () => {
@@ -306,16 +445,17 @@ describe('web-scraper 网页爬取工具', () => {
       expect(webScraperTool.isWebScraperToolCall('')).toBe(false)
     })
 
-    it('工具定义要求 url 和 task', () => {
+    it('工具定义要求 task，并支持 url/urls 参数', () => {
       const defs = webScraperTool.WEB_SCRAPER_TOOL_DEFINITIONS as Array<{
         name: string
-        parameters: { required?: string[] }
+        parameters: { required?: string[]; properties?: Record<string, unknown> }
       }>
       expect(defs.length).toBeGreaterThan(0)
       const def = defs[0]!
       expect(def.name).toBe('web_scraper')
-      expect(def.parameters.required).toContain('url')
       expect(def.parameters.required).toContain('task')
+      expect(Object.keys(def.parameters.properties ?? {})).toContain('url')
+      expect(Object.keys(def.parameters.properties ?? {})).toContain('urls')
     })
   })
 })
