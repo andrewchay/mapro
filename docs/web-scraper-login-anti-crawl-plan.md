@@ -50,7 +50,7 @@
 ### 建议落地节奏
 
 - **Phase 1：方案 A**（本周）。先解决 80% 的登录态 + 反爬问题，让用户能抓到小红书后台数据。
-- **Phase 2：方案 B 自研视觉循环**（后续迭代）。当方案 A 遇到复杂动态页面或频繁风控时，再叠加 Computer Use 能力。
+- **Phase 2：方案 B 自研视觉循环**（已实现）。当方案 A 遇到复杂动态页面或频繁风控时，可切换或叠加 `computer_use` 能力。
 
 ## 关键改动文件
 
@@ -58,13 +58,19 @@
 |------|----------|
 | `apps/electron/src/main/lib/chat-tools/web-scraper-tool.ts` | 读取 credentials，传入 `ScrapingTaskOptions`，定义可用性检查 |
 | `apps/electron/src/main/lib/browser-automation/browser-automation-service.ts` | 接收 `ScrapingTaskOptions`，生成带 Profile / Cookie / 反检测 / 代理的 Python 脚本，超时、错误、截图逻辑增强 |
-| `apps/electron/src/main/lib/chat-tool-config.ts` | 默认 credentials 占位 |
-| `apps/electron/src/main/lib/chat-tool-registry.ts` | 已注册，无需再改（保持现状） |
-| `apps/electron/src/main/ipc.ts` | 增加 `testChatTool('web-scraper')` 处理 |
+| `apps/electron/src/main/lib/chat-tool-config.ts` | 默认 credentials 占位；`computer-use` 默认启用 |
+| `apps/electron/src/main/lib/chat-tool-registry.ts` | 已注册 `web-scraper` 与 `computer-use` |
+| `apps/electron/src/main/ipc.ts` | 增加 `testChatTool('web-scraper')` / `testChatTool('computer-use')` 处理 |
 | `apps/electron/src/preload/index.ts` | 已暴露 API，无需再改 |
-| `apps/electron/src/renderer/components/settings/ToolSettings.tsx` | 新增 `WebScraperSettings` 组件 |
-| `packages/shared/src/types/chat-tool.ts` | 如有需要，补充 `WebScraperCredentials` 类型（可选） |
-| `docs/browser-agent-design.md` | 更新设计文档，记录登录态与反爬能力 |
+| `apps/electron/src/renderer/components/settings/ToolSettings.tsx` | 新增 `WebScraperSettings` + `ComputerUseSettings` 组件 |
+| `apps/electron/src/main/lib/chat-tools/computer-use-tool.ts` | Chat 模式 `computer_use` 工具入口 |
+| `apps/electron/src/main/lib/chat-tools/computer-use-mcp.ts` | Agent 模式 `computer_use` MCP Server 注入 |
+| `apps/electron/src/main/lib/browser-automation/computer-use-service.ts` | 自研视觉循环服务 |
+| `apps/electron/src/main/lib/browser-automation/computer-use-llm.ts` | 多模态 LLM caller |
+| `apps/electron/src/main/lib/browser-automation/playwright-browser-driver.ts` | Playwright Python 浏览器驱动 |
+| `apps/electron/src/main/lib/ma-tools/llm-service.ts` | 扩展 vision 内容部分 |
+| `packages/shared/src/types/chat-tool.ts` | 如有需要，补充 `WebScraperCredentials` / `ComputerUseCredentials` 类型（可选） |
+| `docs/browser-agent-design.md` | 更新设计文档，记录登录态、反爬与 Computer Use 能力 |
 
 ## 详细实现步骤
 
@@ -253,7 +259,7 @@ LLM 返回 JSON：
 2. **手动测试**：
    - 抓取一个无需登录的公开页面（如豆瓣电影 Top 250），确认结构化数据返回。
    - 抓取小红书蒲公英/创作者后台列表页，验证登录态复用。
-   - **Computer Use**：让 Agent “打开小红书创作者后台，进入达人合作页面，提取前 10 个达人昵称和粉丝数”，验证视觉循环能完成多步操作。
+   - **Computer Use**：让 Agent “打开小红书创作者后台，进入达人合作页面，提取前 10 个达人昵称和粉丝数”，验证视觉循环能完成多步操作（Chat 与 Agent 模式均需验证）。
    - 关闭 headless，验证有界面浏览器弹出并可手动登录。
 3. **类型检查**：`bun run --filter='@ma-proma/electron' typecheck`。
 

@@ -1,7 +1,7 @@
 # MAPro Browser Agent 设计文档
 
 > 目标：让 MAPro 具备直接控制浏览器完成信息爬取的能力。
-> 文档范围：包含模式 A（脚本自动化，当前实现）和模式 B（视觉 Computer Use，未来规划）。
+> 文档范围：包含模式 A（脚本自动化）和模式 B（视觉 Computer Use，均已实现）。
 
 ---
 
@@ -188,28 +188,29 @@
 
 | 组件 | 选择 | 说明 |
 |------|------|------|
-| 视觉推理模型 | Anthropic Claude Computer Use API | 当前最成熟的 Computer Use API |
-| 浏览器控制 | Playwright + Chromium | 执行模型输出的点击/输入/滚动 |
-| 截图服务 | Playwright page.screenshot | 每次操作前截图 |
+| 视觉推理模型 | 自研视觉循环 + 任意 vision-capable LLM | 不绑定单一模型，支持 Claude / GPT-4o / Gemini 等 |
+| 浏览器控制 | Playwright + Chromium（Python HTTP 驱动） | 执行模型输出的点击/输入/滚动 |
+| 截图服务 | Playwright page.screenshot | 每次循环前截图，编码为 base64 PNG |
 | 动作执行 | Playwright 鼠标/键盘 API | 坐标映射、点击、输入、滚动 |
-| 循环控制 | Observation → LLM → Action → Observation | 直到任务完成或达到最大步数 |
+| 循环控制 | Observation → LLM → Action → Observation | 在 `computer-use-service.ts` 中实现，直到任务完成或达到最大步数 |
 
 ### 4.3 执行流程
 
 ```
 1. 用户："帮我在抖音星图里搜索美妆达人并筛选粉丝 10-50w 的"
         ↓
-2. Agent 调用 browser_agent_vision 工具
-   参数：{ url, task, maxSteps: 30 }
+2. Chat / Agent 调用 `computer_use` 工具
+   参数：{ url, task, maxSteps?: number }
         ↓
-3. BrowserAutomationService 启动浏览器并打开 URL
+3. `PlaywrightBrowserDriver` 启动浏览器并打开 URL
+   - 复用模式 A 的 Profile / Cookie / 反检测参数
         ↓
-4. 循环（最多 maxSteps 步）：
-   a. 截图当前页面
-   b. 将截图 + 任务 + 历史动作传给 Claude Computer Use
-   c. 模型返回下一步动作（click/type/scroll/wait/finish）
-   d. 执行动作
-   e. 如果 finish，退出循环并提取数据
+4. `executeComputerUseTask` 循环（最多 maxSteps 步，默认 30）：
+   a. `driver.screenshot()` 截图当前页面
+   b. `createComputerUseLLMCaller()` 将截图 + 任务 + 历史动作传给多模态 LLM
+   c. LLM 返回 JSON：`{ thought, action }`，action 可为 click/type/scroll/key/wait/goto/finish
+   d. `executeAction(driver, action)` 执行动作
+   e. 如果 action.type === 'finish'，退出循环并返回摘要
         ↓
 5. 保存结果 + 完整操作日志 + 关键截图
         ↓
@@ -219,20 +220,24 @@
 ### 4.4 动作空间
 
 ```ts
-type Action =
+type ComputerAction =
+  | { type: 'goto'; url: string }
   | { type: 'click'; x: number; y: number }
-  | { type: 'double_click'; x: number; y: number }
   | { type: 'type'; text: string }
+  | { type: 'scroll'; dx: number; dy: number }
   | { type: 'key'; key: string }
-  | { type: 'scroll'; x: number; y: number; scrollX?: number; scrollY: number }
   | { type: 'wait'; ms: number }
   | { type: 'screenshot' }
-  | { type: 'finish'; answer: string; data?: unknown }
+  | { type: 'finish'; summary?: string; result?: unknown }
 ```
 
-### 4.5 UI 设计
+坐标使用实际像素值，视口固定为 1280×800。`type` 与 `key` 操作基于当前焦点元素。
 
-视觉模式需要专门的 UI：
+### 4.5 UI 设计（当前状态：未实现专用面板）
+
+当前 `computer_use` 在 Chat / Agent 模式下以普通工具结果返回文本摘要，中间截图保存到任务目录，不在 UI 上实时展示。
+
+未来可补充的专用视觉模式面板：
 
 - **左侧**：实时截图流（每次操作后更新）
 - **右侧**：
@@ -314,7 +319,7 @@ type Action =
 - [ ] 运行 3-5 个真实爬取案例（待手动验证小红书后台等登录态页面）
 - [x] 添加基础安全约束（超时、目录隔离）
 - [x] 持久浏览器 Profile + Cookie 注入 + 反检测参数（见 3.6 节，已落地）
-- [x] 前端配置面板（`ToolSettings` 的「网页爬取」设置区）
+- [x] 前端配置面板（`ToolSettings` 的「网页爬取」+「视觉浏览器自动化」设置区）
 - [x] 真实环境检查（`checkPythonAndPlaywright` + 「检测环境」按钮）
 
 ### Phase 2：模式 A 增强（2-3 周）
@@ -327,8 +332,9 @@ type Action =
 
 ### Phase 3：模式 B 视觉控制（4-6 周）
 
-- [ ] 接入 Anthropic Computer Use API
-- [ ] 实现观察-思考-行动循环
+- [x] 实现观察-思考-行动循环（自研视觉循环，不依赖 Anthropic Computer Use API）
+- [x] Chat 模式接入 `computer_use` 工具
+- [x] Agent 模式通过 MCP Server 注入 `computer_use`
 - [ ] 开发视觉模式专用 UI
 - [ ] 实现人工审批流程
 - [ ] A/B 测试模式 A vs 模式 B 的效果与成本
@@ -349,12 +355,24 @@ type Action =
 
 | 文件 | 说明 |
 |------|------|
+| **模式 A** |
 | `apps/electron/src/main/lib/browser-automation/browser-automation-service.ts` | 模式 A 核心：脚本生成、Profile/Cookie 准备、环境变量注入、超时与结果收集 |
 | `apps/electron/src/main/lib/chat-tools/web-scraper-tool.ts` | web_scraper Chat 工具：元数据、工具定义、可用性检查、执行入口 |
-| `apps/electron/src/main/lib/chat-tool-config.ts` | Chat 工具配置（`~/.mapro/chat-tools.json` 读写，web-scraper 默认启用） |
-| `apps/electron/src/main/lib/chat-tool-registry.ts` | Chat 工具注册表（web-scraper 已注册） |
-| `apps/electron/src/main/ipc.ts` | `TEST_TOOL` 通道支持 web-scraper 环境检测 |
-| `apps/electron/src/renderer/components/settings/ToolSettings.tsx` | 「网页爬取」设置面板（Profile/Cookie/headless/代理/UA/超时/环境检测） |
-| `apps/electron/src/main/lib/__tests__/web-scraper.test.ts` | 单元/集成测试（Profile 目录、Cookie 解析、环境检查缓存、环境变量注入） |
-| `docs/web-scraper-login-anti-crawl-plan.md` | 登录态与反爬落地计划（Phase 1 已实现） |
+| `apps/electron/src/main/lib/chat-tool-config.ts` | Chat 工具配置（`~/.mapro/chat-tools.json` 读写，web-scraper / computer-use 默认启用） |
+| `apps/electron/src/main/lib/chat-tool-registry.ts` | Chat 工具注册表（web-scraper / computer-use 已注册） |
+| `apps/electron/src/main/ipc.ts` | `TEST_TOOL` 通道支持 web-scraper / computer-use 环境检测 |
+| `apps/electron/src/renderer/components/settings/ToolSettings.tsx` | 「网页爬取」+「视觉浏览器自动化」设置面板 |
+| `apps/electron/src/main/lib/__tests__/web-scraper.test.ts` | 模式 A 单元/集成测试 |
+| **模式 B** |
+| `apps/electron/src/main/lib/browser-automation/computer-use-types.ts` | Computer Use 类型定义（任务输入、选项、action schema、驱动接口） |
+| `apps/electron/src/main/lib/browser-automation/computer-use-service.ts` | 视觉循环核心：截图 → LLM → 执行 action → 循环 |
+| `apps/electron/src/main/lib/browser-automation/computer-use-llm.ts` | 多模态 LLM caller：构造截图 + 历史动作的 prompt |
+| `apps/electron/src/main/lib/browser-automation/playwright-browser-driver.ts` | Playwright Python 真实浏览器驱动 |
+| `apps/electron/src/main/lib/chat-tools/computer-use-tool.ts` | Chat 模式 `computer_use` 工具入口 |
+| `apps/electron/src/main/lib/chat-tools/computer-use-mcp.ts` | Agent 模式 `computer_use` MCP Server 注入 |
+| `apps/electron/src/main/lib/ma-tools/llm-service.ts` | MA 工具非流式 LLM 服务，已扩展 vision 内容部分 |
+| `apps/electron/src/main/lib/__tests__/computer-use.test.ts` | 视觉循环单元测试 |
+| `apps/electron/src/main/lib/__tests__/computer-use-llm.test.ts` | LLM caller 单元测试 |
+| `apps/electron/src/main/lib/__tests__/computer-use-mcp.test.ts` | Agent MCP 注入单元测试 |
+| `docs/web-scraper-login-anti-crawl-plan.md` | 登录态与反爬落地计划（Phase 1 / Phase 2 均已实现） |
 
