@@ -70,6 +70,15 @@ describe('browser_fetch 脚本内容', () => {
     expect(BROWSER_FETCH_SCRIPT).toContain('SCREENSHOT_FILE')
     expect(BROWSER_FETCH_SCRIPT).toContain('page.screenshot')
   })
+
+  it('CDP 模式连接已有 Chrome 且不会关闭外部上下文', () => {
+    expect(BROWSER_FETCH_SCRIPT).toContain('connect_over_cdp')
+    expect(BROWSER_FETCH_SCRIPT).toContain('IS_CDP = bool(CHROME_REMOTE_DEBUGGING_PORT)')
+    expect(BROWSER_FETCH_SCRIPT).toContain('CDP_CONTEXT_IS_EXTERNAL = True')
+    // 关闭外部 Chrome 上下文/浏览器是危险操作，脚本必须避免
+    expect(BROWSER_FETCH_SCRIPT).not.toContain("if IS_CDP:\n    context.close()")
+    expect(BROWSER_FETCH_SCRIPT).not.toContain("if IS_CDP:\n    browser.close()")
+  })
 })
 
 describe('executeBrowserFetchTask', () => {

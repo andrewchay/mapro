@@ -58,4 +58,12 @@ describe('PlaywrightBrowserDriver Python 服务脚本', () => {
     expect(PYTHON_SERVER_SCRIPT).toContain('close_browser()')
     expect(PYTHON_SERVER_SCRIPT).toContain('threading.Thread(target=self.server_instance.shutdown).start()')
   })
+
+  it('CDP 模式不关闭外部 Chrome 上下文和浏览器', () => {
+    expect(PYTHON_SERVER_SCRIPT).toContain('IS_CDP = bool(CHROME_REMOTE_DEBUGGING_PORT)')
+    expect(PYTHON_SERVER_SCRIPT).toContain('connect_over_cdp')
+    expect(PYTHON_SERVER_SCRIPT).toContain('CDP_CONTEXT_IS_EXTERNAL = True')
+    // close_browser 在 CDP 模式下只关闭 page，不能关闭 context/browser
+    expect(PYTHON_SERVER_SCRIPT).toContain('# CDP 复用外部 Chrome：不要关闭用户浏览器，仅断开引用')
+  })
 })

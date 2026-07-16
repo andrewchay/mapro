@@ -2,7 +2,7 @@
 
 > 目标：通过 MAPro 的 Agent 模式登录小红书蒲公英（创作者服务平台），并自动抓取达人数据到本地 KOL 数据库。
 >
-> 适用版本：`@ma-proma/electron` 0.1.26+
+> 适用版本：`@ma-proma/electron` 0.1.27+
 >
 > 相关设计文档（已归档）：`docs/archive/browser-agent-design.md`、`docs/archive/web-scraper-login-anti-crawl-plan.md`
 
@@ -107,6 +107,8 @@ playwright install chromium
 3. 让 Agent 在脚本中加入自然滚动和随机停顿（环境变量 `MIN_ACTION_DELAY_MS` / `MAX_ACTION_DELAY_MS` 已自动注入）。
 
 > 注意：系统 Chrome 和随机延迟设置同时影响 `web_scraper`、`browser_fetch` 和 `computer_use` 三个工具。
+>
+> CDP 安全行为：MAPro 仅关闭任务自己打开的页面标签，不会关闭你的外部 Chrome 窗口或已有上下文，也不会向已有上下文注入额外 Cookie。
 
 ---
 

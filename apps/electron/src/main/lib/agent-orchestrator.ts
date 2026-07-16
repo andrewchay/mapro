@@ -1314,6 +1314,11 @@ export class AgentOrchestrator {
         'ListMcpResourcesTool', 'ReadMcpResourceTool',
       ])
 
+      // Plan 模式下需要拒绝的敏感 MCP 工具（可访问登录态页面并写文件）
+      const PLAN_MODE_SENSITIVE_MCP_TOOLS = new Set([
+        'mcp__browser-fetch__browser_fetch',
+      ])
+
       /** Plan 模式是否已被 Agent 进入（初始 plan 模式时天然为 true，其他模式需 EnterPlanMode 触发） */
       let planModeEntered = initialPermissionMode === 'plan'
 
@@ -1411,8 +1416,14 @@ export class AgentOrchestrator {
             if (toolName === 'Bash') {
               return { behavior: 'deny' as const, message: '计划模式下不允许执行 Bash 命令，请在计划审批通过后再执行' }
             }
-            // MCP 工具（以 mcp__ 开头）允许调用（调研用）
+            // MCP 工具（以 mcp__ 开头）原则上允许调用（调研用），但敏感工具除外
             if (toolName.startsWith('mcp__')) {
+              if (PLAN_MODE_SENSITIVE_MCP_TOOLS.has(toolName)) {
+                return {
+                  behavior: 'deny' as const,
+                  message: '计划模式下不允许使用 browser_fetch 抓取登录态页面，请在计划审批通过后再执行',
+                }
+              }
               return { behavior: 'allow' as const, updatedInput: input }
             }
             // 其余工具拒绝

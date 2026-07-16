@@ -391,6 +391,7 @@ function buildDefaultSystemPrompt(options: {
 3. 否则使用默认 Chromium
 4. 启动参数加入 ["--disable-blink-features=AutomationControlled"] 以降低被检测概率
 5. 设置 viewport={"width": 1280, "height": 800}、locale='zh-CN'、timezone_id='Asia/Shanghai'
+6. 如果通过 CDP 连接外部 Chrome，只能关闭自己打开的 page，禁止调用 context.close() 或 browser.close()，避免关闭用户已有的浏览器上下文
 
 技术要求：
 1. 使用 Playwright 同步 API（from playwright.sync_api import sync_playwright）
@@ -1068,11 +1069,13 @@ CHROME_EXECUTABLE_PATH = os.environ.get('CHROME_EXECUTABLE_PATH', '') or None
 CHROME_REMOTE_DEBUGGING_PORT = os.environ.get('CHROME_REMOTE_DEBUGGING_PORT', '') or None
 MIN_ACTION_DELAY_MS = int(os.environ.get('MIN_ACTION_DELAY_MS', '0') or '0')
 MAX_ACTION_DELAY_MS = int(os.environ.get('MAX_ACTION_DELAY_MS', '0') or '0')
+IS_CDP = bool(CHROME_REMOTE_DEBUGGING_PORT)
 
 playwright = None
 browser = None
 context = None
 page = None
+CDP_CONTEXT_IS_EXTERNAL = False
 
 
 def random_wait():
@@ -1086,13 +1089,18 @@ try:
     viewport = {'width': 1280, 'height': 800}
     proxy = {'server': PROXY} if PROXY else None
 
-    if CHROME_REMOTE_DEBUGGING_PORT:
+    if IS_CDP:
         browser = playwright.chromium.connect_over_cdp(f'http://127.0.0.1:{CHROME_REMOTE_DEBUGGING_PORT}')
-        context = browser.contexts[0] if browser.contexts else browser.new_context(
-            viewport=viewport,
-            locale='zh-CN',
-            timezone_id='Asia/Shanghai',
-        )
+        if browser.contexts:
+            context = browser.contexts[0]
+            CDP_CONTEXT_IS_EXTERNAL = True
+        else:
+            context = browser.new_context(
+                viewport=viewport,
+                locale='zh-CN',
+                timezone_id='Asia/Shanghai',
+            )
+            CDP_CONTEXT_IS_EXTERNAL = False
     elif USER_DATA_DIR:
         launch_kwargs = {
             'headless': HEADLESS,
@@ -1124,19 +1132,24 @@ try:
             timezone_id='Asia/Shanghai',
         )
 
-    if COOKIES_FILE and os.path.exists(COOKIES_FILE):
-        try:
-            with open(COOKIES_FILE, 'r', encoding='utf-8') as f:
-                cookies = json.load(f)
-            if cookies:
-                context.add_cookies(cookies)
-        except Exception as e:
-            print(f'[browser-fetch] 注入 Cookie 失败: {e}', file=sys.stderr)
+    if not IS_CDP:
+        if COOKIES_FILE and os.path.exists(COOKIES_FILE):
+            try:
+                with open(COOKIES_FILE, 'r', encoding='utf-8') as f:
+                    cookies = json.load(f)
+                if cookies:
+                    context.add_cookies(cookies)
+            except Exception as e:
+                print(f'[browser-fetch] 注入 Cookie 失败: {e}', file=sys.stderr)
 
-    if USER_AGENT:
-        context.set_extra_http_headers({'User-Agent': USER_AGENT})
+        if USER_AGENT:
+            context.set_extra_http_headers({'User-Agent': USER_AGENT})
 
     page = context.new_page()
+
+    if IS_CDP and USER_AGENT:
+        page.set_extra_http_headers({'User-Agent': USER_AGENT})
+
     page.goto(URL, wait_until='networkidle')
     random_wait()
 
@@ -1180,21 +1193,34 @@ finally:
             page.close()
     except Exception:
         pass
-    try:
-        if context:
-            context.close()
-    except Exception:
-        pass
-    try:
-        if browser:
-            browser.close()
-    except Exception:
-        pass
+    page = None
+
+    if not IS_CDP or not CDP_CONTEXT_IS_EXTERNAL:
+        try:
+            if context:
+                context.close()
+        except Exception:
+            pass
+        context = None
+
+    if not IS_CDP:
+        try:
+            if browser:
+                browser.close()
+        except Exception:
+            pass
+        browser = None
+    else:
+        # CDP 复用外部 Chrome：不要关闭用户浏览器，仅断开引用
+        context = None
+        browser = None
+
     try:
         if playwright:
             playwright.stop()
     except Exception:
         pass
+    playwright = None
 `
 
 /**

@@ -25,7 +25,6 @@ export async function injectBrowserFetchMcpServer(
   const toolState = getToolState('web-scraper')
   if (!toolState.enabled) return
 
-  const credentials = getToolCredentials('web-scraper')
   const { z } = await import('zod')
 
   const server = sdk.createSdkMcpServer({
@@ -34,7 +33,7 @@ export async function injectBrowserFetchMcpServer(
     tools: [
       sdk.tool(
         'browser_fetch',
-        'Fetch a webpage using a real browser with persistent profile and cookies. Use this when the page requires login or when the built-in WebFetch fails because it cannot access authenticated content.',
+        'Fetch a webpage using a real browser. It reuses the web-scraper Profile/Cookie settings, can access authenticated pages, and writes the fetched content and a screenshot to the workspace task directory.',
         {
           url: z.string().describe('Target webpage URL'),
           format: z.enum(['html', 'text', 'markdown']).optional().describe('Output format: html (default), text, or markdown'),
@@ -43,6 +42,15 @@ export async function injectBrowserFetchMcpServer(
         },
         async (args: { url: string; format?: 'html' | 'text' | 'markdown'; waitMs?: number; selector?: string }) => {
           try {
+            // 每次调用都重新读取 web-scraper 凭据，避免 Agent 会话缓存旧配置
+            const currentToolState = getToolState('web-scraper')
+            if (!currentToolState.enabled) {
+              return {
+                content: [{ type: 'text' as const, text: 'browser_fetch 当前已禁用，请在设置中启用网页爬取工具后再试。' }],
+              }
+            }
+
+            const credentials = getToolCredentials('web-scraper')
             const userDataDir =
               typeof credentials.userDataDir === 'string' && credentials.userDataDir.trim()
                 ? credentials.userDataDir.trim()
@@ -99,7 +107,7 @@ export async function injectBrowserFetchMcpServer(
             }
           }
         },
-        { annotations: { readOnlyHint: true } },
+        { annotations: { readOnlyHint: false } },
       ),
     ],
   })
