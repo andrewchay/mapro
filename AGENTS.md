@@ -246,7 +246,7 @@ bun run generate:icons    # 生成应用图标
 | 服务 | 职责 |
 |------|------|
 | `chat-tools/` | Chat 工具实现目录：内置工具函数（含 `web-scraper-tool.ts` 网页爬取工具） |
-| `browser-automation/` | 浏览器自动化：基于 Playwright Python 的脚本生成与执行（模式 A），支持持久 Profile、Cookie 注入、反检测参数、代理、headless 控制、真实环境检查（`checkPythonAndPlaywright`） |
+| `browser-automation/` | 浏览器自动化：基于 Playwright Python 的脚本生成与执行（模式 A），支持持久 Profile、Cookie 注入、系统 Chrome/CDP、随机操作间隔、反检测参数、代理、headless 控制、真实环境检查（`checkPythonAndPlaywright`） |
 | `ma-tools/` | MA 营销工具集：19 个营销相关 Chat Tool（见上方 Campaign 业务服务） |
 | `workspace-watcher.ts` | 工作区文件监听：文件系统变化监控 |
 | `chat-tools-watcher.ts` | Chat 工具监听：工具配置变化监控 |
@@ -688,7 +688,7 @@ Campaign 是在 Agent 模式之上构建的 **KOL 投放项目管理**高层抽�
 - ✅ **文档解析**：PDF、Office、文本文件提取
 - ✅ **多模态支持**：图片、文档附件
 - ✅ **Chat 工具**：内置工具系统 + 动态加载
-- ✅ **网页爬取（Browser Agent 模式 A）**：基于 Playwright Python 的浏览器自动化，AI 生成脚本抓取网页数据，支持持久浏览器 Profile、Cookie 注入（JSON/Netscape）、反检测参数、代理、headless 控制、环境检测；可用于小红书后台等登录态页面抓取
+- ✅ **网页爬取（Browser Agent 模式 A）**：基于 Playwright Python 的浏览器自动化，AI 生成脚本抓取网页数据，支持持久浏览器 Profile、Cookie 注入（JSON/Netscape）、系统 Chrome/CDP、随机操作间隔、反检测参数、代理、headless 控制、环境检测；可用于小红书后台等登录态页面抓取
 - ✅ **多标签页 + 快速任务窗口**：多会话并行、全局快捷键唤起
 - ✅ **数据迁移**：旧版本数据迁移支持
 

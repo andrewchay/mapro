@@ -28,8 +28,10 @@ import type {
 export const PYTHON_SERVER_SCRIPT = `import base64
 import json
 import os
+import random
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from playwright.sync_api import sync_playwright
@@ -39,11 +41,21 @@ USER_DATA_DIR = os.environ.get('USER_DATA_DIR', '') or None
 COOKIES_FILE = os.environ.get('COOKIES_FILE', '') or None
 PROXY = os.environ.get('PROXY', '') or None
 USER_AGENT = os.environ.get('USER_AGENT', '') or None
+USE_SYSTEM_CHROME = os.environ.get('USE_SYSTEM_CHROME', '') == 'true'
+CHROME_EXECUTABLE_PATH = os.environ.get('CHROME_EXECUTABLE_PATH', '') or None
+CHROME_REMOTE_DEBUGGING_PORT = os.environ.get('CHROME_REMOTE_DEBUGGING_PORT', '') or None
+MIN_ACTION_DELAY_MS = int(os.environ.get('MIN_ACTION_DELAY_MS', '0') or '0')
+MAX_ACTION_DELAY_MS = int(os.environ.get('MAX_ACTION_DELAY_MS', '0') or '0')
 
 playwright = None
 browser = None
 context = None
 page = None
+
+
+def random_wait():
+    if MIN_ACTION_DELAY_MS > 0 and MAX_ACTION_DELAY_MS >= MIN_ACTION_DELAY_MS:
+        time.sleep(random.uniform(MIN_ACTION_DELAY_MS / 1000, MAX_ACTION_DELAY_MS / 1000))
 
 
 def init_browser():
@@ -54,22 +66,38 @@ def init_browser():
 
     proxy = {'server': PROXY} if PROXY else None
 
-    if USER_DATA_DIR:
-        context = playwright.chromium.launch_persistent_context(
-            USER_DATA_DIR,
-            headless=HEADLESS,
-            args=args,
+    if CHROME_REMOTE_DEBUGGING_PORT:
+        browser = playwright.chromium.connect_over_cdp(f'http://127.0.0.1:{CHROME_REMOTE_DEBUGGING_PORT}')
+        context = browser.contexts[0] if browser.contexts else browser.new_context(
             viewport=viewport,
             locale='zh-CN',
             timezone_id='Asia/Shanghai',
-            proxy=proxy,
         )
+    elif USER_DATA_DIR:
+        launch_kwargs = {
+            'headless': HEADLESS,
+            'args': args,
+            'viewport': viewport,
+            'locale': 'zh-CN',
+            'timezone_id': 'Asia/Shanghai',
+            'proxy': proxy,
+        }
+        if USE_SYSTEM_CHROME:
+            launch_kwargs['channel'] = 'chrome'
+        if CHROME_EXECUTABLE_PATH:
+            launch_kwargs['executable_path'] = CHROME_EXECUTABLE_PATH
+        context = playwright.chromium.launch_persistent_context(USER_DATA_DIR, **launch_kwargs)
     else:
-        browser = playwright.chromium.launch(
-            headless=HEADLESS,
-            args=args,
-            proxy=proxy,
-        )
+        launch_kwargs = {
+            'headless': HEADLESS,
+            'args': args,
+            'proxy': proxy,
+        }
+        if USE_SYSTEM_CHROME:
+            launch_kwargs['channel'] = 'chrome'
+        if CHROME_EXECUTABLE_PATH:
+            launch_kwargs['executable_path'] = CHROME_EXECUTABLE_PATH
+        browser = playwright.chromium.launch(**launch_kwargs)
         context = browser.new_context(
             viewport=viewport,
             locale='zh-CN',
@@ -180,6 +208,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(404, {'error': 'not found'})
                 return
 
+            random_wait()
             self._send_json(200, {'ok': True})
         except Exception as e:
             self._send_json(500, {'error': str(e)})
@@ -368,6 +397,11 @@ export class PlaywrightBrowserDriver implements BrowserDriver {
       COOKIES_FILE: this.cookiesPath ?? '',
       PROXY: options.proxy ?? '',
       USER_AGENT: options.userAgent ?? '',
+      USE_SYSTEM_CHROME: options.useSystemChrome ? 'true' : 'false',
+      CHROME_EXECUTABLE_PATH: options.chromeExecutablePath ?? '',
+      CHROME_REMOTE_DEBUGGING_PORT: options.chromeRemoteDebuggingPort ?? '',
+      MIN_ACTION_DELAY_MS: String(options.minActionDelayMs ?? 0),
+      MAX_ACTION_DELAY_MS: String(options.maxActionDelayMs ?? 0),
     }
 
     const child = spawn('python3', [serverPath], {

@@ -31,6 +31,16 @@ export interface ComputerUseOptions {
   timeoutMs?: number
   /** 任务目录（由服务层传入，驱动层可用于保存中间文件） */
   taskDir?: string
+  /** 是否使用系统 Chrome */
+  useSystemChrome?: boolean
+  /** Chrome 可执行文件路径（可选） */
+  chromeExecutablePath?: string
+  /** Chrome CDP 远程调试端口（可选） */
+  chromeRemoteDebuggingPort?: string
+  /** 最小操作间隔（毫秒），默认 0 */
+  minActionDelayMs?: number
+  /** 最大操作间隔（毫秒），默认 0 */
+  maxActionDelayMs?: number
 }
 
 /** Computer Use 动作 Schema */

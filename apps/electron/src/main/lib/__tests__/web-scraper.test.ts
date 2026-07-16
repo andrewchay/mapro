@@ -257,7 +257,7 @@ describe('web-scraper 网页爬取工具', () => {
       const llmModule = await import('../ma-tools/llm-service')
       const script = [
         'import os, json',
-        'dump = {k: os.environ.get(k) for k in ["HEADLESS","USER_DATA_DIR","COOKIES_FILE","PROXY","USER_AGENT","RESULT_FILE","SCREENSHOT_FILE"]}',
+        'dump = {k: os.environ.get(k) for k in ["HEADLESS","USER_DATA_DIR","COOKIES_FILE","PROXY","USER_AGENT","RESULT_FILE","SCREENSHOT_FILE","USE_SYSTEM_CHROME","CHROME_EXECUTABLE_PATH","CHROME_REMOTE_DEBUGGING_PORT","MIN_ACTION_DELAY_MS","MAX_ACTION_DELAY_MS"]}',
         'with open(os.path.join(os.path.dirname(__file__), "env_dump.json"), "w") as f: json.dump(dump, f)',
         'open(os.environ["RESULT_FILE"], "w").write("[]")',
         'open(os.environ["SCREENSHOT_FILE"], "w").write("")',
@@ -281,6 +281,11 @@ describe('web-scraper 网页爬取工具', () => {
             proxy: 'http://127.0.0.1:8080',
             userAgent: 'TestUA/1.0',
             timeoutMs: 15_000,
+            useSystemChrome: true,
+            chromeExecutablePath: '/fake/chrome',
+            chromeRemoteDebuggingPort: '9222',
+            minActionDelayMs: 2000,
+            maxActionDelayMs: 4000,
           },
         )
 
@@ -303,11 +308,26 @@ describe('web-scraper 网页爬取工具', () => {
         const cookieFile = JSON.parse(readFileSync(dump.COOKIES_FILE!, 'utf-8')) as unknown[]
         expect(cookieFile.length).toBe(1)
 
+        // 额外验证系统 Chrome 与随机延迟环境变量
+        expect(dump.USE_SYSTEM_CHROME).toBe('true')
+        expect(dump.CHROME_EXECUTABLE_PATH).toBe('/fake/chrome')
+        expect(dump.CHROME_REMOTE_DEBUGGING_PORT).toBe('9222')
+        expect(dump.MIN_ACTION_DELAY_MS).toBe('2000')
+        expect(dump.MAX_ACTION_DELAY_MS).toBe('4000')
+
         // 4. 成功后 Profile 应写回源目录（login.flag 仍在）
         expect(existsSync(join(sourceProfile, 'login.flag'))).toBe(true)
 
         // 5. 结果文件存在
         expect(result.resultFile).toBe('result.json')
+
+        // 6. 验证传给 LLM 的系统提示词包含反检测指引
+        const spyCalls = (restore as unknown as { mock: { calls: unknown[][] } }).mock.calls
+        expect(spyCalls.length).toBeGreaterThan(0)
+        const systemPrompt = spyCalls[0]![1] as string | undefined
+        expect(systemPrompt).toBeTruthy()
+        expect(systemPrompt).toMatch(/CHROME_REMOTE_DEBUGGING_PORT|CHROME_EXECUTABLE_PATH/)
+        expect(systemPrompt).toMatch(/MIN_ACTION_DELAY_MS|MAX_ACTION_DELAY_MS/)
       } finally {
         restore.mockRestore()
       }
@@ -492,10 +512,12 @@ describe('web-scraper 网页爬取工具', () => {
       expect(paramNames).toContain('task')
     })
 
-    it('系统提示词包含登录态说明', () => {
+    it('系统提示词包含登录态与反检测说明', () => {
       const append = webScraperTool.WEB_SCRAPER_TOOL_META.systemPromptAppend ?? ''
       expect(append).toContain('web_scraper')
       expect(append).toMatch(/登录|Profile|Cookie/)
+      expect(append).toContain('系统 Chrome')
+      expect(append).toContain('随机操作间隔')
     })
 
     it('isWebScraperToolCall 仅识别 web_scraper', () => {

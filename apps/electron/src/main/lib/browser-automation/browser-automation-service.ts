@@ -53,6 +53,16 @@ export interface ScrapingTaskOptions {
   maxRetries?: number
   /** 自定义脚本模板（支持 {{task}} {{url}} 等占位符） */
   scriptTemplate?: string
+  /** 是否使用系统 Chrome 而非 Playwright 内置 Chromium */
+  useSystemChrome?: boolean
+  /** Chrome 可执行文件路径（可选） */
+  chromeExecutablePath?: string
+  /** Chrome CDP 远程调试端口（可选） */
+  chromeRemoteDebuggingPort?: string
+  /** 最小操作间隔（毫秒），默认 0 */
+  minActionDelayMs?: number
+  /** 最大操作间隔（毫秒），默认 0 */
+  maxActionDelayMs?: number
 }
 
 export interface ScrapingTaskResult {
@@ -354,34 +364,50 @@ function buildDefaultSystemPrompt(options: {
   hasCookies: boolean
   hasProxy: boolean
   hasUserAgent: boolean
+  useSystemChrome: boolean
+  hasChromeExecutablePath: boolean
+  hasChromeRemoteDebuggingPort: boolean
+  minActionDelayMs: number
+  maxActionDelayMs: number
 }): string {
+  const delayHint =
+    options.minActionDelayMs > 0 && options.maxActionDelayMs >= options.minActionDelayMs
+      ? `每次操作后调用 random_wait()，等待 ${options.minActionDelayMs}-${options.maxActionDelayMs} 毫秒`
+      : '每次操作后调用 random_wait()，默认等待 500-3000 毫秒'
+
   return `你是一名专业的 Web 爬虫工程师。请根据用户任务生成一个完整的、可独立运行的 Python + Playwright 脚本。
 
 反爬与风控要求：
-1. 每次页面操作（点击、输入、滚动、跳转）后必须添加随机时间间隔
-2. 随机等待时间范围：0.5 秒到 3 秒（使用 random.uniform(0.5, 3.0) 或 random.randint(500, 3000)）
+1. 每次页面操作（点击、输入、滚动、跳转、翻页）后必须调用 random_wait() 添加随机时间间隔
+2. ${delayHint}
 3. 不要在脚本中使用固定 sleep 时间
-4. 滚动加载时，每滚动一屏后随机等待 1-3 秒再继续
-5. 翻页/加载更多时，每页之间随机等待 2-4 秒
+4. 滚动加载时，每滚动一屏后随机等待再继续
+5. 翻页/加载更多时，每页之间随机等待
 6. 遇到反爬或验证码时，保存当前截图并优雅退出，不要无限重试
+
+浏览器启动要求（必须按以下顺序选择）：
+1. 如果环境变量 CHROME_REMOTE_DEBUGGING_PORT 有值，使用 connect_over_cdp(f'http://127.0.0.1:{CHROME_REMOTE_DEBUGGING_PORT}') 连接已启动的 Chrome
+2. 否则如果 USE_SYSTEM_CHROME == 'true'，使用 chromium.launch_persistent_context(..., channel='chrome'${options.hasChromeExecutablePath ? ', executable_path=os.environ["CHROME_EXECUTABLE_PATH"]' : ''}) 或 chromium.launch(..., channel='chrome')
+3. 否则使用默认 Chromium
+4. 启动参数加入 ["--disable-blink-features=AutomationControlled"] 以降低被检测概率
+5. 设置 viewport={"width": 1280, "height": 800}、locale='zh-CN'、timezone_id='Asia/Shanghai'
 
 技术要求：
 1. 使用 Playwright 同步 API（from playwright.sync_api import sync_playwright）
 2. 通过环境变量 HEADLESS 控制是否 headless（HEADLESS == 'true' 时用 headless，否则用有界面窗口）
-3. ${options.hasUserDataDir ? '通过环境变量 USER_DATA_DIR 读取持久 Profile 路径，使用 browser.launch_persistent_context(USER_DATA_DIR, ...)' : '使用 browser.new_context() 创建新上下文'}
+3. ${options.hasUserDataDir ? '通过环境变量 USER_DATA_DIR 读取持久 Profile 路径' : '使用 browser.new_context() 创建新上下文'}
 4. ${options.hasCookies ? '通过环境变量 COOKIES_FILE 读取 cookies.json 路径，在创建 context 后调用 context.add_cookies(json.load(open(COOKIES_FILE))) 注入登录态' : '不需要注入 Cookie'}
 5. ${options.hasProxy ? '通过环境变量 PROXY 设置代理，在 launch/context 中传入 proxy={"server": PROXY}' : '不需要代理'}
 6. ${options.hasUserAgent ? '通过环境变量 USER_AGENT 自定义 User-Agent，在 context 创建时传入 user_agent=USER_AGENT' : '使用正常浏览器 User-Agent，不要暴露 Playwright/HeadlessChrome'}
-7. 启动参数加入 ["--disable-blink-features=AutomationControlled"] 以降低被检测概率
-8. 设置 viewport={"width": 1280, "height": 800}、locale='zh-CN'、timezone_id='Asia/Shanghai'
-9. 只访问用户指定的 URL 及其同域名页面
-10. 等待关键元素加载完成后再提取数据
-11. 处理滚动加载、分页等常见情况，但限制总条目数不超过 50 条
-12. 将结果保存到 RESULT_FILE 指定的路径
-13. 同时保存一张最终页面截图到 SCREENSHOT_FILE 指定的路径
-14. 添加 try/finally 确保浏览器关闭
-15. 脚本中通过环境变量读取 RESULT_FILE 和 SCREENSHOT_FILE
-16. 只输出可执行的 Python 代码，不要输出任何解释文字或 markdown 代码块标记`
+7. 必须提供 random_wait() 实现：读取 MIN_ACTION_DELAY_MS 和 MAX_ACTION_DELAY_MS 环境变量，使用 time.sleep(random.uniform(...))
+8. 只访问用户指定的 URL 及其同域名页面
+9. 等待关键元素加载完成后再提取数据
+10. 处理滚动加载、分页等常见情况，但限制总条目数不超过 50 条
+11. 将结果保存到 RESULT_FILE 指定的路径
+12. 同时保存一张最终页面截图到 SCREENSHOT_FILE 指定的路径
+13. 添加 try/finally 确保浏览器关闭
+14. 脚本中通过环境变量读取 RESULT_FILE 和 SCREENSHOT_FILE
+15. 只输出可执行的 Python 代码，不要输出任何解释文字或 markdown 代码块标记`
 }
 
 /**
@@ -392,7 +418,18 @@ async function generateScrapingScript(
   taskDir: string,
   outputFormat: NonNullable<ScrapingTaskInput['outputFormat']>,
   options: Required<Pick<ScrapingTaskOptions, 'headless'>> &
-    Pick<ScrapingTaskOptions, 'userDataDir' | 'proxy' | 'userAgent' | 'scriptTemplate'>,
+    Pick<
+      ScrapingTaskOptions,
+      | 'userDataDir'
+      | 'proxy'
+      | 'userAgent'
+      | 'scriptTemplate'
+      | 'useSystemChrome'
+      | 'chromeExecutablePath'
+      | 'chromeRemoteDebuggingPort'
+      | 'minActionDelayMs'
+      | 'maxActionDelayMs'
+    >,
   cookiesPath?: string,
 ): Promise<{ scriptPath: string; success: boolean; error?: string }> {
   const resultFileName = getResultFileName(outputFormat)
@@ -407,6 +444,10 @@ async function generateScrapingScript(
   const hasCookies = !!cookiesPath
   const hasProxy = !!options.proxy
   const hasUserAgent = !!options.userAgent
+  const useSystemChrome = options.useSystemChrome ?? false
+  const chromeRemoteDebuggingPort = options.chromeRemoteDebuggingPort
+  const minActionDelayMs = options.minActionDelayMs ?? 0
+  const maxActionDelayMs = options.maxActionDelayMs ?? 0
 
   const variables: Record<string, string> = {
     task: input.task,
@@ -420,6 +461,11 @@ async function generateScrapingScript(
     proxy: options.proxy ?? '',
     userAgent: options.userAgent ?? '',
     headless: options.headless ? 'true' : 'false',
+    useSystemChrome: useSystemChrome ? 'true' : 'false',
+    chromeExecutablePath: options.chromeExecutablePath ?? '',
+    chromeRemoteDebuggingPort: chromeRemoteDebuggingPort ?? '',
+    minActionDelayMs: String(minActionDelayMs),
+    maxActionDelayMs: String(maxActionDelayMs),
   }
 
   let scriptCode: string
@@ -428,7 +474,17 @@ async function generateScrapingScript(
     // 使用自定义脚本模板，直接渲染变量后作为最终脚本，跳过 LLM
     scriptCode = renderScriptTemplate(options.scriptTemplate, variables)
   } else {
-    const systemPrompt = buildDefaultSystemPrompt({ hasUserDataDir, hasCookies, hasProxy, hasUserAgent })
+    const systemPrompt = buildDefaultSystemPrompt({
+      hasUserDataDir,
+      hasCookies,
+      hasProxy,
+      hasUserAgent,
+      useSystemChrome,
+      hasChromeExecutablePath: !!options.chromeExecutablePath,
+      hasChromeRemoteDebuggingPort: !!chromeRemoteDebuggingPort,
+      minActionDelayMs,
+      maxActionDelayMs,
+    })
     const prompt = `任务：${input.task}
 目标 URL：${input.url ?? input.urls?.join(', ') ?? ''}
 输出格式：${outputFormat}
@@ -436,11 +492,18 @@ ${hasUserDataDir ? `持久 Profile 路径（环境变量 USER_DATA_DIR）：${op
 ${hasCookies ? `Cookie 文件路径（环境变量 COOKIES_FILE）：${cookiesPath}` : '不注入 Cookie'}
 ${hasProxy ? `代理（环境变量 PROXY）：${options.proxy}` : '不使用代理'}
 ${hasUserAgent ? `User-Agent（环境变量 USER_AGENT）：${options.userAgent}` : '使用默认 User-Agent'}
+${useSystemChrome ? '使用系统 Chrome（环境变量 USE_SYSTEM_CHROME=true）' : '使用 Playwright 内置 Chromium'}
+${options.chromeExecutablePath ? `Chrome 路径（环境变量 CHROME_EXECUTABLE_PATH）：${options.chromeExecutablePath}` : ''}
+${chromeRemoteDebuggingPort ? `CDP 端口（环境变量 CHROME_REMOTE_DEBUGGING_PORT）：${chromeRemoteDebuggingPort}` : ''}
+操作间隔：${minActionDelayMs}-${maxActionDelayMs} 毫秒
 结果保存路径（环境变量 RESULT_FILE）：${resultFilePath}
 截图保存路径（环境变量 SCREENSHOT_FILE）：${screenshotFilePath}
 
 请生成 Python 脚本。脚本需要：
-- 导入 os 模块读取 RESULT_FILE、SCREENSHOT_FILE、HEADLESS、USER_DATA_DIR、COOKIES_FILE、PROXY、USER_AGENT
+- 导入 os、time、random
+- 读取 RESULT_FILE、SCREENSHOT_FILE、HEADLESS、USER_DATA_DIR、COOKIES_FILE、PROXY、USER_AGENT、USE_SYSTEM_CHROME、CHROME_EXECUTABLE_PATH、CHROME_REMOTE_DEBUGGING_PORT、MIN_ACTION_DELAY_MS、MAX_ACTION_DELAY_MS
+- 使用系统 Chrome（USE_SYSTEM_CHROME=true 时 channel='chrome'，并可指定 executable_path）或 CDP（CHROME_REMOTE_DEBUGGING_PORT 时 connect_over_cdp）
+- 定义 random_wait() 函数，在每次点击、输入、滚动、跳转后调用
 - 使用 json/csv/markdown 库按格式保存数据
 - 输出简洁的爬取结果摘要到 stdout`
 
@@ -654,6 +717,11 @@ interface SingleScrapingRunOptions {
   timeoutMs: number
   maxRetries: number
   scriptTemplate?: string
+  useSystemChrome?: boolean
+  chromeExecutablePath?: string
+  chromeRemoteDebuggingPort?: string
+  minActionDelayMs?: number
+  maxActionDelayMs?: number
 }
 
 /**
@@ -697,6 +765,11 @@ async function executeSingleScrapingTask(
         proxy: options.proxy,
         userAgent: options.userAgent,
         scriptTemplate: options.scriptTemplate,
+        useSystemChrome: options.useSystemChrome,
+        chromeExecutablePath: options.chromeExecutablePath,
+        chromeRemoteDebuggingPort: options.chromeRemoteDebuggingPort,
+        minActionDelayMs: options.minActionDelayMs,
+        maxActionDelayMs: options.maxActionDelayMs,
       },
       cookiesPath,
     )
@@ -718,6 +791,11 @@ async function executeSingleScrapingTask(
     if (cookiesPath) env.COOKIES_FILE = cookiesPath
     if (options.proxy) env.PROXY = options.proxy
     if (options.userAgent) env.USER_AGENT = options.userAgent
+    env.USE_SYSTEM_CHROME = options.useSystemChrome ? 'true' : 'false'
+    if (options.chromeExecutablePath) env.CHROME_EXECUTABLE_PATH = options.chromeExecutablePath
+    if (options.chromeRemoteDebuggingPort) env.CHROME_REMOTE_DEBUGGING_PORT = options.chromeRemoteDebuggingPort
+    env.MIN_ACTION_DELAY_MS = String(options.minActionDelayMs ?? 0)
+    env.MAX_ACTION_DELAY_MS = String(options.maxActionDelayMs ?? 0)
 
     const runResult = await runPythonScriptWithRetries(
       scriptResult.scriptPath,
@@ -809,6 +887,11 @@ export async function executeScrapingTask(
     timeoutMs,
     maxRetries,
     scriptTemplate: options.scriptTemplate,
+    useSystemChrome: options.useSystemChrome,
+    chromeExecutablePath: options.chromeExecutablePath,
+    chromeRemoteDebuggingPort: options.chromeRemoteDebuggingPort,
+    minActionDelayMs: options.minActionDelayMs,
+    maxActionDelayMs: options.maxActionDelayMs,
   }
 
   try {
@@ -930,6 +1013,16 @@ export interface BrowserFetchTaskOptions {
   userAgent?: string
   /** 超时（毫秒），默认 60000 */
   timeoutMs?: number
+  /** 是否使用系统 Chrome */
+  useSystemChrome?: boolean
+  /** Chrome 可执行文件路径（可选） */
+  chromeExecutablePath?: string
+  /** Chrome CDP 远程调试端口（可选） */
+  chromeRemoteDebuggingPort?: string
+  /** 最小操作间隔（毫秒），默认 0 */
+  minActionDelayMs?: number
+  /** 最大操作间隔（毫秒），默认 0 */
+  maxActionDelayMs?: number
 }
 
 export interface BrowserFetchTaskResult {
@@ -953,7 +1046,9 @@ function createBrowserFetchTaskDir(): string {
 export const BROWSER_FETCH_SCRIPT = `import base64
 import json
 import os
+import random
 import sys
+import time
 
 from playwright.sync_api import sync_playwright
 
@@ -968,11 +1063,22 @@ USER_DATA_DIR = os.environ.get('USER_DATA_DIR', '') or None
 COOKIES_FILE = os.environ.get('COOKIES_FILE', '') or None
 PROXY = os.environ.get('PROXY', '') or None
 USER_AGENT = os.environ.get('USER_AGENT', '') or None
+USE_SYSTEM_CHROME = os.environ.get('USE_SYSTEM_CHROME', '') == 'true'
+CHROME_EXECUTABLE_PATH = os.environ.get('CHROME_EXECUTABLE_PATH', '') or None
+CHROME_REMOTE_DEBUGGING_PORT = os.environ.get('CHROME_REMOTE_DEBUGGING_PORT', '') or None
+MIN_ACTION_DELAY_MS = int(os.environ.get('MIN_ACTION_DELAY_MS', '0') or '0')
+MAX_ACTION_DELAY_MS = int(os.environ.get('MAX_ACTION_DELAY_MS', '0') or '0')
 
 playwright = None
 browser = None
 context = None
 page = None
+
+
+def random_wait():
+    if MIN_ACTION_DELAY_MS > 0 and MAX_ACTION_DELAY_MS >= MIN_ACTION_DELAY_MS:
+        time.sleep(random.uniform(MIN_ACTION_DELAY_MS / 1000, MAX_ACTION_DELAY_MS / 1000))
+
 
 try:
     playwright = sync_playwright().start()
@@ -980,22 +1086,38 @@ try:
     viewport = {'width': 1280, 'height': 800}
     proxy = {'server': PROXY} if PROXY else None
 
-    if USER_DATA_DIR:
-        context = playwright.chromium.launch_persistent_context(
-            USER_DATA_DIR,
-            headless=HEADLESS,
-            args=args,
+    if CHROME_REMOTE_DEBUGGING_PORT:
+        browser = playwright.chromium.connect_over_cdp(f'http://127.0.0.1:{CHROME_REMOTE_DEBUGGING_PORT}')
+        context = browser.contexts[0] if browser.contexts else browser.new_context(
             viewport=viewport,
             locale='zh-CN',
             timezone_id='Asia/Shanghai',
-            proxy=proxy,
         )
+    elif USER_DATA_DIR:
+        launch_kwargs = {
+            'headless': HEADLESS,
+            'args': args,
+            'viewport': viewport,
+            'locale': 'zh-CN',
+            'timezone_id': 'Asia/Shanghai',
+            'proxy': proxy,
+        }
+        if USE_SYSTEM_CHROME:
+            launch_kwargs['channel'] = 'chrome'
+        if CHROME_EXECUTABLE_PATH:
+            launch_kwargs['executable_path'] = CHROME_EXECUTABLE_PATH
+        context = playwright.chromium.launch_persistent_context(USER_DATA_DIR, **launch_kwargs)
     else:
-        browser = playwright.chromium.launch(
-            headless=HEADLESS,
-            args=args,
-            proxy=proxy,
-        )
+        launch_kwargs = {
+            'headless': HEADLESS,
+            'args': args,
+            'proxy': proxy,
+        }
+        if USE_SYSTEM_CHROME:
+            launch_kwargs['channel'] = 'chrome'
+        if CHROME_EXECUTABLE_PATH:
+            launch_kwargs['executable_path'] = CHROME_EXECUTABLE_PATH
+        browser = playwright.chromium.launch(**launch_kwargs)
         context = browser.new_context(
             viewport=viewport,
             locale='zh-CN',
@@ -1016,6 +1138,7 @@ try:
 
     page = context.new_page()
     page.goto(URL, wait_until='networkidle')
+    random_wait()
 
     if WAIT_MS > 0:
         page.wait_for_timeout(WAIT_MS)
@@ -1119,6 +1242,11 @@ export async function executeBrowserFetchTask(
     if (cookiesPath) env.COOKIES_FILE = cookiesPath
     if (options.proxy) env.PROXY = options.proxy
     if (options.userAgent) env.USER_AGENT = options.userAgent
+    env.USE_SYSTEM_CHROME = options.useSystemChrome ? 'true' : 'false'
+    if (options.chromeExecutablePath) env.CHROME_EXECUTABLE_PATH = options.chromeExecutablePath
+    if (options.chromeRemoteDebuggingPort) env.CHROME_REMOTE_DEBUGGING_PORT = options.chromeRemoteDebuggingPort
+    env.MIN_ACTION_DELAY_MS = String(options.minActionDelayMs ?? 0)
+    env.MAX_ACTION_DELAY_MS = String(options.maxActionDelayMs ?? 0)
 
     const runResult = await runPythonScript(scriptPath, taskDir, env, timeoutMs)
 

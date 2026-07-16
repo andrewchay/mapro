@@ -2,7 +2,7 @@
 
 > 目标：通过 MAPro 的 Agent 模式登录小红书蒲公英（创作者服务平台），并自动抓取达人数据到本地 KOL 数据库。
 >
-> 适用版本：`@ma-proma/electron` 0.1.25+
+> 适用版本：`@ma-proma/electron` 0.1.26+
 >
 > 相关设计文档（已归档）：`docs/archive/browser-agent-design.md`、`docs/archive/web-scraper-login-anti-crawl-plan.md`
 
@@ -77,12 +77,36 @@ playwright install chromium
 | **超时时间** | 蒲公英后台加载较慢，建议设置为 **90–120 秒**。 |
 | **代理** | 如有需要可配置。 |
 | **User-Agent** | 一般留空使用默认。 |
+| **使用系统 Chrome** | 关闭 headless 后仍被风控时，可启用并连接本机已安装的 Google Chrome。 |
+| **Chrome 可执行文件路径** | 系统 Chrome 路径，macOS 典型值为 `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`。 |
+| **Chrome 远程调试端口** | 若已手动启动 Chrome 并开启 `--remote-debugging-port=9222`，填入对应端口即可通过 CDP 连接。 |
+| **最小/最大操作延迟（毫秒）** | 每次点击、输入、滚动后加入随机等待。小红书/蒲公英建议 **3000–5000**。 |
 
 > 登录完成后，关闭浏览器窗口或等待任务结束，MAPro 会自动把登录态写回 Profile。
 
 ### 4.2 登录态保存后配置
 
 首次登录成功后，把 **headless 模式改回 true**，后续抓取任务就可以在后台无界面运行。
+
+如果你启用了「使用系统 Chrome」，请保持 Chrome 远程调试端口可访问，或确保 Chrome 可执行文件路径正确。
+
+### 4.3 降低反爬：系统 Chrome 与随机操作间隔
+
+小红书/蒲公英等平台对默认 Chromium + 快速连续操作的风控较严。遇到以下情况时，建议开启反检测选项：
+
+1. 在设置中启用 **使用系统 Chrome**：
+   - 方式 A：手动启动 Chrome，带上自己的用户数据目录和远程调试端口：
+     ```bash
+     /Applications/Google Chrome.app/Contents/MacOS/Google Chrome \
+       --remote-debugging-port=9222 \
+       --user-data-dir=~/.mapro/browser-profiles/xiaohongshu.com
+     ```
+     然后在 MAPro 中填入 **Chrome 远程调试端口 = 9222**。
+   - 方式 B：直接填写 **Chrome 可执行文件路径**，让 Playwright 使用系统 Chrome 启动新窗口。
+2. 将 **最小操作延迟** 和 **最大操作延迟** 设置为 `3000` 和 `5000`（毫秒）。
+3. 让 Agent 在脚本中加入自然滚动和随机停顿（环境变量 `MIN_ACTION_DELAY_MS` / `MAX_ACTION_DELAY_MS` 已自动注入）。
+
+> 注意：系统 Chrome 和随机延迟设置同时影响 `web_scraper`、`browser_fetch` 和 `computer_use` 三个工具。
 
 ---
 
@@ -317,7 +341,8 @@ playwright install chromium
 
 ### Q4：抓取结果被风控拦截？
 
-- 降低抓取频率。
+- 降低抓取频率，增大随机操作延迟（建议 3000–5000 毫秒）。
+- 启用「使用系统 Chrome」，通过 CDP 或本机 Chrome 可执行文件运行。
 - 配置代理 IP。
 - 使用持久 Profile + 真实浏览器行为（随机等待、滚动）。
 

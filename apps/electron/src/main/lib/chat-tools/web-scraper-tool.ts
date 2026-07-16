@@ -47,9 +47,11 @@ export const WEB_SCRAPER_TOOL_META: ChatToolMeta = {
 - task：清晰具体的任务描述，包括要提取的字段、数量限制、筛选条件
 - outputFormat：可选，默认 json
 
-**登录态说明：**
+**登录态与反检测说明：**
 - 如果目标页面需要登录，请在设置中配置浏览器 Profile 或 Cookie。
 - 首次登录可以关闭 headless 模式，在弹出的浏览器窗口中手动扫码/短信登录，系统会自动保存登录态供后续任务复用。
+- 在「设置 → 营销工具 → 网页爬取」中可启用「使用系统 Chrome」，通过 CDP 连接已打开的 Chrome 窗口，或使用本机安装的 Chrome 可执行文件，以降低反爬检测。
+- 随机操作间隔会在每次点击、输入、滚动后自动加入随机等待，建议小红书/蒲公英等强反爬场景设置为 3000–5000 毫秒。
 
 **调用后处理：**
 - 向用户总结抓取到的数据
@@ -167,6 +169,12 @@ export async function executeWebScraperTool(toolCall: ToolCall): Promise<ToolRes
       ? Number(credentials.maxRetries) || 0
       : 0
 
+  function parseNumberCredential(value: string | number | undefined): number | undefined {
+    if (value === undefined || value === '') return undefined
+    const numeric = typeof value === 'number' ? value : Number(value)
+    return Number.isNaN(numeric) ? undefined : numeric
+  }
+
   try {
     const result = await executeScrapingTask(
       {
@@ -186,6 +194,17 @@ export async function executeWebScraperTool(toolCall: ToolCall): Promise<ToolRes
         maxRetries: maxRetries ?? defaultMaxRetries,
         scriptTemplate:
           typeof credentials.scriptTemplate === 'string' ? credentials.scriptTemplate : undefined,
+        useSystemChrome: credentials.useSystemChrome === 'true',
+        chromeExecutablePath:
+          typeof credentials.chromeExecutablePath === 'string'
+            ? credentials.chromeExecutablePath.trim() || undefined
+            : undefined,
+        chromeRemoteDebuggingPort:
+          typeof credentials.chromeRemoteDebuggingPort === 'string'
+            ? credentials.chromeRemoteDebuggingPort.trim() || undefined
+            : undefined,
+        minActionDelayMs: parseNumberCredential(credentials.minActionDelayMs),
+        maxActionDelayMs: parseNumberCredential(credentials.maxActionDelayMs),
       },
     )
 

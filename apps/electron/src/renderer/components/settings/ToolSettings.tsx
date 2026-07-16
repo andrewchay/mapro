@@ -236,6 +236,13 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
   const [userAgent, setUserAgent] = React.useState('')
   const [timeoutSec, setTimeoutSec] = React.useState('60')
 
+  // 系统 Chrome 与反爬设置
+  const [useSystemChrome, setUseSystemChrome] = React.useState(false)
+  const [chromeExecutablePath, setChromeExecutablePath] = React.useState('')
+  const [chromeRemoteDebuggingPort, setChromeRemoteDebuggingPort] = React.useState('')
+  const [minActionDelayMs, setMinActionDelayMs] = React.useState('0')
+  const [maxActionDelayMs, setMaxActionDelayMs] = React.useState('0')
+
   // 网页爬取专属高级选项
   const isWebScraper = toolId === 'web-scraper'
   const [maxRetries, setMaxRetries] = React.useState('0')
@@ -257,6 +264,11 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
       setProxy(credentials.proxy || '')
       setUserAgent(credentials.userAgent || '')
       setTimeoutSec(String(Math.round(normalizeTimeoutMs(credentials.timeoutMs) / 1000)))
+      setUseSystemChrome(credentials.useSystemChrome === 'true')
+      setChromeExecutablePath(credentials.chromeExecutablePath || '')
+      setChromeRemoteDebuggingPort(credentials.chromeRemoteDebuggingPort || '')
+      setMinActionDelayMs(credentials.minActionDelayMs || '0')
+      setMaxActionDelayMs(credentials.maxActionDelayMs || '0')
       if (isWebScraper) {
         setMaxRetries(credentials.maxRetries || '0')
         setScriptTemplate(credentials.scriptTemplate || '')
@@ -278,6 +290,11 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
       proxy: proxy.trim(),
       userAgent: userAgent.trim(),
       timeoutMs: String((Number(timeoutSec.trim()) || 60) * 1000),
+      useSystemChrome: useSystemChrome ? 'true' : 'false',
+      chromeExecutablePath: chromeExecutablePath.trim(),
+      chromeRemoteDebuggingPort: chromeRemoteDebuggingPort.trim(),
+      minActionDelayMs: minActionDelayMs.trim() || '0',
+      maxActionDelayMs: maxActionDelayMs.trim() || '0',
     }
     if (isWebScraper) {
       base.maxRetries = maxRetries.trim() || '0'
@@ -285,7 +302,7 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
       base.importToKolDatabase = importToKolDatabase ? 'true' : 'false'
     }
     return base
-  }, [userDataDir, cookies, headless, proxy, userAgent, timeoutSec, isWebScraper, maxRetries, scriptTemplate, importToKolDatabase])
+  }, [userDataDir, cookies, headless, proxy, userAgent, timeoutSec, useSystemChrome, chromeExecutablePath, chromeRemoteDebuggingPort, minActionDelayMs, maxActionDelayMs, isWebScraper, maxRetries, scriptTemplate, importToKolDatabase])
 
   const hasChanged = React.useCallback((): boolean => {
     const current = buildCredentials()
@@ -296,7 +313,12 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
       current.headless !== (saved.headless !== 'false' ? 'true' : 'false') ||
       current.proxy !== (saved.proxy || '') ||
       current.userAgent !== (saved.userAgent || '') ||
-      current.timeoutMs !== String(normalizeTimeoutMs(saved.timeoutMs))
+      current.timeoutMs !== String(normalizeTimeoutMs(saved.timeoutMs)) ||
+      current.useSystemChrome !== (saved.useSystemChrome === 'true' ? 'true' : 'false') ||
+      current.chromeExecutablePath !== (saved.chromeExecutablePath || '') ||
+      current.chromeRemoteDebuggingPort !== (saved.chromeRemoteDebuggingPort || '') ||
+      current.minActionDelayMs !== (saved.minActionDelayMs || '0') ||
+      current.maxActionDelayMs !== (saved.maxActionDelayMs || '0')
     if (!isWebScraper) return baseChanged
     return (
       baseChanged ||
@@ -480,6 +502,81 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
               onChange={(e) => setTimeoutSec(e.target.value)}
               onBlur={handleSave}
             />
+          </div>
+
+          <div className="rounded-lg border border-border/50 p-3 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <label htmlFor="browser-automation-system-chrome" className="text-sm font-medium">使用系统 Chrome</label>
+                <p className="text-xs text-muted-foreground">调用本地 Google Chrome 而非 Playwright 内置 Chromium，降低被识别概率</p>
+              </div>
+              <Switch
+                id="browser-automation-system-chrome"
+                checked={useSystemChrome}
+                onCheckedChange={async (checked) => {
+                  setUseSystemChrome(checked)
+                  await saveCredentials({ useSystemChrome: checked ? 'true' : 'false' }, true)
+                }}
+              />
+            </div>
+
+            {useSystemChrome && (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Chrome 可执行文件路径（可选）</label>
+                  <Input
+                    type="text"
+                    placeholder="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+                    value={chromeExecutablePath}
+                    onChange={(e) => setChromeExecutablePath(e.target.value)}
+                    onBlur={handleSave}
+                  />
+                  <p className="text-xs text-muted-foreground">留空自动在系统 PATH 中查找 google-chrome / Google Chrome</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">CDP 远程调试端口（可选）</label>
+                  <Input
+                    type="number"
+                    min={1024}
+                    max={65535}
+                    placeholder="9222"
+                    value={chromeRemoteDebuggingPort}
+                    onChange={(e) => setChromeRemoteDebuggingPort(e.target.value)}
+                    onBlur={handleSave}
+                  />
+                  <p className="text-xs text-muted-foreground">填写后通过 connect_over_cdp 连接已启动的 Chrome，需先手动启动 Chrome 并带 --remote-debugging-port</p>
+                </div>
+              </>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">最小操作间隔（毫秒）</label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={60000}
+                  placeholder="3000"
+                  value={minActionDelayMs}
+                  onChange={(e) => setMinActionDelayMs(e.target.value)}
+                  onBlur={handleSave}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">最大操作间隔（毫秒）</label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={60000}
+                  placeholder="5000"
+                  value={maxActionDelayMs}
+                  onChange={(e) => setMaxActionDelayMs(e.target.value)}
+                  onBlur={handleSave}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">每次点击、输入、滚动后在 [最小, 最大] 范围内随机等待，0 表示不等待。建议反爬场景设置为 3000–5000</p>
           </div>
 
           {isWebScraper && (

@@ -111,6 +111,12 @@ export async function executeComputerUseTool(toolCall: ToolCall, options?: { tas
       : getDefaultUserDataDir(url)
   const headless = credentials.headless !== 'false'
 
+  function parseNumberCredential(value: string | number | undefined): number | undefined {
+    if (value === undefined || value === '') return undefined
+    const numeric = typeof value === 'number' ? value : Number(value)
+    return Number.isNaN(numeric) ? undefined : numeric
+  }
+
   const taskId = options?.taskId ?? `cu-${Date.now()}-${randomUUID().slice(0, 8)}`
   const controller = createComputerUseController({ taskId, stepMode: options?.stepMode ?? false })
   const driver = new PlaywrightBrowserDriver()
@@ -126,6 +132,17 @@ export async function executeComputerUseTool(toolCall: ToolCall, options?: { tas
         proxy: typeof credentials.proxy === 'string' ? credentials.proxy : undefined,
         userAgent: typeof credentials.userAgent === 'string' ? credentials.userAgent : undefined,
         timeoutMs: resolveTimeoutMs(credentials.timeoutMs),
+        useSystemChrome: credentials.useSystemChrome === 'true',
+        chromeExecutablePath:
+          typeof credentials.chromeExecutablePath === 'string'
+            ? credentials.chromeExecutablePath.trim() || undefined
+            : undefined,
+        chromeRemoteDebuggingPort:
+          typeof credentials.chromeRemoteDebuggingPort === 'string'
+            ? credentials.chromeRemoteDebuggingPort.trim() || undefined
+            : undefined,
+        minActionDelayMs: parseNumberCredential(credentials.minActionDelayMs),
+        maxActionDelayMs: parseNumberCredential(credentials.maxActionDelayMs),
       },
       driver,
       callLLM,

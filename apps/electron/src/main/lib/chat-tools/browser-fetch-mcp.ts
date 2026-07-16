@@ -48,6 +48,12 @@ export async function injectBrowserFetchMcpServer(
                 ? credentials.userDataDir.trim()
                 : getDefaultUserDataDir(args.url)
 
+            function parseNumberCredential(value: string | number | undefined): number | undefined {
+              if (value === undefined || value === '') return undefined
+              const numeric = typeof value === 'number' ? value : Number(value)
+              return Number.isNaN(numeric) ? undefined : numeric
+            }
+
             const result = await executeBrowserFetchTask(
               {
                 url: args.url,
@@ -62,6 +68,17 @@ export async function injectBrowserFetchMcpServer(
                 proxy: typeof credentials.proxy === 'string' ? credentials.proxy : undefined,
                 userAgent: typeof credentials.userAgent === 'string' ? credentials.userAgent : undefined,
                 timeoutMs: resolveTimeoutMs(credentials.timeoutMs),
+                useSystemChrome: credentials.useSystemChrome === 'true',
+                chromeExecutablePath:
+                  typeof credentials.chromeExecutablePath === 'string'
+                    ? credentials.chromeExecutablePath.trim() || undefined
+                    : undefined,
+                chromeRemoteDebuggingPort:
+                  typeof credentials.chromeRemoteDebuggingPort === 'string'
+                    ? credentials.chromeRemoteDebuggingPort.trim() || undefined
+                    : undefined,
+                minActionDelayMs: parseNumberCredential(credentials.minActionDelayMs),
+                maxActionDelayMs: parseNumberCredential(credentials.maxActionDelayMs),
               },
             )
 
