@@ -28,7 +28,7 @@ proma-v2/
 │   ├── ui/         # 共享 React UI 组件 (CodeBlock, MermaidBlock) (v0.1.3)
 │   └── server/     # 服务端共享业务逻辑与跨平台抽象 (v0.1.39)
 └── apps/
-    ├── electron/   # Electron 桌面应用 (v0.1.23)
+    ├── electron/   # Electron 桌面应用 (v0.1.24)
     │   └── src/
     │       ├── main/       # 主进程 + 服务层 (main/lib/)
     │       ├── preload/    # IPC 上下文桥接
@@ -92,7 +92,7 @@ proma-v2/
   - `components/agent/PermissionBanner.tsx` / `AskUserBanner.tsx` / `ExitPlanModeBanner.tsx`
 - **依赖**：`@ma-proma/shared`、`@ma-proma/ui`、`@ma-proma/core`、Jotai、Radix UI、Tailwind CSS
 
-#### @ma-proma/electron (v0.1.23)
+#### @ma-proma/electron (v0.1.24)
 - **职责**：Electron 桌面应用主体，集成所有包
 - **关键依赖**：
   - `@anthropic-ai/claude-agent-sdk@0.3.143` - Agent SDK

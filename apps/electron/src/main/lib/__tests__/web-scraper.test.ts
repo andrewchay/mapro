@@ -386,6 +386,40 @@ describe('web-scraper 网页爬取工具', () => {
       }
     })
 
+    it('markdown 输出开启重试时首次成功不重复执行', async () => {
+      const llmModule = await import('../ma-tools/llm-service')
+      const script = [
+        'import os',
+        'counter = os.path.join(os.path.dirname(os.environ["RESULT_FILE"]), "exec.count")',
+        'count = 0',
+        'if os.path.exists(counter):',
+        '    count = int(open(counter).read() or "0")',
+        'count += 1',
+        'open(counter, "w").write(str(count))',
+        'with open(os.environ["RESULT_FILE"], "w") as f: f.write("# markdown result")',
+        'open(os.environ["SCREENSHOT_FILE"], "w").write("")',
+      ].join('\n')
+      const restore = spyOn(llmModule, 'completePrompt').mockResolvedValue({
+        success: true,
+        text: script,
+      })
+
+      try {
+        const result = await browserAutomation.executeScrapingTask(
+          { url: 'https://markdown.example.com', task: 'markdown 重试测试', outputFormat: 'markdown' },
+          { headless: true, timeoutMs: 15_000, maxRetries: 2 },
+        )
+
+        expect(result.success).toBe(true)
+        expect(result.resultFile).toBe('result.md')
+        expect(existsSync(join(result.taskDir, 'result.md'))).toBe(true)
+        const execCount = readFileSync(join(result.taskDir, 'exec.count'), 'utf-8')
+        expect(execCount).toBe('1')
+      } finally {
+        restore.mockRestore()
+      }
+    })
+
     it('自定义脚本模板绕过 LLM 并渲染变量', async () => {
       const llmModule = await import('../ma-tools/llm-service')
       const restore = spyOn(llmModule, 'completePrompt')

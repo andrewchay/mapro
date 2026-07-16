@@ -81,6 +81,14 @@ export interface ScrapingTaskResult {
 const SCRAPED_DIR_NAME = 'scraped'
 const PROFILES_DIR_NAME = 'browser-profiles'
 const DEFAULT_OUTPUT_FORMAT: NonNullable<ScrapingTaskInput['outputFormat']> = 'json'
+
+/**
+ * 结果文件名统一规则：markdown 输出实际落盘为 result.md。
+ * 生成、校验、读取必须使用同一映射，避免重试逻辑误判产物缺失。
+ */
+function getResultFileName(outputFormat: string): string {
+  return `result.${outputFormat === 'markdown' ? 'md' : outputFormat}`
+}
 const DEFAULT_SCRIPT_TIMEOUT_MS = 60_000
 const DEFAULT_MAX_RETRIES = 0
 
@@ -387,7 +395,7 @@ async function generateScrapingScript(
     Pick<ScrapingTaskOptions, 'userDataDir' | 'proxy' | 'userAgent' | 'scriptTemplate'>,
   cookiesPath?: string,
 ): Promise<{ scriptPath: string; success: boolean; error?: string }> {
-  const resultFileName = `result.${outputFormat === 'markdown' ? 'md' : outputFormat}`
+  const resultFileName = getResultFileName(outputFormat)
   const screenshotFileName = 'screenshot.png'
   const scriptFileName = 'script.py'
 
@@ -528,7 +536,7 @@ async function runPythonScriptWithRetries(
   let lastResult = await runPythonScript(scriptPath, taskDir, env, timeoutMs)
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    const resultFileName = `result.${env.OUTPUT_FORMAT ?? 'json'}`
+    const resultFileName = getResultFileName(env.OUTPUT_FORMAT ?? 'json')
     const resultPath = join(taskDir, resultFileName)
     const screenshotPath = join(taskDir, 'screenshot.png')
     const resultExists = existsSync(resultPath)
@@ -549,7 +557,7 @@ async function runPythonScriptWithRetries(
  * 读取结果文件内容摘要
  */
 function readResultSummary(taskDir: string, outputFormat: string): string {
-  const resultFileName = `result.${outputFormat === 'markdown' ? 'md' : outputFormat}`
+  const resultFileName = getResultFileName(outputFormat)
   const resultPath = join(taskDir, resultFileName)
   if (!existsSync(resultPath)) {
     return ''
@@ -701,7 +709,7 @@ async function executeSingleScrapingTask(
     }
 
     const env: Record<string, string> = {
-      RESULT_FILE: join(baseDir, `result.${outputFormat === 'markdown' ? 'md' : outputFormat}`),
+      RESULT_FILE: join(baseDir, getResultFileName(outputFormat)),
       SCREENSHOT_FILE: join(baseDir, 'screenshot.png'),
       OUTPUT_FORMAT: outputFormat,
       HEADLESS: headless ? 'true' : 'false',
@@ -724,7 +732,7 @@ async function executeSingleScrapingTask(
       writeBackUserDataDir(options.userDataDir, userDataDir)
     }
 
-    const resultFileName = `result.${outputFormat === 'markdown' ? 'md' : outputFormat}`
+    const resultFileName = getResultFileName(outputFormat)
     const resultPath = join(baseDir, resultFileName)
     const screenshotPath = join(baseDir, 'screenshot.png')
 
