@@ -1,6 +1,6 @@
 {
   "name": "@ma-proma/electron",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "description": "MAPro next gen ai software with general agents - Electron App",
   "main": "dist/main.cjs",
   "author": {
@@ -56,6 +56,7 @@
   "devDependencies": {
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
+    "@testing-library/react": "^16.3.2",
     "@larksuiteoapi/node-sdk": "^1.59.0",
     "@ma-proma/core": "workspace:*",
     "@ma-proma/shared": "workspace:*",

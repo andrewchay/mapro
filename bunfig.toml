@@ -1,2 +1,3 @@
 [test]
 preload = ["./apps/web-ui/src/test-setup.ts"]
+isolate = true

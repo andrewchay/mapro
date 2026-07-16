@@ -6,6 +6,7 @@
 
 import type { ToolCall, ToolResult, ToolDefinition } from '@ma-proma/core'
 import type { ChatToolMeta } from '@ma-proma/shared'
+import { randomUUID } from 'node:crypto'
 import { executeComputerUseTask } from '../browser-automation/computer-use-service.ts'
 import { PlaywrightBrowserDriver } from '../browser-automation/playwright-browser-driver.ts'
 import { createComputerUseLLMCaller } from '../browser-automation/computer-use-llm.ts'
@@ -15,6 +16,7 @@ import {
   resetPythonPlaywrightCheck,
   resolveTimeoutMs,
 } from '../browser-automation/browser-automation-service.ts'
+import { createComputerUseController, finishComputerUseController } from '../browser-automation/computer-use-controller.ts'
 import { getToolCredentials } from '../chat-tool-config'
 
 export const COMPUTER_USE_TOOL_META: ChatToolMeta = {
@@ -88,7 +90,7 @@ export function isComputerUseToolCall(toolName: string): boolean {
   return COMPUTER_USE_TOOL_NAMES.has(toolName)
 }
 
-export async function executeComputerUseTool(toolCall: ToolCall): Promise<ToolResult> {
+export async function executeComputerUseTool(toolCall: ToolCall, options?: { taskId?: string; stepMode?: boolean }): Promise<ToolResult> {
   const args = toolCall.arguments
   const url = typeof args.url === 'string' ? args.url : ''
   const task = typeof args.task === 'string' ? args.task : ''
@@ -109,6 +111,8 @@ export async function executeComputerUseTool(toolCall: ToolCall): Promise<ToolRe
       : getDefaultUserDataDir(url)
   const headless = credentials.headless !== 'false'
 
+  const taskId = options?.taskId ?? `cu-${Date.now()}-${randomUUID().slice(0, 8)}`
+  const controller = createComputerUseController({ taskId, stepMode: options?.stepMode ?? false })
   const driver = new PlaywrightBrowserDriver()
   const callLLM = createComputerUseLLMCaller()
 
@@ -125,6 +129,7 @@ export async function executeComputerUseTool(toolCall: ToolCall): Promise<ToolRe
       },
       driver,
       callLLM,
+      controller,
     )
 
     if (result.success) {
@@ -145,5 +150,7 @@ export async function executeComputerUseTool(toolCall: ToolCall): Promise<ToolRe
       content: `执行视觉自动化工具时发生异常：${error instanceof Error ? error.message : String(error)}`,
       isError: true,
     }
+  } finally {
+    finishComputerUseController(controller)
   }
 }

@@ -434,10 +434,11 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
 
           <div className="flex items-center justify-between rounded-lg border border-border/50 p-3">
             <div className="space-y-0.5">
-              <div className="text-sm font-medium">headless 模式</div>
+              <label htmlFor="browser-automation-headless" className="text-sm font-medium">headless 模式</label>
               <p className="text-xs text-muted-foreground">关闭后会弹出真实浏览器窗口，方便扫码/短信登录</p>
             </div>
             <Switch
+              id="browser-automation-headless"
               checked={headless}
               onCheckedChange={async (checked) => {
                 setHeadless(checked)
@@ -469,8 +470,9 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">超时时间（秒）</label>
+            <label htmlFor="browser-automation-timeout" className="text-sm font-medium">超时时间（秒）</label>
             <Input
+              id="browser-automation-timeout"
               type="number"
               min={10}
               max={600}
@@ -509,10 +511,11 @@ function BrowserAutomationSettings({ toolId, title, description, guideTitle, gui
 
               <div className="flex items-center justify-between rounded-lg border border-border/50 p-3">
                 <div className="space-y-0.5">
-                  <div className="text-sm font-medium">默认导入 KOL 数据库</div>
+                  <label htmlFor="web-scraper-import-kol" className="text-sm font-medium">默认导入 KOL 数据库</label>
                   <p className="text-xs text-muted-foreground">JSON 结果会自动写入本地 KOL 数据库（可被工具参数覆盖）</p>
                 </div>
                 <Switch
+                  id="web-scraper-import-kol"
                   checked={importToKolDatabase}
                   onCheckedChange={async (checked) => {
                     setImportToKolDatabase(checked)
@@ -1271,6 +1274,9 @@ function CustomToolsSection(): React.ReactElement | null {
     </SettingsSection>
   )
 }
+
+// 导出内部组件供单元测试覆盖设置页到执行器的链路
+export { BrowserAutomationSettings, ScheduledScrapingSettings }
 
 export function ToolSettings(): React.ReactElement {
   return (

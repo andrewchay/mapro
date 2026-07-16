@@ -9,11 +9,14 @@ import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
 
-async function loadEngine(): Promise<{ Database: new (path: string) => any }> {
+function loadEngine(): { Database: new (path: string) => any } {
   if (typeof Bun !== 'undefined') {
     try {
-      const mod = await import('bun:sqlite')
-      return { Database: mod.Database }
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require('bun:sqlite')
+      if (mod.Database) {
+        return { Database: mod.Database }
+      }
     } catch {
       // fall through to better-sqlite3
     }
@@ -22,7 +25,7 @@ async function loadEngine(): Promise<{ Database: new (path: string) => any }> {
   return { Database: require('better-sqlite3') }
 }
 
-const engine = await loadEngine()
+const engine = loadEngine()
 
 export class SqliteDatabase {
   private db: any

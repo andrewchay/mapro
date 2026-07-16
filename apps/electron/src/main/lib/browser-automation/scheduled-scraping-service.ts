@@ -15,6 +15,7 @@ import {
   executeScrapingTask,
   getDefaultUserDataDir,
   resolveTimeoutMs,
+  type ScrapingTaskResult,
 } from './browser-automation-service'
 import { getToolCredentials } from '../chat-tool-config'
 
@@ -115,7 +116,7 @@ export function deleteScheduledScrapingTask(id: string): boolean {
 /**
  * 执行单个定时任务
  */
-async function runScheduledTask(id: string): Promise<void> {
+async function runScheduledTask(id: string): Promise<ScrapingTaskResult | undefined> {
   if (runningTasks.has(id)) {
     console.warn(`[Scheduled Scraping] 任务 ${id} 仍在运行，跳过本次调度`)
     return
@@ -134,7 +135,7 @@ async function runScheduledTask(id: string): Promise<void> {
     const userDataDir =
       credentials.userDataDir?.trim() || (targetUrl ? getDefaultUserDataDir(targetUrl) : undefined)
 
-    const result = await executeScrapingTask(
+    const result: ScrapingTaskResult = await executeScrapingTask(
       {
         task: task.task,
         urls: task.urls,
@@ -158,8 +159,10 @@ async function runScheduledTask(id: string): Promise<void> {
     } else {
       console.error(`[Scheduled Scraping] 任务 ${task.name} 失败:`, result.error)
     }
+    return result
   } catch (error) {
     console.error(`[Scheduled Scraping] 任务 ${task.name} 执行异常:`, error)
+    return undefined
   } finally {
     runningTasks.delete(id)
   }
@@ -209,6 +212,13 @@ export function startScheduledScrapingService(): void {
       startScheduledTask(task.id)
     }
   }
+}
+
+/**
+ * 测试专用：直接触发单个任务执行
+ */
+export function runScheduledTaskForTests(id: string): Promise<ScrapingTaskResult | undefined> {
+  return runScheduledTask(id)
 }
 
 /**

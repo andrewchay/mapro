@@ -20,9 +20,19 @@ globalThis.HTMLInputElement = window.HTMLInputElement as unknown as typeof globa
 globalThis.HTMLTextAreaElement = window.HTMLTextAreaElement as unknown as typeof globalThis.HTMLTextAreaElement
 globalThis.File = window.File as unknown as typeof globalThis.File
 globalThis.Event = window.Event as unknown as typeof globalThis.Event
+globalThis.CustomEvent = window.CustomEvent as unknown as typeof globalThis.CustomEvent
 globalThis.MessageEvent = window.MessageEvent as unknown as typeof globalThis.MessageEvent
 globalThis.CloseEvent = window.CloseEvent as unknown as typeof globalThis.CloseEvent
 globalThis.DataTransfer = window.DataTransfer as unknown as typeof globalThis.DataTransfer
+
+globalThis.getComputedStyle = window.getComputedStyle.bind(window) as unknown as typeof globalThis.getComputedStyle
+globalThis.matchMedia = window.matchMedia.bind(window) as unknown as typeof globalThis.matchMedia
+globalThis.MutationObserver = window.MutationObserver as unknown as typeof globalThis.MutationObserver
+globalThis.ResizeObserver = window.ResizeObserver as unknown as typeof globalThis.ResizeObserver
+globalThis.NodeFilter = window.NodeFilter as unknown as typeof globalThis.NodeFilter
+
+// happy-dom Window 上缺少部分原生构造函数，补齐以避免 Radix 组件内部报错
+;(window as unknown as { TypeError: typeof TypeError }).TypeError = TypeError
 
 globalThis.requestAnimationFrame = globalThis.requestAnimationFrame ?? ((callback: FrameRequestCallback) => setTimeout(callback, 16))
 globalThis.cancelAnimationFrame = globalThis.cancelAnimationFrame ?? ((id: number) => clearTimeout(id))

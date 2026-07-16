@@ -1,6 +1,6 @@
 {
   "name": "@ma-proma/shared",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "license": "UNLICENSED",
   "description": "Shared types, configs and utilities for MAPro",
   "type": "module",

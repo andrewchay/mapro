@@ -19,7 +19,7 @@
     "web:start": "bun run --filter='@ma-proma/web' start",
     "build": "bun run --filter='*' build",
     "typecheck": "bun run --filter='*' typecheck",
-    "test": "bun test",
+    "test": "bun test --isolate",
     "test:smoke": "bun run scripts/smoke-test.ts"
   },
   "devDependencies": {

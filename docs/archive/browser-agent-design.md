@@ -266,11 +266,24 @@ type ComputerAction =
 
 坐标使用实际像素值，视口固定为 1280×800。`type` 与 `key` 操作基于当前焦点元素。
 
-### 4.5 UI 设计（当前状态：未实现专用面板）
+### 4.5 UI 设计（专用面板已实现）
 
-当前 `computer_use` 在 Chat / Agent 模式下以普通工具结果返回文本摘要，中间截图保存到任务目录，不在 UI 上实时展示。
+`computer_use` 拥有专用面板 `ComputerUsePanel`，任务启动后自动弹出，支持：
 
-未来可补充的专用视觉模式面板：
+- **左侧**：实时截图流（每次操作后更新）
+- **右侧**：
+  - 任务目标
+  - 动作历史（时间线）
+  - 当前步骤 / 总步骤
+  - 提取的数据预览
+- **底部**：
+  - 暂停/继续按钮
+  - 下一步按钮（人工逐步审批）
+  - 终止按钮
+  - 单步模式开关
+  - 打开任务目录
+
+事件流：主进程通过 `COMPUTER_USE_IPC_CHANNELS.EVENT` 广播 → `useGlobalComputerUseListeners` 写入 Jotai atoms → `ComputerUsePanel` 渲染。控制命令通过 `controlComputerUse(taskId, command)` 回传主进程。
 
 - **左侧**：实时截图流（每次操作后更新）
 - **右侧**：
@@ -349,19 +362,19 @@ type ComputerAction =
 
 ## 六、实现路线图
 
-### Phase 1：模式 A MVP（1-2 周）
+### Phase 1：模式 A MVP（已完成）
 
 - [x] 实现 `BrowserAutomationService`
 - [x] 实现 `web_scraper` Chat 工具
 - [x] 接入 Chat 工具执行流程
 - [x] 支持 JSON/Markdown 输出
-- [ ] 运行 3-5 个真实爬取案例（待手动验证小红书后台等登录态页面）
+- [ ] 运行 3-5 个真实爬取案例（需手动验证小红书后台、抖音星图等登录态页面）
 - [x] 添加基础安全约束（超时、目录隔离）
 - [x] 持久浏览器 Profile + Cookie 注入 + 反检测参数（见 3.6 节，已落地）
 - [x] 前端配置面板（`ToolSettings` 的「网页爬取」+「视觉浏览器自动化」设置区）
 - [x] 真实环境检查（`checkPythonAndPlaywright` + 「检测环境」按钮）
 
-### Phase 2：模式 A 增强（2-3 周）
+### Phase 2：模式 A 增强（已完成）
 
 - [x] 支持批量 URL 爬取
 - [x] 支持定时/周期性爬取
@@ -369,13 +382,14 @@ type ComputerAction =
 - [x] 支持自定义脚本模板
 - [x] 与 KOL 数据库直接对接
 
-### Phase 3：模式 B 视觉控制（4-6 周）
+### Phase 3：模式 B 视觉控制（核心 + UI/审批已完成，A/B 测试待补充）
 
 - [x] 实现观察-思考-行动循环（自研视觉循环，不依赖 Anthropic Computer Use API）
 - [x] Chat 模式接入 `computer_use` 工具
 - [x] Agent 模式通过 MCP Server 注入 `computer_use`
-- [ ] 开发视觉模式专用 UI
-- [ ] 实现人工审批流程
+- [x] 任务级控制器（`computer-use-controller.ts`）：支持暂停/继续/单步/停止/事件广播
+- [x] 开发视觉模式专用 UI（`ComputerUsePanel` 自动弹窗、实时截图、动作历史、步骤进度）
+- [x] 实现人工审批流程（单步模式 + 暂停/继续/下一步控制）
 - [ ] A/B 测试模式 A vs 模式 B 的效果与成本
 
 ---

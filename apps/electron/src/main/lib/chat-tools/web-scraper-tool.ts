@@ -143,8 +143,11 @@ export async function executeWebScraperTool(toolCall: ToolCall): Promise<ToolRes
       ? args.outputFormat
       : 'json'
   const maxRetries = typeof args.maxRetries === 'number' ? args.maxRetries : undefined
-  const importToKolDatabase =
-    args.importToKolDatabase === true || credentials.importToKolDatabase === 'true'
+  // 工具调用参数优先，未指定时使用凭据默认值
+  const importToKolDatabase: boolean =
+    typeof args.importToKolDatabase === 'boolean'
+      ? args.importToKolDatabase
+      : credentials.importToKolDatabase === 'true'
 
   if ((!url && (!urls || urls.length === 0)) || !task) {
     return {

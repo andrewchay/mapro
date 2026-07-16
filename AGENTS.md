@@ -23,18 +23,18 @@ Bun workspace monorepo：
 ```
 proma-v2/
 ├── packages/
-│   ├── shared/     # 共享类型、IPC 通道常量、配置、工具函数 (v0.1.26)
+│   ├── shared/     # 共享类型、IPC 通道常量、配置、工具函数 (v0.1.30)
 │   ├── core/       # AI Provider 适配器、代码高亮服务 (v0.2.9)
 │   ├── ui/         # 共享 React UI 组件 (CodeBlock, MermaidBlock) (v0.1.3)
-│   └── server/     # 服务端共享业务逻辑与跨平台抽象 (v0.1.25)
+│   └── server/     # 服务端共享业务逻辑与跨平台抽象 (v0.1.39)
 └── apps/
-    ├── electron/   # Electron 桌面应用 (v0.1.12)
+    ├── electron/   # Electron 桌面应用 (v0.1.23)
     │   └── src/
     │       ├── main/       # 主进程 + 服务层 (main/lib/)
     │       ├── preload/    # IPC 上下文桥接
     │       └── renderer/   # React UI (Vite + Tailwind + Radix UI)
-    ├── web/        # Web 服务端入口 (Express + WebSocket) (v0.1.25)
-    └── web-ui/     # Web 端 React SPA (v0.1.20)
+    ├── web/        # Web 服务端入口 (Express + WebSocket) (v0.1.33)
+    └── web-ui/     # Web 端 React SPA (v0.1.32)
 ```
 
 **包命名规范**：`@ma-proma/*` 作用域（`@ma-proma/core`、`@ma-proma/shared`、`@ma-proma/ui`、`@ma-proma/server`、`@ma-proma/electron`）
@@ -43,7 +43,7 @@ proma-v2/
 
 ### 包职责详解
 
-#### @ma-proma/shared (v0.1.26)
+#### @ma-proma/shared (v0.1.30)
 - **导出模块**：`./types`、`./config`、`./utils`、`./constants/permission-rules`
 - **关键类型**：`AgentMessage`、`ChatMessage`、`Channel`、`PermissionRequest`、`FeishuConfig`、`Campaign`、`ContentAudit`
 - **依赖**：无运行时依赖（仅 TypeScript）
@@ -59,7 +59,7 @@ proma-v2/
 - **依赖**：`@ma-proma/core`、`beautiful-mermaid`、`shiki`、Radix UI
 - **Peer 依赖**：`react@^18.3.0`、`react-dom@^18.3.0`
 
-#### @ma-proma/server (v0.1.27)
+#### @ma-proma/server (v0.1.39)
 - **导出模块**：`./campaign`、`./chat`、`./context`、`./db`、`./files`、`./kol`、`./secrets`、`./transport`
 - **关键功能**：
   - `CampaignRepository` / `CampaignQueryService` / `CampaignCommandService`：Campaign 项目 CRUD 与业务协调
@@ -72,7 +72,7 @@ proma-v2/
   - 跨平台抽象：`DbProvider`（`SqliteDbProvider` / `PostgresDbProvider`）、`FileProvider`、`SecretsStore`、`RendererTransport`
 - **依赖**：`@ma-proma/shared`、`@ma-proma/core`、`better-sqlite3`、`pg`
 
-#### @ma-proma/web (v0.1.25)
+#### @ma-proma/web (v0.1.33)
 - **职责**：Web 服务端入口，基于 Express + WebSocket 暴露 REST / WS API
 - **关键模块**：
   - `routes/campaign.ts`：Campaign / KOL 候选池 / Brief / 内容审核 / 内容追踪 / 13 步工作流 REST 路由；已接入 `createDbProvider()`，支持 SQLite / PostgreSQL
@@ -92,7 +92,7 @@ proma-v2/
   - `components/agent/PermissionBanner.tsx` / `AskUserBanner.tsx` / `ExitPlanModeBanner.tsx`
 - **依赖**：`@ma-proma/shared`、`@ma-proma/ui`、`@ma-proma/core`、Jotai、Radix UI、Tailwind CSS
 
-#### @ma-proma/electron (v0.1.12)
+#### @ma-proma/electron (v0.1.23)
 - **职责**：Electron 桌面应用主体，集成所有包
 - **关键依赖**：
   - `@anthropic-ai/claude-agent-sdk@0.3.143` - Agent SDK
@@ -122,8 +122,8 @@ bun run typecheck
 # 单包类型检查
 cd packages/core && bun run typecheck
 
-# 测试
-bun test
+# 测试（使用 --isolate 避免 mock.module 跨测试文件泄漏）
+bun test --isolate
 
 # 打包分发
 cd apps/electron
@@ -148,7 +148,7 @@ bun run generate:icons    # 生成应用图标
 使用 Bun 代替 Node.js/npm/pnpm：
 
 - `bun install` 安装依赖，`bun run <script>` 运行脚本
-- `bun test` 运行测试（内置测试运行器，`import { test, expect } from "bun:test"`）
+- `bun test --isolate` 运行测试（使用 `--isolate` 让每个测试文件拥有独立全局对象，避免 `mock.module` 跨文件泄漏；内置测试运行器，`import { test, expect } from "bun:test"`）
 - Bun 自动加载 .env 文件（无需 dotenv）
 - 优先使用 Bun 原生 API：`Bun.file` > `node:fs`，`Bun.$\`command\`` > `execa`
 
@@ -443,7 +443,7 @@ bun run generate:icons    # 生成应用图标
 
 ## 测试
 
-- 运行所有测试：`bun test`（根目录）
+- 运行所有测试：`bun test --isolate`（根目录）
 - Web UI 组件测试依赖 `happy-dom` 提供 DOM 全局环境；`bunfig.toml` 通过 `preload` 在测试文件导入 React / `@testing-library/react` 之前完成 polyfill：
   - 根配置：`bunfig.toml` → `"./apps/web-ui/src/test-setup.ts"`
   - 包内配置：`apps/web-ui/bunfig.toml` → `"./src/test-setup.ts"`

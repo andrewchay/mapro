@@ -27,13 +27,16 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 mock.module(join(__dirname, '..', 'ma-tools', 'llm-service.ts'), () => ({
   completePrompt: async () => ({ success: false, text: '', error: 'mocked-llm' }),
   complete: async () => ({ success: false, text: '', error: 'mocked-llm' }),
+  extractJSON: (text: string) => JSON.parse(text),
 }))
 
 // ===== Mock KOL 数据服务，避免测试写入真实 SQLite =====
 const upsertKOLMock = mock((kol: unknown) => {})
-mock.module(join(__dirname, '..', 'ma-tools', 'kol-data-service.ts'), () => ({
-  upsertKOL: upsertKOLMock,
-}))
+import { createKolDataServiceMock } from './mocks/kol-data-service-mock'
+
+mock.module(join(__dirname, '..', 'ma-tools', 'kol-data-service.ts'), () =>
+  createKolDataServiceMock({ upsertKOL: upsertKOLMock }),
+)
 
 // ===== 测试环境 =====
 

@@ -2,15 +2,17 @@
 
 ## 背景与目标
 
-当前 `web-scraper` 工具已经能被 LLM 调用并执行，但面对小红书后台等需要登录态的页面时存在明显短板：
+> 状态：本计划中的 Phase 1（脚本自动化增强）与 Phase 2（Computer Use 视觉浏览器自动化）均已落地。
 
-1. **没有登录态传递**：Playwright 以全新 headless 上下文启动，没有 Cookie / localStorage / 登录凭证。
-2. **没有持久浏览器 Profile**：每次任务都是全新浏览器，登录后状态无法复用。
-3. **反爬特征明显**：默认 headless、固定 UA、Playwright 自动化标志容易被识别。
-4. **没有前端配置入口**：用户无法在设置里配置 Cookie、User-Agent、代理、headless 开关等。
-5. **可用性检查虚设**：`isWebScraperAvailable()` 恒返回 `true`，缺少 python3 / playwright 预检。
+此前 `web-scraper` 工具已经能被 LLM 调用并执行，但面对小红书后台等需要登录态的页面时存在明显短板。本计划目标是在不引入外部 SaaS、不改动 LLM Provider 调用链路的前提下，让 `web-scraper` 支持**持久浏览器 Profile**、**Cookie 注入**、**反检测参数**和**前端可视化配置**，从而能够抓取小红书后台等登录态页面。
 
-本计划目标：在不引入外部 SaaS、不改动 LLM Provider 调用链路的前提下，让 `web-scraper` 支持**持久浏览器 Profile**、**Cookie 注入**、**反检测参数**和**前端可视化配置**，从而能够抓取小红书后台等登录态页面。
+已解决的关键问题：
+
+1. **登录态传递**：通过持久 Profile（`userDataDir`）+ Cookie 注入（JSON / Netscape）解决。
+2. **持久浏览器 Profile**：每个域名独立 Profile，任务前复制、成功后写回，避免状态冲突。
+3. **反爬特征**：启动参数加入 `--disable-blink-features=AutomationControlled`，并固定 viewport / locale / timezone / User-Agent。
+4. **前端配置入口**：`ToolSettings` 已新增「网页爬取」和「视觉浏览器自动化」配置区。
+5. **真实可用性检查**：`isWebScraperAvailable()` 已改为真实检查 `python3` / `playwright`，并提供「检测环境」按钮。
 
 ## 可选方案
 
@@ -49,8 +51,8 @@
 
 ### 建议落地节奏
 
-- **Phase 1：方案 A**（本周）。先解决 80% 的登录态 + 反爬问题，让用户能抓到小红书后台数据。
-- **Phase 2：方案 B 自研视觉循环**（已实现）。当方案 A 遇到复杂动态页面或频繁风控时，可切换或叠加 `computer_use` 能力。
+- **Phase 1：方案 A**（已完成）。持久 Profile、Cookie 注入、反检测参数、前端配置、真实环境检查均已落地。
+- **Phase 2：方案 B 自研视觉循环**（已完成）。当方案 A 遇到复杂动态页面或频繁风控时，可切换或叠加 `computer_use` 能力。
 
 ## 关键改动文件
 
@@ -75,7 +77,7 @@
 
 ## 详细实现步骤
 
-### Phase 1：方案 A（脚本自动化增强）
+### Phase 1：方案 A（脚本自动化增强，已完成）
 
 #### 1. 扩展 `ScrapingTaskInput` / 新增 `ScrapingTaskOptions`
 
@@ -176,7 +178,7 @@ export function isWebScraperAvailable(): boolean {
 - 默认 headless：`true`。
 - 默认超时：`60000` ms。
 
-### Phase 2 补充：模式 A 增强能力（已落地）
+### Phase 2 补充：模式 A 增强能力（已完成）
 
 在方案 A 的登录态与反爬能力基础上，进一步扩展了脚本自动化的工程能力：
 
@@ -192,7 +194,7 @@ export function isWebScraperAvailable(): boolean {
 - `apps/electron/src/main/lib/__tests__/scheduled-scraping-service.test.ts`
 - `apps/electron/src/main/lib/__tests__/web-scraper.test.ts`（补充批量、重试、模板、KOL 导入测试）
 
-### Phase 2：方案 B（Computer Use 视觉浏览器自动化）
+### Phase 2：方案 B（Computer Use 视觉浏览器自动化，已完成）
 
 #### 1. 新增 `computer-use-service.ts`
 
@@ -270,24 +272,40 @@ LLM 返回 JSON：
 
 ## 测试计划
 
-1. **单元/集成测试**：
-   - `isWebScraperAvailable()` 在 python3/playwright 缺失时返回 `false`。
-   - `executeScrapingTask` 能正确把 `userDataDir`、`cookies`、`headless` 写入环境变量并生成脚本。
-   - 批量 URL 爬取生成子目录并聚合 `resultFiles`。
-   - `maxRetries` 重试后成功。
-   - 自定义 `scriptTemplate` 跳过 LLM 并渲染变量。
-   - `importToKolDatabase` 调用 `upsertKOL` 导入数据。
-   - `scheduled-scraping-service` 的 CRUD、持久化与启停逻辑。
-2. **手动测试**：
-   - 抓取一个无需登录的公开页面（如豆瓣电影 Top 250），确认结构化数据返回。
-   - 抓取小红书蒲公英/创作者后台列表页，验证登录态复用。
-   - **Computer Use**：让 Agent “打开小红书创作者后台，进入达人合作页面，提取前 10 个达人昵称和粉丝数”，验证视觉循环能完成多步操作（Chat 与 Agent 模式均需验证）。
-   - 关闭 headless，验证有界面浏览器弹出并可手动登录。
-3. **类型检查**：`bun run --filter='@ma-proma/electron' typecheck`。
+### 已完成的自动化测试
 
-## 预期结果
+以下测试已实现并随 CI/本地运行：
 
-- 设置页出现「网页爬取」配置面板。
-- `web-scraper` 工具在有/无登录态场景下均可使用。
-- 小红书后台等需要登录的页面，通过持久 Profile 或 Cookie 注入能够抓取。
-- 环境缺失时给出明确提示，而不是运行时模糊报错。
+- `isWebScraperAvailable()` 在 python3/playwright 缺失时返回 `false`。
+- `executeScrapingTask` 能正确把 `userDataDir`、`cookies`、`headless` 等选项写入环境变量并生成脚本。
+- 批量 URL 爬取生成子目录并聚合 `resultFiles`。
+- `maxRetries` 重试后成功。
+- 自定义 `scriptTemplate` 跳过 LLM 并渲染变量。
+- `importToKolDatabase` 调用 `upsertKOL` 导入数据。
+- `scheduled-scraping-service` 的 CRUD、持久化与启停逻辑。
+- `computer-use-service` 的视觉循环、action 解析、控制器启停/暂停/单步逻辑。
+- `computer-use-mcp.ts` 在 Agent 模式下的工具注入与错误处理。
+
+### 待手动验证
+
+- 抓取一个无需登录的公开页面（如豆瓣电影 Top 250），确认结构化数据返回。
+- 抓取小红书蒲公英/创作者后台列表页，验证登录态复用。
+- **Computer Use**：让 Agent “打开小红书创作者后台，进入达人合作页面，提取前 10 个达人昵称和粉丝数”，验证视觉循环能完成多步操作（Chat 与 Agent 模式均需验证）。
+- 关闭 headless，验证有界面浏览器弹出并可手动登录。
+
+### 类型检查
+
+```bash
+bun run --filter='@ma-proma/electron' typecheck
+```
+
+## 当前结果
+
+- [x] 设置页出现「网页爬取」和「视觉浏览器自动化」配置面板。
+- [x] `web-scraper` 工具在有/无登录态场景下均可调用。
+- [x] 持久 Profile 和 Cookie 注入已支持登录态复用（小红书/抖音等后台需手动验证）。
+- [x] 环境缺失时给出明确提示，并提供安装命令。
+- [x] `computer_use` 视觉循环已在 Chat/Agent 模式可用。
+- [x] 视觉模式专用 UI（`ComputerUsePanel`）已实现：任务启动自动弹窗、实时截图、动作历史、暂停/继续/单步/终止控制。
+- [x] 人工审批流程已实现：通过「单步模式」开关，每步执行后自动暂停，等待用户点击「下一步」或「继续」。
+- [ ] A/B 测试对比脚本模式与视觉模式的效果与成本。

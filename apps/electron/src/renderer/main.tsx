@@ -46,6 +46,7 @@ import {
 } from './atoms/ui-preferences'
 import { useGlobalAgentListeners } from './hooks/useGlobalAgentListeners'
 import { useGlobalChatListeners } from './hooks/useGlobalChatListeners'
+import { useGlobalComputerUseListeners } from './hooks/useGlobalComputerUseListeners'
 import { tabsAtom, activeTabIdAtom, ensureScratchPadTab, scratchPadContentAtom, scratchPadLoadedAtom, SCRATCH_PAD_ID } from './atoms/tab-atoms'
 import type { TabItem } from './atoms/tab-atoms'
 import { chatToolsAtom } from './atoms/chat-tool-atoms'
@@ -415,6 +416,16 @@ function ChatListenersInitializer(): null {
  */
 function AgentListenersInitializer(): null {
   useGlobalAgentListeners()
+  return null
+}
+
+/**
+ * Computer Use IPC 监听器初始化组件
+ *
+ * 全局挂载，永不销毁。确保视觉浏览器自动化事件不丢失。
+ */
+function ComputerUseListenersInitializer(): null {
+  useGlobalComputerUseListeners()
   return null
 }
 
@@ -868,6 +879,7 @@ if (isQuickTaskWindow) {
       <UiPreferencesInitializer />
       <ChatListenersInitializer />
       <AgentListenersInitializer />
+      <ComputerUseListenersInitializer />
       <ChatToolInitializer />
       <UpdaterInitializer />
       <FeishuInitializer />

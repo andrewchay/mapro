@@ -15,6 +15,7 @@ import { AppShellProvider, type AppShellContextType } from '@/contexts/AppShellC
 import { appModeAtom } from '@/atoms/app-mode'
 import { agentSidePanelWidthAtom, currentAgentSessionIdAtom, currentSessionSidePanelOpenAtom } from '@/atoms/agent-atoms'
 import { WindowControls } from '@/components/WindowControls'
+import { ComputerUsePanel } from '@/components/agent/ComputerUsePanel'
 import { detectIsWindows } from '@/lib/platform'
 import { cn } from '@/lib/utils'
 
@@ -119,6 +120,7 @@ export function AppShell({ contextValue }: AppShellProps): React.ReactElement {
           </div>
         )}
       </div>
+      <ComputerUsePanel />
     </AppShellProvider>
   )
 }

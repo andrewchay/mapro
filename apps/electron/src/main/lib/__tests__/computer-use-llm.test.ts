@@ -14,6 +14,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 mock.module(join(__dirname, '..', 'ma-tools', 'llm-service.ts'), () => ({
   complete: mock(async () => ({ success: false, text: '', error: 'mocked-llm' })),
   completePrompt: mock(async () => ({ success: false, text: '', error: 'mocked-llm' })),
+  extractJSON: (text: string) => JSON.parse(text),
 }))
 
 import type { LLMVisionCallParams } from '../browser-automation/computer-use-types'

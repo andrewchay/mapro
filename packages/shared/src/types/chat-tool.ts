@@ -134,3 +134,28 @@ export const CHAT_TOOL_IPC_CHANNELS = {
   /** 保存定时爬取任务列表 */
   SAVE_SCHEDULED_SCRAPING_TASKS: 'chat-tool:save-scheduled-scraping-tasks',
 } as const
+
+/** Computer Use 视觉浏览器自动化 IPC 通道 */
+export const COMPUTER_USE_IPC_CHANNELS = {
+  /** 主进程 → 渲染进程：任务状态/截图/动作等事件推送 */
+  EVENT: 'computer-use:event',
+  /** 渲染进程 → 主进程：暂停/继续/单步/终止等控制命令 */
+  CONTROL: 'computer-use:control',
+} as const
+
+/** Computer Use 控制命令 */
+export type ComputerUseControlCommand =
+  | { type: 'pause' }
+  | { type: 'resume' }
+  | { type: 'step' }
+  | { type: 'stop' }
+  | { type: 'set-step-mode'; enabled: boolean }
+
+/** Computer Use UI 事件 */
+export type ComputerUseUIEvent =
+  | { type: 'started'; taskId: string; url: string; task: string; maxSteps: number; timestamp: number }
+  | { type: 'screenshot'; taskId: string; step: number; base64: string; timestamp: number }
+  | { type: 'action'; taskId: string; step: number; thought: string; action: unknown; timestamp: number }
+  | { type: 'status'; taskId: string; status: 'running' | 'paused' | 'resumed' | 'stopping'; timestamp: number }
+  | { type: 'finished'; taskId: string; success: boolean; summary: string; steps: number; taskDir: string; error?: string; timestamp: number }
+  | { type: 'error'; taskId: string; error: string; timestamp: number }

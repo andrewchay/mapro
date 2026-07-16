@@ -17,6 +17,7 @@ import type {
   LLMVisionCaller,
   ComputerUseTaskResult,
 } from './computer-use-types.ts'
+import type { ComputerUseController } from './computer-use-controller.ts'
 
 const DEFAULT_MAX_STEPS = 30
 const DEFAULT_TIMEOUT_MS = 60_000
@@ -115,12 +116,15 @@ function isValidComputerAction(action: ComputerAction): action is ComputerAction
 
 /**
  * 执行 Computer Use 视觉任务
+ *
+ * @param controller 可选的人工干预控制器；传入后会向渲染进程广播实时事件
  */
 export async function executeComputerUseTask(
   input: ComputerUseTaskInput,
   options: ComputerUseOptions,
   driver: BrowserDriver,
   callLLM: LLMVisionCaller,
+  controller?: ComputerUseController,
 ): Promise<ComputerUseTaskResult> {
   const taskDir = createTaskDir()
   const maxSteps = input.maxSteps ?? DEFAULT_MAX_STEPS
@@ -130,15 +134,65 @@ export async function executeComputerUseTask(
   const systemPrompt = buildSystemPrompt()
   const screenshotPath = join(taskDir, 'screenshot.png')
 
+  function emitScreenshot(step: number, base64: string): void {
+    controller?.emit({ type: 'screenshot', taskId: controller.taskId, step, base64, timestamp: Date.now() })
+  }
+
+  function emitAction(step: number, thought: string, action: ComputerAction): void {
+    controller?.emit({
+      type: 'action',
+      taskId: controller.taskId,
+      step,
+      thought,
+      action,
+      timestamp: Date.now(),
+    })
+  }
+
+  function emitFinished(result: ComputerUseTaskResult): void {
+    controller?.emit({
+      type: 'finished',
+      taskId: controller.taskId,
+      success: result.success,
+      summary: result.summary,
+      steps: result.steps,
+      taskDir: result.taskDir,
+      error: result.error,
+      timestamp: Date.now(),
+    })
+  }
+
   try {
     const initOptions = { ...options, taskDir }
     await driver.init(initOptions)
     await driver.goto(input.url)
 
+    controller?.emit({
+      type: 'started',
+      taskId: controller.taskId,
+      url: input.url,
+      task: input.task,
+      maxSteps,
+      timestamp: Date.now(),
+    })
+
     for (let step = 0; step < maxSteps; step++) {
+      if (controller?.isStopped()) {
+        throw new Error('用户已终止任务')
+      }
+
+      // 人工暂停：等待继续/单步/终止
+      if (controller?.isPaused()) {
+        await controller.waitForResume()
+        if (controller.isStopped()) {
+          throw new Error('用户已终止任务')
+        }
+      }
+
       const screenshotBase64 = await driver.screenshot()
       // 保存最终截图到任务目录
       writeFileSync(screenshotPath, Buffer.from(screenshotBase64, 'base64'))
+      emitScreenshot(step + 1, screenshotBase64)
 
       const llmResult = await callLLM({
         systemPrompt,
@@ -149,22 +203,30 @@ export async function executeComputerUseTask(
 
       const { thought, action } = llmResult
       history.push({ thought, action })
+      emitAction(step + 1, thought, action)
 
       if (action.type === 'finish') {
         await driver.finish()
-        return {
+        const result: ComputerUseTaskResult = {
           success: true,
           summary: action.summary ?? '任务已完成',
           taskDir,
           screenshotFile: 'screenshot.png',
           steps: step + 1,
         }
+        emitFinished(result)
+        return result
       }
 
       await executeAction(driver, action)
+
+      // 单步模式：每执行完一步后自动暂停，等待用户确认
+      if (controller?.isStepMode() && step < maxSteps - 1) {
+        controller.pause()
+      }
     }
 
-    return {
+    const result: ComputerUseTaskResult = {
       success: false,
       summary: '',
       taskDir,
@@ -172,15 +234,21 @@ export async function executeComputerUseTask(
       error: `达到最大步数限制（${maxSteps} 步），任务未完成`,
       steps: maxSteps,
     }
+    emitFinished(result)
+    return result
   } catch (error) {
-    return {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const result: ComputerUseTaskResult = {
       success: false,
       summary: '',
       taskDir,
       screenshotFile: existsSync(screenshotPath) ? 'screenshot.png' : undefined,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage,
       steps: history.length,
     }
+    controller?.emit({ type: 'error', taskId: controller.taskId, error: errorMessage, timestamp: Date.now() })
+    emitFinished(result)
+    return result
   } finally {
     try {
       await driver.close()
