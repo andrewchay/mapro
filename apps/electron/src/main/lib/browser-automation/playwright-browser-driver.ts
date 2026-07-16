@@ -25,12 +25,12 @@ import type {
   BrowserDriver,
 } from './computer-use-types.ts'
 
-const PYTHON_SERVER_SCRIPT = `import base64
+export const PYTHON_SERVER_SCRIPT = `import base64
 import json
 import os
 import sys
 import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from playwright.sync_api import sync_playwright
 
@@ -172,8 +172,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/wait':
                 page.wait_for_timeout(int(data['ms']))
             elif path == '/close':
+                close_browser()
                 self._send_json(200, {'ok': True})
-                threading.Thread(target=lambda: (close_browser(), self.server_instance.shutdown())).start()
+                threading.Thread(target=self.server_instance.shutdown).start()
                 return
             else:
                 self._send_json(404, {'error': 'not found'})
@@ -196,7 +197,7 @@ def find_port():
 def main():
     init_browser()
     port = find_port()
-    server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
+    server = HTTPServer(('127.0.0.1', port), Handler)
     Handler.server_instance = server
     print(f'PORT {port}', flush=True)
     server.serve_forever()

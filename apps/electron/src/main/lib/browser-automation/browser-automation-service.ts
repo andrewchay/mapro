@@ -902,6 +902,266 @@ export async function executeScrapingTask(
 }
 
 /**
+ * Browser Fetch 任务输入
+ *
+ * 用于 Agent 模式下替代 SDK WebFetch 抓取登录态页面。
+ */
+export interface BrowserFetchTaskInput {
+  /** 目标 URL */
+  url: string
+  /** 输出格式：html（默认）、text、markdown */
+  format?: 'html' | 'text' | 'markdown'
+  /** 页面加载后额外等待毫秒数 */
+  waitMs?: number
+  /** CSS 选择器，命中后只提取该元素内容 */
+  selector?: string
+}
+
+export interface BrowserFetchTaskOptions {
+  /** 持久浏览器 Profile 目录 */
+  userDataDir?: string
+  /** Cookie 文本（JSON 数组或 Netscape 格式） */
+  cookies?: string
+  /** 是否 headless，默认 true */
+  headless?: boolean
+  /** 代理 */
+  proxy?: string
+  /** 自定义 User-Agent */
+  userAgent?: string
+  /** 超时（毫秒），默认 60000 */
+  timeoutMs?: number
+}
+
+export interface BrowserFetchTaskResult {
+  success: boolean
+  summary: string
+  taskDir: string
+  resultFile?: string
+  screenshotFile?: string
+  error?: string
+}
+
+const BROWSER_FETCH_DIR_NAME = 'browser-fetches'
+
+function createBrowserFetchTaskDir(): string {
+  const taskId = `${Date.now()}-${randomUUID().slice(0, 8)}`
+  const dir = join(getConfigDir(), BROWSER_FETCH_DIR_NAME, taskId)
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+export const BROWSER_FETCH_SCRIPT = `import base64
+import json
+import os
+import sys
+
+from playwright.sync_api import sync_playwright
+
+URL = os.environ['URL']
+FORMAT = os.environ.get('FORMAT', 'html')
+WAIT_MS = int(os.environ.get('WAIT_MS', '0') or '0')
+SELECTOR = os.environ.get('SELECTOR', '') or None
+RESULT_FILE = os.environ['RESULT_FILE']
+SCREENSHOT_FILE = os.environ['SCREENSHOT_FILE']
+HEADLESS = os.environ.get('HEADLESS', 'true') == 'true'
+USER_DATA_DIR = os.environ.get('USER_DATA_DIR', '') or None
+COOKIES_FILE = os.environ.get('COOKIES_FILE', '') or None
+PROXY = os.environ.get('PROXY', '') or None
+USER_AGENT = os.environ.get('USER_AGENT', '') or None
+
+playwright = None
+browser = None
+context = None
+page = None
+
+try:
+    playwright = sync_playwright().start()
+    args = ['--disable-blink-features=AutomationControlled']
+    viewport = {'width': 1280, 'height': 800}
+    proxy = {'server': PROXY} if PROXY else None
+
+    if USER_DATA_DIR:
+        context = playwright.chromium.launch_persistent_context(
+            USER_DATA_DIR,
+            headless=HEADLESS,
+            args=args,
+            viewport=viewport,
+            locale='zh-CN',
+            timezone_id='Asia/Shanghai',
+            proxy=proxy,
+        )
+    else:
+        browser = playwright.chromium.launch(
+            headless=HEADLESS,
+            args=args,
+            proxy=proxy,
+        )
+        context = browser.new_context(
+            viewport=viewport,
+            locale='zh-CN',
+            timezone_id='Asia/Shanghai',
+        )
+
+    if COOKIES_FILE and os.path.exists(COOKIES_FILE):
+        try:
+            with open(COOKIES_FILE, 'r', encoding='utf-8') as f:
+                cookies = json.load(f)
+            if cookies:
+                context.add_cookies(cookies)
+        except Exception as e:
+            print(f'[browser-fetch] 注入 Cookie 失败: {e}', file=sys.stderr)
+
+    if USER_AGENT:
+        context.set_extra_http_headers({'User-Agent': USER_AGENT})
+
+    page = context.new_page()
+    page.goto(URL, wait_until='networkidle')
+
+    if WAIT_MS > 0:
+        page.wait_for_timeout(WAIT_MS)
+
+    if SELECTOR:
+        element = page.query_selector(SELECTOR)
+        if element is None:
+            raise RuntimeError(f'选择器未命中: {SELECTOR}')
+        content = element.inner_html()
+    else:
+        if FORMAT == 'text':
+            title = page.title()
+            body_text = page.inner_text('body')
+            content = f'{title}\\n\\n{body_text}'
+        elif FORMAT == 'markdown':
+            html = page.content()
+            try:
+                from markdownify import markdownify as md
+                content = md(html).strip()
+            except Exception:
+                content = html
+        else:
+            content = page.content()
+
+    with open(RESULT_FILE, 'w', encoding='utf-8') as f:
+        f.write(content)
+
+    raw = page.screenshot(full_page=False, type='png')
+    with open(SCREENSHOT_FILE, 'wb') as f:
+        f.write(raw)
+
+    print(f'[browser-fetch] 成功获取 {URL}，长度 {len(content)} 字符', flush=True)
+except Exception as e:
+    print(f'[browser-fetch] 失败: {e}', file=sys.stderr)
+    sys.exit(1)
+finally:
+    try:
+        if page:
+            page.close()
+    except Exception:
+        pass
+    try:
+        if context:
+            context.close()
+    except Exception:
+        pass
+    try:
+        if browser:
+            browser.close()
+    except Exception:
+        pass
+    try:
+        if playwright:
+            playwright.stop()
+    except Exception:
+        pass
+`
+
+/**
+ * 使用真实浏览器抓取单个页面内容
+ *
+ * 与 SDK WebFetch 不同：支持持久 Profile 和 Cookie，可抓取登录态页面。
+ */
+export async function executeBrowserFetchTask(
+  input: BrowserFetchTaskInput,
+  options: BrowserFetchTaskOptions = {},
+): Promise<BrowserFetchTaskResult> {
+  const taskDir = createBrowserFetchTaskDir()
+  const timeoutMs = options.timeoutMs ?? DEFAULT_SCRIPT_TIMEOUT_MS
+  const headless = options.headless ?? true
+
+  try {
+    if (!input.url) {
+      return { success: false, summary: '', taskDir, error: '缺少 URL 参数' }
+    }
+
+    const taskProfileDir = options.userDataDir
+      ? prepareUserDataDir(options.userDataDir, taskDir)
+      : undefined
+    const cookiesPath = options.cookies
+      ? prepareCookiesFile(options.cookies, taskDir)
+      : undefined
+
+    const scriptPath = join(taskDir, 'script.py')
+    writeFileSync(scriptPath, BROWSER_FETCH_SCRIPT, 'utf-8')
+
+    const resultFileName = `result.${input.format ?? 'html'}`
+    const resultPath = join(taskDir, resultFileName)
+    const screenshotPath = join(taskDir, 'screenshot.png')
+
+    const env: Record<string, string> = {
+      URL: input.url,
+      FORMAT: input.format ?? 'html',
+      WAIT_MS: String(input.waitMs ?? 0),
+      SELECTOR: input.selector ?? '',
+      RESULT_FILE: resultPath,
+      SCREENSHOT_FILE: screenshotPath,
+      HEADLESS: headless ? 'true' : 'false',
+    }
+    if (taskProfileDir) env.USER_DATA_DIR = taskProfileDir
+    if (cookiesPath) env.COOKIES_FILE = cookiesPath
+    if (options.proxy) env.PROXY = options.proxy
+    if (options.userAgent) env.USER_AGENT = options.userAgent
+
+    const runResult = await runPythonScript(scriptPath, taskDir, env, timeoutMs)
+
+    if (runResult.success && options.userDataDir && taskProfileDir) {
+      writeBackUserDataDir(options.userDataDir, taskProfileDir)
+    }
+
+    const resultExists = existsSync(resultPath)
+    const screenshotExists = existsSync(screenshotPath)
+
+    let contentPreview = ''
+    if (resultExists) {
+      const content = readFileSync(resultPath, 'utf-8')
+      contentPreview = content.slice(0, 1200)
+    }
+
+    if (runResult.success && resultExists) {
+      return {
+        success: true,
+        summary: `✅ 页面抓取完成\nURL：${input.url}\n格式：${input.format ?? 'html'}\n结果文件：${resultFileName}\n页面截图：screenshot.png\n\n内容预览（前 1200 字符）：\n${contentPreview}`,
+        taskDir,
+        resultFile: resultFileName,
+        screenshotFile: screenshotExists ? 'screenshot.png' : undefined,
+      }
+    }
+
+    return {
+      success: false,
+      summary: '',
+      taskDir,
+      error: runResult.error ?? (runResult.stderr || '未生成结果文件'),
+    }
+  } catch (error) {
+    return {
+      success: false,
+      summary: '',
+      taskDir,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+/**
  * 清理指定任务目录
  */
 export function cleanupScrapingTask(taskDir: string): void {
