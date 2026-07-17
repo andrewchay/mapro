@@ -1,6 +1,6 @@
 {
   "name": "@ma-proma/server",
-  "version": "0.1.39",
+  "version": "0.1.42",
   "license": "UNLICENSED",
   "description": "MAPro shared server-side business logic",
   "type": "module",
@@ -17,7 +17,8 @@
   "dependencies": {
     "@ma-proma/core": "workspace:*",
     "@ma-proma/shared": "workspace:*",
-    "pg": "^8.22.0"
+    "pg": "^8.22.0",
+    "ws": "^8.21.0"
   },
   "optionalDependencies": {
     "better-sqlite3": "^12.10.0"
@@ -31,6 +32,7 @@
   "peerDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.143",
     "@anthropic-ai/sdk": "^0.93.0",
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.0.0"
   }
 }

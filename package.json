@@ -35,8 +35,5 @@
   },
   "peerDependencies": {
     "typescript": "^5"
-  },
-  "dependencies": {
-    "jotai": "^2.17.1"
   }
 }

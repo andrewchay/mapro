@@ -78,11 +78,19 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          success=0
           for i in 1 2 3; do
-            npx electron-builder --mac --arm64 --publish always && break
+            if npx electron-builder --mac --arm64 --publish always; then
+              success=1
+              break
+            fi
             echo "Attempt $i failed, retrying in 10s..."
             sleep 10
           done
+          if [ "$success" -ne 1 ]; then
+            echo "ERROR: electron-builder (mac arm64) failed after 3 attempts"
+            exit 1
+          fi
         working-directory: apps/electron
 
   build-mac-x64:
@@ -141,11 +149,19 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          success=0
           for i in 1 2 3; do
-            npx electron-builder --mac --x64 --publish always && break
+            if npx electron-builder --mac --x64 --publish always; then
+              success=1
+              break
+            fi
             echo "Attempt $i failed, retrying in 15s..."
             sleep 15
           done
+          if [ "$success" -ne 1 ]; then
+            echo "ERROR: electron-builder (mac x64) failed after 3 attempts"
+            exit 1
+          fi
         working-directory: apps/electron
 
   merge-mac-yml:

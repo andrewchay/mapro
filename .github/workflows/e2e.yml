@@ -27,7 +27,7 @@ jobs:
         run: bun run --filter='*' typecheck
 
       - name: 运行单元测试
-        run: bun test
+        run: bun run test
 
       - name: 运行 Web 冒烟测试
         run: bun run scripts/smoke-test.ts
