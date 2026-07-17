@@ -21,6 +21,7 @@
  */
 
 import * as React from 'react'
+import DOMPurify from 'dompurify'
 import { renderMermaid, THEMES } from 'beautiful-mermaid'
 import type { RenderOptions } from 'beautiful-mermaid'
 
@@ -120,7 +121,9 @@ export function MermaidBlock({ code }: MermaidBlockProps): React.ReactElement {
         // 只有最新一代的结果才生效，旧的全部丢弃
         if (generationRef.current !== currentGen) return
         if (typeof svg === 'string' && svg.length > 0) {
-          setSvgHtml(svg)
+          // Mermaid 源码来自 LLM 输出（不可信），SVG 注入 DOM 前必须消毒，
+          // 防止脚本/事件处理器注入（XSS）
+          setSvgHtml(DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } }))
           requestAnimationFrame(() => setSvgVisible(true))
         }
       } catch {
