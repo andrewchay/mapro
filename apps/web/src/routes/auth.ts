@@ -35,9 +35,62 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
     apiToken: getApiToken(),
   })
 
+  // ===== 登录限流（防在线爆破） =====
+  /** 同一 IP+email 连续失败 5 次锁定 15 分钟 */
+  const LOGIN_MAX_FAILURES = 5
+  const LOGIN_LOCK_MS = 15 * 60 * 1000
+  const loginFailures = new Map<string, { count: number; lockedUntil: number }>()
+
+  function getLoginLockRemainingMs(key: string): number {
+    const rec = loginFailures.get(key)
+    // 未锁定（lockedUntil=0 的纯计数记录）直接放行，不能误删计数
+    if (!rec || rec.lockedUntil <= 0) return 0
+    const remaining = rec.lockedUntil - Date.now()
+    if (remaining <= 0) {
+      loginFailures.delete(key)
+      return 0
+    }
+    return remaining
+  }
+
+  function recordLoginFailure(key: string): void {
+    const rec = loginFailures.get(key) ?? { count: 0, lockedUntil: 0 }
+    rec.count += 1
+    if (rec.count >= LOGIN_MAX_FAILURES) {
+      rec.lockedUntil = Date.now() + LOGIN_LOCK_MS
+      rec.count = 0
+      console.warn(`[Auth] 登录连续失败 ${LOGIN_MAX_FAILURES} 次，锁定 15 分钟: ${key}`)
+    }
+    loginFailures.set(key, rec)
+  }
+
+  // 定期清理过期记录，防止 Map 无限增长
+  const cleanupTimer = setInterval(() => {
+    const now = Date.now()
+    for (const [key, rec] of loginFailures) {
+      if (rec.lockedUntil > 0 && rec.lockedUntil <= now) loginFailures.delete(key)
+    }
+  }, LOGIN_LOCK_MS)
+  cleanupTimer.unref?.()
+
+  /** setup 保护：仅允许本机来源或持有一次性 setup token 的请求创建初始管理员 */
+  function isSetupAllowed(req: Request): boolean {
+    const ip = getClientIp(req)
+    if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') return true
+    const setupToken = process.env.MAPRO_SETUP_TOKEN
+    if (setupToken && req.headers['x-setup-token'] === setupToken) return true
+    return false
+  }
+
   // POST /auth/setup
   router.post('/setup', async (req: Request, res: Response) => {
     try {
+      // 防止暴露部署时初始管理员被抢先注册
+      if (!isSetupAllowed(req)) {
+        res.status(403).json({ success: false, error: '仅允许本机来源或持有 setup token 的请求初始化管理员' })
+        return
+      }
+
       const { email, password, name } = req.body as Record<string, unknown>
       if (typeof email !== 'string' || typeof password !== 'string') {
         res.status(400).json({ success: false, error: 'email 与 password 必填' })
@@ -66,12 +119,28 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
         return
       }
 
-      const result = await deps.authService.login({
-        email,
-        password,
-        ipAddress: getClientIp(req),
-        userAgent: req.headers['user-agent'],
-      })
+      // 限流检查：锁定期间直接拒绝
+      const rateLimitKey = `${getClientIp(req)}:${email.toLowerCase()}`
+      const lockRemaining = getLoginLockRemainingMs(rateLimitKey)
+      if (lockRemaining > 0) {
+        res.status(429).json({ success: false, error: `失败次数过多，请 ${Math.ceil(lockRemaining / 60000)} 分钟后再试` })
+        return
+      }
+
+      let result: Awaited<ReturnType<typeof deps.authService.login>>
+      try {
+        result = await deps.authService.login({
+          email,
+          password,
+          ipAddress: getClientIp(req),
+          userAgent: req.headers['user-agent'],
+        })
+      } catch (loginError) {
+        recordLoginFailure(rateLimitKey)
+        throw loginError
+      }
+      // 登录成功：清除失败记录
+      loginFailures.delete(rateLimitKey)
 
       setRefreshCookie(res, result.refreshToken, req)
       res.json({

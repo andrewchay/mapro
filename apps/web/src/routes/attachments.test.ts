@@ -129,6 +129,60 @@ describe('Attachments API', () => {
     expect(res.status).toBe(400)
   })
 
+  // ===== Content-Type 安全（存储型 XSS 防护回归） =====
+
+  test('HTML 附件强制下载，即使 query 伪造 mediaType（存储型 XSS 防护）', async () => {
+    const data = Buffer.from('<script>alert(1)</script>').toString('base64')
+    const uploadRes = await fetch(`${baseUrl}/chat/xss-conv`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: 'evil.html', mediaType: 'text/html', data }),
+    })
+    const uploadJson = (await uploadRes.json()) as { success: boolean; attachment: FileAttachment }
+    const fileId = uploadJson.attachment.localPath.split('/')[2]!
+
+    const downloadRes = await fetch(`${baseUrl}/chat/xss-conv/${fileId}?mediaType=text/html`)
+    expect(downloadRes.status).toBe(200)
+    expect(downloadRes.headers.get('content-disposition')).toContain('attachment')
+    expect(downloadRes.headers.get('x-content-type-options')).toBe('nosniff')
+  })
+
+  test('query 参数无法覆盖元数据类型（text/plain 不会被伪造成 text/html 内联）', async () => {
+    const data = Buffer.from('<script>alert(1)</script>').toString('base64')
+    const uploadRes = await fetch(`${baseUrl}/chat/xss-conv`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: 'notes.txt', mediaType: 'text/plain', data }),
+    })
+    const uploadJson = (await uploadRes.json()) as { success: boolean; attachment: FileAttachment }
+    const fileId = uploadJson.attachment.localPath.split('/')[2]!
+
+    // 攻击者尝试用 query 把纯文本附件伪造成 HTML 内联渲染
+    const downloadRes = await fetch(`${baseUrl}/chat/xss-conv/${fileId}?mediaType=text/html`)
+    expect(downloadRes.status).toBe(200)
+    // Content-Type 来自上传元数据 text/plain，且内联时带 sandbox CSP 兜底
+    expect(downloadRes.headers.get('content-type')).toContain('text/plain')
+    expect(downloadRes.headers.get('content-security-policy')).toBe('sandbox')
+  })
+
+  test('图片附件保持内联预览（功能不回退）', async () => {
+    // 1x1 PNG
+    const data =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+    const uploadRes = await fetch(`${baseUrl}/chat/img-conv`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: 'pixel.png', mediaType: 'image/png', data }),
+    })
+    const uploadJson = (await uploadRes.json()) as { success: boolean; attachment: FileAttachment }
+    const fileId = uploadJson.attachment.localPath.split('/')[2]!
+
+    const downloadRes = await fetch(`${baseUrl}/chat/img-conv/${fileId}`)
+    expect(downloadRes.status).toBe(200)
+    expect(downloadRes.headers.get('content-type')).toContain('image/png')
+    expect(downloadRes.headers.get('content-disposition')).toBeNull()
+  })
+
   test('列表附件返回元信息', async () => {
     const data = Buffer.from('list me').toString('base64')
     await fetch(`${baseUrl}/chat/list-conv`, {

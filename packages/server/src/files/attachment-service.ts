@@ -174,6 +174,17 @@ export class AttachmentService {
   }
 
   /**
+   * 读取单个附件的元信息（不存在时返回 null）
+   *
+   * 用于下载时从上传时存储的元数据确定 Content-Type，
+   * 防止调用方通过 query 参数伪造类型造成存储型 XSS。
+   */
+  async getMetadata(scope: string, id: string, fileId: string): Promise<FileAttachment | null> {
+    const index = readIndex(this.context, scope, id)
+    return index[fileId] ?? null
+  }
+
+  /**
    * 删除单个附件
    */
   async delete(scope: string, id: string, fileId: string): Promise<void> {
@@ -206,7 +217,7 @@ export class AttachmentService {
 /**
  * 根据扩展名推断 MIME 类型
  */
-function inferMediaType(filename: string): string {
+export function inferMediaType(filename: string): string {
   const ext = extname(filename).toLowerCase()
   const map: Record<string, string> = {
     '.png': 'image/png',

@@ -69,6 +69,8 @@ export const DANGEROUS_COMMANDS: readonly string[] = [
  * MVP 阶段使用简单字符串检测，后续可升级为 shell AST 解析。
  */
 export function hasDangerousStructure(command: string): boolean {
+  // 换行/回车等行分隔符（可绕过 ^ 锚定的安全模式，在第二行注入任意命令）
+  if (/[\r\n\u2028\u2029]/.test(command)) return true
   // 管道操作
   if (/[|]/.test(command)) return true
   // 输出重定向

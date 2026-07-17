@@ -57,6 +57,12 @@ export function isLocalOrigin(origin: string): boolean {
   return LOCAL_ORIGIN_PATTERNS.some((pattern) => pattern.test(origin))
 }
 
+/** 判断 origin 是否在 MAPRO_ALLOWED_ORIGINS 白名单中 */
+export function isAllowedOrigin(origin: string): boolean {
+  const allowedOrigins = process.env.MAPRO_ALLOWED_ORIGINS?.split(',').map((s) => s.trim()).filter(Boolean) ?? []
+  return allowedOrigins.includes(origin)
+}
+
 /**
  * 构造 CORS 配置。
  *

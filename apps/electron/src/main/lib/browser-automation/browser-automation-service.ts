@@ -21,6 +21,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { getConfigDir } from '../config-paths.ts'
 import { completePrompt } from '../ma-tools/llm-service.ts'
+import { buildScriptEnv } from './script-env.ts'
 import { upsertKOL, type KOLRecord } from '../ma-tools/kol-data-service.ts'
 
 export interface ScrapingTaskInput {
@@ -544,10 +545,8 @@ function runPythonScript(
   return new Promise((resolve) => {
     const child = spawn('python3', [scriptPath], {
       cwd: taskDir,
-      env: {
-        ...process.env,
-        ...env,
-      },
+      // 最小环境白名单：不向 LLM 生成的脚本暴露 API Key 等敏感环境变量
+      env: buildScriptEnv(env),
       stdio: 'pipe',
     })
 

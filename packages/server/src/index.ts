@@ -81,7 +81,7 @@ export { WebSocketTransport } from './transport/index.ts'
 export type { SecretsStore } from './secrets/index.ts'
 export { ServerSecretsStore } from './secrets/index.ts'
 export type { FileProvider, FileEntry, FileFilter, FileReadResult, PickedFile } from './files/index.ts'
-export { LocalFileProvider, AttachmentService } from './files/index.ts'
+export { LocalFileProvider, AttachmentService, inferMediaType } from './files/index.ts'
 export type { SaveAttachmentInput, AttachmentMeta } from './files/index.ts'
 export {
   WorkspaceFileService,

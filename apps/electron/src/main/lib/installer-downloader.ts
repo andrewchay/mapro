@@ -253,9 +253,17 @@ export function cancelInstallerDownload(key: string): boolean {
  *
  * Windows 下 shell.openPath 会用系统默认方式打开 .exe / .msi，
  * 等同于用户双击，由操作系统决定是否弹 UAC。
+ *
+ * 安全：仅允许拉起安装包下载目录内的文件，防止渲染进程经 IPC 拉起任意可执行文件。
  */
 export async function launchInstaller(filePath: string): Promise<void> {
-  const errorMsg = await shell.openPath(filePath)
+  const installerDir = path.resolve(getInstallerDir())
+  const resolved = path.resolve(filePath)
+  if (resolved !== installerDir && !resolved.startsWith(installerDir + path.sep)) {
+    throw new Error('只允许拉起安装包下载目录内的文件')
+  }
+
+  const errorMsg = await shell.openPath(resolved)
   if (errorMsg) {
     throw new Error(`无法拉起安装程序：${errorMsg}`)
   }

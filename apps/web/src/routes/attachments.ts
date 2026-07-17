@@ -9,7 +9,7 @@
 import express, { Router } from 'express'
 import type { Request, Response } from 'express'
 import type { AppContext, FileProvider, UserContext } from '@ma-proma/server'
-import { AttachmentService } from '@ma-proma/server'
+import { AttachmentService, inferMediaType } from '@ma-proma/server'
 import type { FileAttachment } from '@ma-proma/shared'
 import { MAX_ATTACHMENT_SIZE } from '@ma-proma/shared'
 import type { RequestWithUserContext } from '../auth-middleware.ts'
@@ -35,6 +35,17 @@ function isPreviewable(mediaType: string): boolean {
     mediaType === 'application/xml'
   )
 }
+
+/**
+ * 即使在 isPreviewable 范围内也必须强制下载的类型：
+ * HTML/SVG/XML 内联渲染时可在 API 源下执行脚本（存储型 XSS）
+ */
+const FORCE_DOWNLOAD_TYPES: ReadonlySet<string> = new Set([
+  'text/html',
+  'image/svg+xml',
+  'application/xml',
+  'text/xml',
+])
 
 export interface AttachmentRouterDeps {
   context: AppContext
@@ -135,12 +146,20 @@ export function createAttachmentsRouter(deps: AttachmentRouterDeps): Router {
       const id = validateSegment(req.params.id, 'id')
       const fileId = validateSegment(req.params.fileId, 'fileId')
 
-      const buffer = await resolveService(req).readAsBuffer(scope, id, fileId)
-      const contentType = req.query.mediaType ? String(req.query.mediaType) : 'application/octet-stream'
+      const service = resolveService(req)
+      const buffer = await service.readAsBuffer(scope, id, fileId)
+      // Content-Type 只能来自上传时存储的元数据（旧附件无索引时按扩展名推断），
+      // 不接受 query 参数指定，防止伪造 text/html 在 API 源内联执行脚本（存储型 XSS）
+      const metadata = await service.getMetadata(scope, id, fileId)
+      const contentType = metadata?.mediaType ?? inferMediaType(fileId)
 
       res.setHeader('Content-Type', contentType)
-      if (!isPreviewable(contentType)) {
+      res.setHeader('X-Content-Type-Options', 'nosniff')
+      if (!isPreviewable(contentType) || FORCE_DOWNLOAD_TYPES.has(contentType)) {
         res.setHeader('Content-Disposition', `attachment; filename="${fileId}"`)
+      } else {
+        // 内联预览兜底：禁止脚本执行（如 PDF 阅读器之外的场景）
+        res.setHeader('Content-Security-Policy', 'sandbox')
       }
       res.send(buffer)
     } catch (error) {

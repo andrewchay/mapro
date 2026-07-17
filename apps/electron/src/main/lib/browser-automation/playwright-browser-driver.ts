@@ -16,6 +16,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { getConfigDir } from '../config-paths.ts'
+import { buildScriptEnv } from './script-env.ts'
 import {
   parseCookiesText,
   type ScraperCookie,
@@ -410,8 +411,8 @@ export class PlaywrightBrowserDriver implements BrowserDriver {
     const serverPath = join(this.taskDir, 'server.py')
     writeFileSync(serverPath, PYTHON_SERVER_SCRIPT, 'utf-8')
 
-    const env: Record<string, string> = {
-      ...process.env,
+    // 最小环境白名单：不向 LLM 生成/模板脚本暴露 API Key 等敏感环境变量
+    const env = buildScriptEnv({
       HEADLESS: options.headless === false ? 'false' : 'true',
       USER_DATA_DIR: this.taskProfileDir ?? '',
       COOKIES_FILE: this.cookiesPath ?? '',
@@ -422,7 +423,7 @@ export class PlaywrightBrowserDriver implements BrowserDriver {
       CHROME_REMOTE_DEBUGGING_PORT: options.chromeRemoteDebuggingPort ?? '',
       MIN_ACTION_DELAY_MS: String(options.minActionDelayMs ?? 0),
       MAX_ACTION_DELAY_MS: String(options.maxActionDelayMs ?? 0),
-    }
+    })
 
     const child = spawn('python3', [serverPath], {
       cwd: this.taskDir,

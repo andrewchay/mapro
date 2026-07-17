@@ -19,11 +19,12 @@ import { existsSync, readFileSync } from 'node:fs'
 import express from 'express'
 import type { Request, Response } from 'express'
 import cors from 'cors'
-import { WebSocketServer } from 'ws'
+import { WebSocketServer, type WebSocket } from 'ws'
 import {
   getApiToken,
   parseWebSocketToken,
   isLocalOrigin,
+  isAllowedOrigin,
   createCorsOptions,
   API_TOKEN_COOKIE_NAME,
 } from './security.ts'
@@ -222,9 +223,10 @@ async function bootstrap(): Promise<void> {
       // 将用户上下文附加到 WebSocket 升级请求，供后续 handler 使用
       ;(req as Request & { userContext?: typeof userContext }).userContext = userContext
 
-      // 未配置 token 且非降级模式时限制本地 origin，防止任意网页通过 WS 驱动 Chat/Agent
-      if (!getApiToken() && process.env.MAPRO_AUTH_DISABLED !== '1' && origin && !isLocalOrigin(origin)) {
-        console.log(`[WebSocket] 拒绝非本地 Origin: ${origin}`)
+      // 无论是否配置 token 都校验 Origin：token 可经 httpOnly cookie 自动携带，
+      // DNS rebinding 场景下同站 cookie 会随 WS 握手发送（CSWSH 防护）
+      if (process.env.MAPRO_AUTH_DISABLED !== '1' && origin && !isLocalOrigin(origin) && !isAllowedOrigin(origin)) {
+        console.log(`[WebSocket] 拒绝非白名单 Origin: ${origin}`)
         done(false, 403, 'Forbidden Origin')
         return
       }
@@ -233,8 +235,27 @@ async function bootstrap(): Promise<void> {
   })
   const { handleMessage, handleClose } = createWebSocketHandler(chatConfig, getAgentOrchestrator, { context: appContext, fileProvider })
 
+  // 心跳保活：30s 一轮 ping，未响应的连接下一轮直接 terminate，
+  // 防止客户端断网未发 close frame 的半开连接常驻（transports/detach 泄漏）
+  const WS_PING_INTERVAL_MS = 30_000
+  const aliveSockets = new WeakSet<WebSocket>()
+  const pingInterval = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (!aliveSockets.has(ws)) {
+        console.log('[WebSocket] 心跳超时，终止半开连接')
+        ws.terminate()
+        continue
+      }
+      aliveSockets.delete(ws)
+      ws.ping()
+    }
+  }, WS_PING_INTERVAL_MS)
+  wss.on('close', () => clearInterval(pingInterval))
+
   wss.on('connection', async (ws, req) => {
     console.log('[WebSocket] 客户端已连接')
+    aliveSockets.add(ws)
+    ws.on('pong', () => aliveSockets.add(ws))
 
     const userContext = (req as Request & { userContext?: UserContext }).userContext
     if (!userContext) {

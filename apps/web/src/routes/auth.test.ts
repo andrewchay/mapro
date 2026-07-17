@@ -218,6 +218,34 @@ describe('Auth Routes', () => {
     expect(res.status).toBe(401)
   })
 
+  test('POST /auth/login 连续失败 5 次后返回 429（限流回归）', async () => {
+    // 使用独立邮箱，避免影响其他用例的登录状态
+    const email = 'ratelimit@test.com'
+    for (let i = 0; i < 5; i++) {
+      const res = await httpFetch(baseUrl, '/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password: 'wrong' }),
+      })
+      expect(res.status).toBe(401)
+    }
+    // 第 6 次触发锁定
+    const locked = await httpFetch(baseUrl, '/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password: 'wrong' }),
+    })
+    expect(locked.status).toBe(429)
+    expect((locked.body as { error: string }).error).toContain('失败次数过多')
+  })
+
+  test('POST /auth/setup 非本机来源返回 403（防抢占回归）', async () => {
+    const res = await httpFetch(baseUrl, '/auth/setup', {
+      method: 'POST',
+      headers: { 'x-forwarded-for': '203.0.113.10' },
+      body: JSON.stringify({ email: 'hijack@test.com', password: 'password123' }),
+    })
+    expect(res.status).toBe(403)
+  })
+
   test('POST /auth/refresh 用 cookie 换发新 accessToken', async () => {
     const login = await httpFetch(baseUrl, '/auth/login', {
       method: 'POST',

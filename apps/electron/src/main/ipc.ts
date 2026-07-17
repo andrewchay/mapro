@@ -362,6 +362,23 @@ function isUnderRoot(resolvedPath: string, root: string): boolean {
   return resolvedPath === resolvedRoot || resolvedPath.startsWith(resolvedRoot + sep)
 }
 
+/**
+ * 校验路径是否位于 agent-workspaces 根目录内
+ *
+ * 对候选路径做 realpath 后再经 isUnderRoot 判断（含分隔符边界），
+ * 防止 `agent-workspaces-evil` 等同前缀目录绕过 startsWith 校验。
+ * 路径不存在（realpath 失败）时回退 resolve 结果做边界判断。
+ */
+function isUnderAgentWorkspaces(targetPath: string, workspacesRoot: string): boolean {
+  let resolved: string
+  try {
+    resolved = realpathSync(targetPath)
+  } catch {
+    resolved = resolve(targetPath)
+  }
+  return isUnderRoot(resolved, workspacesRoot)
+}
+
 function isPathAllowed(filePath: string, options?: FileAccessOptions): boolean {
   let resolved: string
   try {
@@ -2240,7 +2257,7 @@ export function registerIpcHandlers(): void {
       // 安全校验：路径必须在 agent-workspaces 目录下
       const safePath = resolve(dirPath)
       const workspacesRoot = resolve(getAgentWorkspacesDir())
-      if (!safePath.startsWith(workspacesRoot)) {
+      if (!isUnderAgentWorkspaces(safePath, workspacesRoot)) {
         throw new Error('访问路径超出 Agent 工作区范围')
       }
 
@@ -2283,7 +2300,7 @@ export function registerIpcHandlers(): void {
       // 安全校验：路径必须在 agent-workspaces 目录下
       const safePath = resolve(filePath)
       const workspacesRoot = resolve(getAgentWorkspacesDir())
-      if (!safePath.startsWith(workspacesRoot)) {
+      if (!isUnderAgentWorkspaces(safePath, workspacesRoot)) {
         throw new Error('访问路径超出 Agent 工作区范围')
       }
 
@@ -2300,7 +2317,7 @@ export function registerIpcHandlers(): void {
 
       const safePath = resolve(filePath)
       const workspacesRoot = resolve(getAgentWorkspacesDir())
-      if (!safePath.startsWith(workspacesRoot)) {
+      if (!isUnderAgentWorkspaces(safePath, workspacesRoot)) {
         throw new Error('访问路径超出 Agent 工作区范围')
       }
 
@@ -2317,7 +2334,7 @@ export function registerIpcHandlers(): void {
 
       const safePath = resolve(filePath)
       const workspacesRoot = resolve(getAgentWorkspacesDir())
-      if (!safePath.startsWith(workspacesRoot)) {
+      if (!isUnderAgentWorkspaces(safePath, workspacesRoot)) {
         return { content: '', error: '访问路径超出 Agent 工作区范围' }
       }
 
@@ -2380,7 +2397,7 @@ export function registerIpcHandlers(): void {
 
       const safePath = resolve(filePath)
       const workspacesRoot = resolve(getAgentWorkspacesDir())
-      if (!safePath.startsWith(workspacesRoot)) {
+      if (!isUnderAgentWorkspaces(safePath, workspacesRoot)) {
         throw new Error('访问路径超出 Agent 工作区范围')
       }
 
@@ -2517,7 +2534,7 @@ export function registerIpcHandlers(): void {
 
       const safePath = resolve(filePath)
       const workspacesRoot = resolve(getAgentWorkspacesDir())
-      if (!safePath.startsWith(workspacesRoot)) {
+      if (!isUnderAgentWorkspaces(safePath, workspacesRoot)) {
         throw new Error('访问路径超出 Agent 工作区范围')
       }
 
@@ -2537,7 +2554,7 @@ export function registerIpcHandlers(): void {
       const safePath = resolve(filePath)
       const safeTarget = resolve(targetDir)
       const workspacesRoot = resolve(getAgentWorkspacesDir())
-      if (!safePath.startsWith(workspacesRoot) || !safeTarget.startsWith(workspacesRoot)) {
+      if (!isUnderAgentWorkspaces(safePath, workspacesRoot) || !isUnderAgentWorkspaces(safeTarget, workspacesRoot)) {
         throw new Error('访问路径超出 Agent 工作区范围')
       }
 
