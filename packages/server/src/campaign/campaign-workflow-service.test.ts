@@ -225,6 +225,22 @@ describe('CampaignWorkflowService', () => {
     expect(workflow.steps[1]?.status).toBe('in_progress')
   })
 
+  test('并发更新步骤串行执行（互斥锁防 lost update）', async () => {
+    await service.loadCampaignWorkflow('test-concurrent')
+
+    // 三个步骤并发标记完成：无锁时各自读到相同基态会互相覆盖，有锁后串行累积
+    await Promise.all([
+      service.updateWorkflowStep({ campaignId: 'test-concurrent', stepId: 'market_analysis', status: 'completed' }),
+      service.updateWorkflowStep({ campaignId: 'test-concurrent', stepId: 'competitor_analysis', status: 'completed' }),
+      service.updateWorkflowStep({ campaignId: 'test-concurrent', stepId: 'user_analysis', status: 'completed' }),
+    ])
+
+    const workflow = await service.loadCampaignWorkflow('test-concurrent')
+    expect(workflow.steps.find((s) => s.id === 'market_analysis')?.status).toBe('completed')
+    expect(workflow.steps.find((s) => s.id === 'competitor_analysis')?.status).toBe('completed')
+    expect(workflow.steps.find((s) => s.id === 'user_analysis')?.status).toBe('completed')
+  })
+
   test('校验不存在的步骤会抛出错误', async () => {
     const validator = new CampaignArtifactValidator(context, files)
     const serviceWithValidator = new CampaignWorkflowService(context, files, validator)

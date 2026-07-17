@@ -41,6 +41,14 @@ export interface FileProvider {
   /** 写入文本文件 */
   writeTextFile(path: string, content: string): Promise<void>
 
+  /**
+   * 原子写入文本文件（tmp+rename，自动保留 .bak 备份）
+   *
+   * 可选能力：用于工作流状态等损坏代价高的关键文件。
+   * 未实现时调用方应回退到 writeTextFile。
+   */
+  writeTextFileAtomic?(path: string, content: string): Promise<void>
+
   /** 列出目录 */
   listDirectory(path: string): Promise<FileEntry[]>
 

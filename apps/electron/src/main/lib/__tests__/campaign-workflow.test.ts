@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, mock } from 'bun:test'
-import { existsSync, readFileSync, unlinkSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, unlinkSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -47,6 +47,12 @@ interface WorkflowServiceModule {
     unmetRequirements: import('@ma-proma/shared').ArtifactRequirement[]
   }
   extractOutputSummary: (messages: import('@ma-proma/shared').AgentMessage[] | undefined) => string
+  extractMessageText: (msg: unknown) => string
+  isStepExecutionMessage: (
+    userMessage: string | undefined,
+    step: { title: string },
+    stepIndex: number,
+  ) => boolean
   completeStepWithValidation: (
     campaignId: string,
     stepId: string,
@@ -526,5 +532,85 @@ describe('Campaign 工作流测试', () => {
       expect(step.outputSummary).toBeUndefined()
     }
     expect(workflow.currentStepIndex).toBe(-1)
+  })
+
+  // ===== Slice 10: 工作流文件损坏恢复（原子写回归） =====
+
+  it('Slice 10: 工作流文件损坏时备份 .corrupt 文件并重建默认工作流', () => {
+    const corruptCampaignId = 'test-campaign-corrupt'
+    const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${corruptCampaignId}`)
+    mkdirSync(workspaceDir, { recursive: true })
+
+    // 模拟崩溃导致的截断文件
+    writeFileSync(join(workspaceDir, 'campaign-workflow.json'), '{"campaignId":"x","steps":[', 'utf-8')
+
+    const workflow = workflowService.loadCampaignWorkflow(corruptCampaignId)
+
+    // 重建为默认工作流而不是抛错
+    expect(workflow.campaignId).toBe(corruptCampaignId)
+    expect(workflow.steps).toHaveLength(14)
+    expect(workflow.steps[0]?.status).toBe('pending')
+
+    // 损坏原件被保留为 .corrupt-{ts} 备份，不会被静默覆盖
+    const corruptBackups = readdirSync(workspaceDir).filter((f) => f.startsWith('campaign-workflow.json.corrupt-'))
+    expect(corruptBackups.length).toBe(1)
+
+    rmSync(workspaceDir, { recursive: true, force: true })
+  })
+
+  it('Slice 10: 二次保存后保留 .bak 备份（原子写）', () => {
+    const atomicCampaignId = 'test-campaign-atomic'
+
+    // 首次 load 会创建并保存默认工作流
+    workflowService.loadCampaignWorkflow(atomicCampaignId)
+    // 第二次写入触发 .bak 备份
+    workflowService.resetWorkflow(atomicCampaignId)
+
+    const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${atomicCampaignId}`)
+    expect(existsSync(join(workspaceDir, 'campaign-workflow.json.bak'))).toBe(true)
+
+    rmSync(workspaceDir, { recursive: true, force: true })
+  })
+
+  // ===== Slice 11: 消息格式兼容与步骤触发校验（自动闭环回归） =====
+
+  it('Slice 11: extractOutputSummary 兼容 SDKMessage 格式（Phase 4 后 JSONL 实际格式）', () => {
+    const sdkMessages = [
+      { type: 'user', message: { content: [{ type: 'text', text: '## 步骤 1: 市场分析' }] } },
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'thinking', thinking: '推理中' },
+            { type: 'text', text: '市场规模 100 亿，趋势向好' },
+          ],
+        },
+      },
+    ] as unknown as import('@ma-proma/shared').AgentMessage[]
+
+    expect(workflowService.extractOutputSummary(sdkMessages)).toBe('市场规模 100 亿，趋势向好')
+  })
+
+  it('Slice 11: extractOutputSummary 兼容旧 AgentMessage 格式', () => {
+    const legacy = [
+      { id: '1', role: 'user', content: '问题', createdAt: 1 },
+      { id: '2', role: 'assistant', content: '回答', createdAt: 2 },
+    ] as import('@ma-proma/shared').AgentMessage[]
+
+    expect(workflowService.extractOutputSummary(legacy)).toBe('回答')
+  })
+
+  it('Slice 11: isStepExecutionMessage 区分步骤执行与闲聊', () => {
+    const step = { title: '市场分析' }
+    // 执行提示词（handleExecuteStep 发送的格式）
+    expect(workflowService.isStepExecutionMessage('## 步骤 1: 市场分析\n\n请分析品类趋势...', step, 0)).toBe(true)
+    // 调整提示词（handleAdjustStep 发送的格式）
+    expect(workflowService.isStepExecutionMessage('## 调整 Campaign 工作流步骤：市场分析\n\n补充内容', step, 0)).toBe(true)
+    // 闲聊不触发
+    expect(workflowService.isStepExecutionMessage('这个 KOL 报价多少', step, 0)).toBe(false)
+    // 其他步骤序号不匹配
+    expect(workflowService.isStepExecutionMessage('## 步骤 2: 竞品分析', step, 0)).toBe(false)
+    // 空消息
+    expect(workflowService.isStepExecutionMessage(undefined, step, 0)).toBe(false)
   })
 })

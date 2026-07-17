@@ -10,6 +10,7 @@
  */
 
 import { join } from 'node:path'
+import { copyFileSync } from 'node:fs'
 import type {
   AdvanceWorkflowInput,
   AgentMessage,
@@ -629,6 +630,8 @@ export class CampaignWorkflowService {
   private context: AppContext
   private files: FileProvider
   private validator: CampaignArtifactValidator | null
+  /** 每个 Campaign 的变更串行化链：防止并发读-改-写互相覆盖（lost update） */
+  private workflowChains = new Map<string, Promise<unknown>>()
 
   constructor(context: AppContext, files: FileProvider, validator: CampaignArtifactValidator | null = null) {
     this.context = context
@@ -638,6 +641,25 @@ export class CampaignWorkflowService {
 
   setValidator(validator: CampaignArtifactValidator): void {
     this.validator = validator
+  }
+
+  /**
+   * 串行执行指定 Campaign 的工作流变更
+   *
+   * Web/Express 下 Agent 自动完成、用户标记完成、推进步骤可能真实并发，
+   * 读-改-写全量覆盖的 JSON 持久化会互相丢失更新；按 campaignId 串行化即可。
+   * 前一个操作失败不阻塞后续操作。
+   */
+  private withWorkflowLock<T>(campaignId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.workflowChains.get(campaignId) ?? Promise.resolve()
+    const run = prev.catch(() => {}).then(fn)
+    this.workflowChains.set(campaignId, run)
+    const cleanup = run.finally(() => {
+      if (this.workflowChains.get(campaignId) === run) {
+        this.workflowChains.delete(campaignId)
+      }
+    })
+    return cleanup
   }
 
   // -----------------------------------------------------------------
@@ -702,9 +724,9 @@ export class CampaignWorkflowService {
     const exists = await this.files.exists(path)
 
     if (exists) {
-      try {
-        const raw = await this.files.readTextFile(path)
-        const workflow = JSON.parse(raw) as CampaignWorkflow
+      // 主文件损坏时尝试 .bak 备份恢复（原子写会保留 .bak）
+      const workflow = await this.readWorkflowWithRecovery(path)
+      if (workflow && Array.isArray(workflow.steps)) {
         if (workflow.steps.length !== DEFAULT_WORKFLOW_STEPS.length) {
           const migrated = this.migrateWorkflow(workflow, campaignId)
           await this.syncWorkspaceFiles(migrated)
@@ -712,9 +734,9 @@ export class CampaignWorkflowService {
         }
         await this.syncWorkspaceFiles(workflow)
         return workflow
-      } catch (err) {
-        console.error(`[CampaignWorkflow] 读取失败，重新初始化: ${campaignId}`, err)
       }
+      // 文件存在但主文件与 .bak 均无法恢复：备份损坏文件后重建，避免进度被静默覆盖
+      this.backupCorruptWorkflowFile(path, campaignId)
     }
 
     const workflow = this.createDefaultWorkflow(campaignId)
@@ -722,10 +744,44 @@ export class CampaignWorkflowService {
     return workflow
   }
 
+  /** 读取工作流 JSON：主文件失败时回退 .bak 备份，均失败返回 null */
+  private async readWorkflowWithRecovery(path: string): Promise<CampaignWorkflow | null> {
+    try {
+      const raw = await this.files.readTextFile(path)
+      return JSON.parse(raw) as CampaignWorkflow
+    } catch {
+      console.warn(`[CampaignWorkflow] 主工作流文件读取失败，尝试 .bak 恢复: ${path}`)
+    }
+    try {
+      const bakRaw = await this.files.readTextFile(`${path}.bak`)
+      const parsed = JSON.parse(bakRaw) as CampaignWorkflow
+      console.log(`[CampaignWorkflow] 已从 .bak 恢复工作流: ${path}`)
+      return parsed
+    } catch {
+      return null
+    }
+  }
+
+  /** 备份损坏的工作流文件（.corrupt-{ts}）便于人工恢复；非本地文件系统下静默跳过 */
+  private backupCorruptWorkflowFile(path: string, campaignId: string): void {
+    try {
+      copyFileSync(path, `${path}.corrupt-${Date.now()}`)
+      console.error(`[CampaignWorkflow] 工作流文件损坏，已备份后重建: ${campaignId}`)
+    } catch {
+      console.error(`[CampaignWorkflow] 工作流文件损坏且无法备份，直接重建: ${campaignId}`)
+    }
+  }
+
   async saveWorkflow(workflow: CampaignWorkflow): Promise<void> {
     const path = this.getWorkflowPath(workflow.campaignId)
     workflow.updatedAt = Date.now()
-    await this.files.writeTextFile(path, JSON.stringify(workflow, null, 2))
+    const content = JSON.stringify(workflow, null, 2)
+    // 优先原子写入（tmp+rename + .bak 备份），防止崩溃时截断工作流文件
+    if (this.files.writeTextFileAtomic) {
+      await this.files.writeTextFileAtomic(path, content)
+    } else {
+      await this.files.writeTextFile(path, content)
+    }
     await this.syncWorkspaceFiles(workflow)
   }
 
@@ -762,6 +818,10 @@ export class CampaignWorkflowService {
   // -----------------------------------------------------------------
 
   async updateWorkflowStep(input: UpdateWorkflowStepInput): Promise<CampaignWorkflow> {
+    return this.withWorkflowLock(input.campaignId, () => this.updateWorkflowStepLocked(input))
+  }
+
+  private async updateWorkflowStepLocked(input: UpdateWorkflowStepInput): Promise<CampaignWorkflow> {
     const workflow = await this.loadCampaignWorkflow(input.campaignId)
     const stepIndex = workflow.steps.findIndex((s) => s.id === input.stepId)
     if (stepIndex === -1) {
@@ -788,6 +848,10 @@ export class CampaignWorkflowService {
   }
 
   async advanceWorkflow(input: AdvanceWorkflowInput): Promise<CampaignWorkflow> {
+    return this.withWorkflowLock(input.campaignId, () => this.advanceWorkflowLocked(input))
+  }
+
+  private async advanceWorkflowLocked(input: AdvanceWorkflowInput): Promise<CampaignWorkflow> {
     const workflow = await this.loadCampaignWorkflow(input.campaignId)
     const stepIndex = workflow.steps.findIndex((s) => s.id === input.stepId)
     if (stepIndex === -1) {
@@ -808,6 +872,10 @@ export class CampaignWorkflowService {
   }
 
   async resetWorkflow(campaignId: string): Promise<CampaignWorkflow> {
+    return this.withWorkflowLock(campaignId, () => this.resetWorkflowLocked(campaignId))
+  }
+
+  private async resetWorkflowLocked(campaignId: string): Promise<CampaignWorkflow> {
     const workflow = this.createDefaultWorkflow(campaignId)
     await this.saveWorkflow(workflow)
     return workflow
@@ -887,6 +955,14 @@ export class CampaignWorkflowService {
     stepId: CampaignWorkflowStepId,
     messages: AgentMessage[] | undefined,
   ): Promise<{ success: boolean; workflow: CampaignWorkflow; reason?: string }> {
+    return this.withWorkflowLock(campaignId, () => this.completeStepLocked(campaignId, stepId, messages))
+  }
+
+  private async completeStepLocked(
+    campaignId: string,
+    stepId: CampaignWorkflowStepId,
+    messages: AgentMessage[] | undefined,
+  ): Promise<{ success: boolean; workflow: CampaignWorkflow; reason?: string }> {
     if (!this.validator) {
       throw new Error('CampaignArtifactValidator 未注入，无法完成带校验的步骤')
     }
@@ -902,7 +978,7 @@ export class CampaignWorkflowService {
     const outputSummary = await this.validator.extractOutputSummary(messages)
 
     if (!validation.valid) {
-      const failedWorkflow = await this.updateWorkflowStep({
+      const failedWorkflow = await this.updateWorkflowStepLocked({
         campaignId,
         stepId,
         status: 'failed',
@@ -912,7 +988,7 @@ export class CampaignWorkflowService {
       return { success: false, workflow: failedWorkflow, reason: validation.missing.join('; ') }
     }
 
-    const completedWorkflow = await this.updateWorkflowStep({
+    const completedWorkflow = await this.updateWorkflowStepLocked({
       campaignId,
       stepId,
       status: 'completed',

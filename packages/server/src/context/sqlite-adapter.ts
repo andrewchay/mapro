@@ -32,6 +32,13 @@ export class SqliteDatabase {
 
   constructor(path: string) {
     this.db = new engine.Database(path)
+    // WAL + busy_timeout：Web 服务端多请求并发读写时避免 SQLITE_BUSY
+    try {
+      this.db.exec('PRAGMA journal_mode=WAL')
+      this.db.exec('PRAGMA busy_timeout=3000')
+    } catch (err) {
+      console.warn('[SQLite] 设置 WAL/busy_timeout 失败:', err)
+    }
   }
 
   run(sql: string, ...params: unknown[]): { changes: number } {

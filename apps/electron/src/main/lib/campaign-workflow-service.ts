@@ -23,9 +23,10 @@
  * 每步完成后 Agent 可以更新状态，用户也可手动标记。
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { getAgentWorkspacePath } from './config-paths'
+import { readJsonFileSafe, writeJsonFileAtomic } from './safe-file'
 import type {
   CampaignWorkflow,
   CampaignWorkflowStep,
@@ -846,9 +847,9 @@ export function loadCampaignWorkflow(campaignId: string): CampaignWorkflow {
   const path = getWorkflowPath(campaignId)
 
   if (existsSync(path)) {
-    try {
-      const raw = readFileSync(path, 'utf-8')
-      const workflow = JSON.parse(raw) as CampaignWorkflow
+    // readJsonFileSafe 自带 .tmp/.bak 多层恢复；返回 null 说明所有恢复路径均失败
+    const workflow = readJsonFileSafe<CampaignWorkflow>(path)
+    if (workflow && Array.isArray(workflow.steps)) {
       // 如果步骤数量不匹配（版本升级），需要合并/更新
       if (workflow.steps.length !== DEFAULT_WORKFLOW_STEPS.length) {
         const migrated = migrateWorkflow(workflow, campaignId)
@@ -858,9 +859,9 @@ export function loadCampaignWorkflow(campaignId: string): CampaignWorkflow {
       // 确保目录和 todo.md 存在（旧 Campaign 兼容）
       syncWorkspaceFiles(workflow)
       return workflow
-    } catch (err) {
-      console.error(`[CampaignWorkflow] 读取失败，重新初始化: ${campaignId}`, err)
     }
+    // 文件存在但无法恢复：先备份损坏文件再重建，避免用户进度被静默覆盖
+    backupCorruptWorkflowFile(path, campaignId)
   }
 
   const workflow = createDefaultWorkflow(campaignId)
@@ -869,10 +870,22 @@ export function loadCampaignWorkflow(campaignId: string): CampaignWorkflow {
   return workflow
 }
 
+/** 备份损坏的工作流文件（.corrupt-{ts}），便于事后人工恢复 */
+function backupCorruptWorkflowFile(path: string, campaignId: string): void {
+  try {
+    const backupPath = `${path}.corrupt-${Date.now()}`
+    copyFileSync(path, backupPath)
+    console.error(`[CampaignWorkflow] 工作流文件损坏，已备份到 ${backupPath} 后重建: ${campaignId}`)
+  } catch (err) {
+    console.error(`[CampaignWorkflow] 损坏文件备份失败，直接重建: ${campaignId}`, err)
+  }
+}
+
 export function saveWorkflow(workflow: CampaignWorkflow): void {
   const path = getWorkflowPath(workflow.campaignId)
   workflow.updatedAt = Date.now()
-  writeFileSync(path, JSON.stringify(workflow, null, 2), 'utf-8')
+  // 原子写入（tmp+rename，自动保留 .bak），防止崩溃时截断工作流文件
+  writeJsonFileAtomic(path, workflow as unknown as object)
   // 同步更新 todo.md 等文件
   syncWorkspaceFiles(workflow)
 }
@@ -1210,6 +1223,60 @@ export function validateStepArtifacts(
   }
 }
 
+/** 判断消息是否为 assistant 消息（兼容 AgentMessage 的 role 与 SDKMessage 的 type） */
+function isAssistantMessage(msg: unknown): boolean {
+  if (!msg || typeof msg !== 'object') return false
+  const record = msg as Record<string, unknown>
+  return record.role === 'assistant' || record.type === 'assistant'
+}
+
+/**
+ * 提取消息文本内容
+ *
+ * 兼容两种持久化格式：
+ * - AgentMessage: { role, content: string }
+ * - SDKMessage: { type, message: { content: [{ type: 'text', text }, ...] } }（Phase 4 之后 JSONL 实际格式）
+ */
+export function extractMessageText(msg: unknown): string {
+  if (!msg || typeof msg !== 'object') return ''
+  const record = msg as Record<string, unknown>
+  // AgentMessage 格式
+  if (typeof record.content === 'string') return record.content
+  // SDKMessage 格式：拼接 text block（跳过 thinking / tool_use 等）
+  const message = record.message as { content?: unknown } | undefined
+  if (Array.isArray(message?.content)) {
+    return (message.content as unknown[])
+      .map((block) => {
+        if (!block || typeof block !== 'object') return ''
+        const b = block as { type?: unknown; text?: unknown }
+        return b.type === 'text' && typeof b.text === 'string' ? b.text : ''
+      })
+      .filter(Boolean)
+      .join('\n')
+  }
+  return ''
+}
+
+/**
+ * 判断用户消息是否为指定步骤的执行/调整提示词
+ *
+ * 用于流式完成后自动推进工作流前的触发源校验：只有"执行此步骤 / 调整步骤"
+ * 入口发送的消息才允许翻转工作流状态，防止同一会话中的闲聊误标步骤状态。
+ */
+export function isStepExecutionMessage(
+  userMessage: string | undefined,
+  step: Pick<CampaignWorkflowStep, 'title'>,
+  stepIndex: number,
+): boolean {
+  if (!userMessage) return false
+  const head = userMessage.slice(0, 300)
+  // handleExecuteStep: agentPrompt 模板以 "## 步骤 N: ..." 开头（N 为步骤序号）
+  if (head.startsWith(`## 步骤 ${stepIndex + 1}:`)) return true
+  // handleAdjustStep: 以 "## 调整 Campaign 工作流步骤：{title}" 开头
+  if (head.startsWith('## 调整 Campaign 工作流步骤') && head.includes(step.title)) return true
+  return false
+}
+
 /** 从 Agent 消息中提取摘要（最后一条 assistant 消息的前 200 字符） */
 export function extractOutputSummary(
   messages: import('@ma-proma/shared').AgentMessage[] | undefined,
@@ -1219,9 +1286,9 @@ export function extractOutputSummary(
   // 找最后一条 assistant 消息
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]
-    if (!msg) continue
-    const text = msg.content
-    if (text && typeof text === 'string' && text.trim()) {
+    if (!isAssistantMessage(msg)) continue
+    const text = extractMessageText(msg)
+    if (text.trim()) {
       return text.trim().slice(0, 200)
     }
   }
@@ -1234,9 +1301,9 @@ function extractAssistantOutput(messages: import('@ma-proma/shared').AgentMessag
 
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]
-    if (msg?.role !== 'assistant') continue
-    const text = msg.content
-    if (text && typeof text === 'string' && text.trim()) {
+    if (!isAssistantMessage(msg)) continue
+    const text = extractMessageText(msg)
+    if (text.trim()) {
       return text.trim()
     }
   }

@@ -32,7 +32,7 @@ import { AgentOrchestrator } from './agent-orchestrator'
 import { getAgentSessionWorkspacePath, getWorkspaceFilesDir } from './config-paths'
 import { getAgentSessionMeta } from './agent-session-manager'
 import { getAgentWorkspace } from './agent-workspace-manager'
-import { loadCampaignWorkflow, updateWorkflowStep, completeStepWithValidation } from './campaign-workflow-service'
+import { loadCampaignWorkflow, updateWorkflowStep, completeStepWithValidation, isStepExecutionMessage } from './campaign-workflow-service'
 import type { CampaignWorkflowStepId } from '@ma-proma/shared'
 
 // ===== 实例创建 =====
@@ -104,6 +104,11 @@ export async function runAgent(
                   ? workflow.steps[workflow.currentStepIndex]
                   : null
                 if (currentStep && currentStep.status === 'in_progress') {
+                  // 仅当本轮消息由"执行/调整步骤"入口触发时才自动完成，
+                  // 防止同一会话中的闲聊误将步骤标记为 completed/failed
+                  if (!isStepExecutionMessage(input.userMessage, currentStep, workflow.currentStepIndex)) {
+                    console.log(`[CampaignWorkflow] 本轮消息非步骤执行触发，跳过自动完成: ${currentStep.title} (session=${input.sessionId})`)
+                  } else {
                   // 使用带产物校验的完成逻辑
                   const result = completeStepWithValidation(
                     campaignId,
@@ -114,6 +119,7 @@ export async function runAgent(
                     console.log(`[CampaignWorkflow] 自动完成步骤: ${currentStep.title} (session=${input.sessionId})`)
                   } else {
                     console.log(`[CampaignWorkflow] 步骤产物校验失败: ${currentStep.title} — ${result.reason}`)
+                  }
                   }
                 }
               }

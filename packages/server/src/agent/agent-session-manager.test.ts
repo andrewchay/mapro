@@ -195,6 +195,53 @@ describe('AgentSessionManager', () => {
       expect(text!.length).toBeLessThan(300 * 1024)
       expect(text).toContain('内容已截断')
     })
+
+    test('SDKMessage 规范化为 AgentMessage（assistant 文本轮次不丢失）', () => {
+      const session = manager.createAgentSession('规范化测试')
+      manager.appendSDKMessages(session.id, [
+        {
+          type: 'user',
+          message: { content: [{ type: 'text', text: '第一季度预算多少' }] },
+          parent_tool_use_id: null,
+        } as unknown as SDKMessage,
+        {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: '建议分配 50 万' }] },
+          parent_tool_use_id: null,
+        } as unknown as SDKMessage,
+      ])
+
+      const messages = manager.getAgentSessionMessages(session.id)
+
+      // user 与 assistant 轮次都应保留（修复多轮上下文只剩用户消息的问题）
+      expect(messages).toHaveLength(2)
+      expect(messages[0]!.role).toBe('user')
+      expect(messages[0]!.content).toBe('第一季度预算多少')
+      expect(messages[1]!.role).toBe('assistant')
+      expect(messages[1]!.content).toBe('建议分配 50 万')
+    })
+
+    test('SDKMessage 规范化时跳过无文本内容的消息（纯工具调用/thinking）', () => {
+      const session = manager.createAgentSession('工具过滤测试')
+      manager.appendSDKMessages(session.id, [
+        {
+          type: 'assistant',
+          message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }] },
+          parent_tool_use_id: null,
+        } as unknown as SDKMessage,
+        {
+          type: 'assistant',
+          message: { content: [{ type: 'thinking', thinking: '推理中' }, { type: 'text', text: '最终结论' }] },
+          parent_tool_use_id: null,
+        } as unknown as SDKMessage,
+      ])
+
+      const messages = manager.getAgentSessionMessages(session.id)
+
+      expect(messages).toHaveLength(1)
+      expect(messages[0]!.role).toBe('assistant')
+      expect(messages[0]!.content).toBe('最终结论')
+    })
   })
 
   describe('工作区集成', () => {

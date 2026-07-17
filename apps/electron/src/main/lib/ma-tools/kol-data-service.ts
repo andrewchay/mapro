@@ -66,6 +66,13 @@ class Database {
   constructor(path: string) {
     const { Database: NativeDb } = getEngine()
     this.db = new NativeDb(path)
+    // WAL + busy_timeout：与 campaign-manager 共用 kol-database.sqlite 双连接读写，避免 SQLITE_BUSY
+    try {
+      this.db.exec('PRAGMA journal_mode=WAL')
+      this.db.exec('PRAGMA busy_timeout=3000')
+    } catch (err) {
+      console.warn('[KOL 数据库] 设置 WAL/busy_timeout 失败:', err)
+    }
   }
 
   run(sql: string, ...params: unknown[]): { changes: number } {

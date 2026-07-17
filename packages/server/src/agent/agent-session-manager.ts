@@ -58,6 +58,54 @@ const INDEX_VERSION = 1
 
 /** 单条 SDKMessage 序列化后最大长度（UTF-16 code units，超出则截断内容） */
 const MAX_SDK_MESSAGE_LENGTH = 256 * 1024
+
+/**
+ * 将 JSONL 行规范化为 AgentMessage
+ *
+ * - 原生 AgentMessage（含 role 字段）直接保留
+ * - SDKMessage（{ type: 'user'|'assistant', message: { content } }）拼接 text block 转换；
+ *   无文本内容（纯工具调用/结果/thinking）返回 null
+ */
+function normalizeToAgentMessage(obj: unknown): AgentMessage | null {
+  if (!obj || typeof obj !== 'object') return null
+  const record = obj as Record<string, unknown>
+
+  // 原生 AgentMessage
+  if (
+    typeof record.role === 'string' &&
+    ['user', 'assistant', 'tool', 'status'].includes(record.role)
+  ) {
+    return obj as AgentMessage
+  }
+
+  // SDKMessage
+  const type = record.type
+  if (type !== 'user' && type !== 'assistant') return null
+  const message = record.message as { content?: unknown } | undefined
+  const content = message?.content
+  let text = ''
+  if (typeof content === 'string') {
+    text = content
+  } else if (Array.isArray(content)) {
+    text = (content as unknown[])
+      .map((block) => {
+        if (!block || typeof block !== 'object') return ''
+        const b = block as { type?: unknown; text?: unknown }
+        return b.type === 'text' && typeof b.text === 'string' ? b.text : ''
+      })
+      .filter(Boolean)
+      .join('\n')
+  }
+  if (!text.trim()) return null
+
+  const createdAt = typeof record._createdAt === 'number' ? record._createdAt : Date.now()
+  return {
+    id: randomUUID(),
+    role: type,
+    content: text,
+    createdAt,
+  }
+}
 /** 截断后保留的预览文本长度 */
 const TRUNCATED_PREVIEW_LENGTH = 2000
 
@@ -257,7 +305,12 @@ export class AgentSessionManager {
   }
 
   /**
-   * 读取会话的所有消息（过滤 SDKMessage，只保留 AgentMessage）
+   * 读取会话的所有消息（SDKMessage 规范化为 AgentMessage）
+   *
+   * JSONL 中同时存在两种格式：
+   * - 原生 AgentMessage（含 role 字段）→ 直接保留
+   * - SDKMessage（{ type, message: { content: blocks } }）→ 拼接 text block 转换；
+   *   纯工具调用/结果（无文本）不进入 AgentMessage 视图
    */
   getAgentSessionMessages(id: string): AgentMessage[] {
     const filePath = getAgentSessionMessagesPath(this.context, id)
@@ -270,16 +323,8 @@ export class AgentSessionManager {
       const raw = readFileSync(filePath, 'utf-8')
       const lines = raw.split('\n').filter((line) => line.trim())
       return lines
-        .map((line) => JSON.parse(line))
-        .filter((obj) => {
-          // AgentMessage 必须有 role 字段；SDKMessage 没有 role
-          return (
-            obj != null &&
-            typeof obj === 'object' &&
-            typeof (obj as AgentMessage).role === 'string' &&
-            ['user', 'assistant', 'tool', 'status'].includes((obj as AgentMessage).role)
-          )
-        }) as AgentMessage[]
+        .map((line) => normalizeToAgentMessage(JSON.parse(line)))
+        .filter((msg): msg is AgentMessage => msg !== null)
     } catch (error) {
       console.error(`[Agent 会话] 读取消息失败 (${id}):`, error)
       return []

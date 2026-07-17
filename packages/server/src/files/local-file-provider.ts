@@ -4,7 +4,8 @@
  * 用于 Electron 桌面端和内部单用户 Web 服务端，直接操作本地文件系统。
  */
 
-import { readFile, writeFile, readdir, stat, mkdir, rm, access } from 'node:fs/promises'
+import { readFile, writeFile, readdir, stat, mkdir, rm, access, copyFile, rename } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { FileEntry, FileFilter, FileProvider, PickedFile } from './types.ts'
 
@@ -29,6 +30,23 @@ export class LocalFileProvider implements FileProvider {
 
   async writeTextFile(path: string, content: string): Promise<void> {
     await writeFile(path, content, 'utf-8')
+  }
+
+  async writeTextFileAtomic(path: string, content: string): Promise<void> {
+    // 临时文件名带随机后缀：并发写入同一目标时 rename 不会互相抢走临时文件（last-writer-wins）
+    const tmpPath = `${path}.${process.pid}.${randomUUID()}.tmp`
+    const bakPath = `${path}.bak`
+
+    // 备份当前文件（备份失败不阻塞写入）
+    try {
+      await copyFile(path, bakPath)
+    } catch {
+      // 文件不存在或备份失败，忽略
+    }
+
+    // write-to-temp → rename（POSIX 原子操作），防止崩溃时截断目标文件
+    await writeFile(tmpPath, content, 'utf-8')
+    await rename(tmpPath, path)
   }
 
   async listDirectory(path: string): Promise<FileEntry[]> {
