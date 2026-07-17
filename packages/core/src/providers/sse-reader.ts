@@ -171,6 +171,12 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
       }
     }
   } finally {
+    // 异常/提前退出时先取消底层流，释放 undici 连接（releaseLock 不会取消响应体）
+    try {
+      await reader.cancel()
+    } catch {
+      // 流可能已关闭，忽略
+    }
     reader.releaseLock()
   }
 

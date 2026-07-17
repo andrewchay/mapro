@@ -1038,14 +1038,13 @@ export class AgentOrchestrator {
       return
     }
 
-    // 2.1 立即抢占会话槽位（在所有同步检查通过后、第一个 await 之前）
-    // 防止 buildSdkEnv 等 await 期间并发调用绕过上方的检查，导致多条重复消息写入 JSONL
-    // finally 块会通过 generation 匹配来安全清理，不影响正常流程
+    // 2.1 生成运行代次（槽位注册在下方 try 块首行，仍在第一个 await 之前，
+    // 可防止 buildSdkEnv 等 await 期间并发调用绕过守卫写入重复消息；
+    // 由 finally 通过 generation 匹配安全清理，准备阶段抛错也不会残留槽位）
     const runGeneration = Date.now()
     // 优先使用渲染进程传来的 startedAt（确保 STREAM_COMPLETE 竞态保护比较的是同一个值），
     // 否则用本地 runGeneration 作为回退（headless 模式等无渲染进程场景）
     const streamStartedAt = input.startedAt ?? runGeneration
-    this.activeSessions.set(sessionId, runGeneration)
 
     // 3. 构建环境变量
     // 同步凭证到 process.env（SDK in-process 代码可能直接读取 process.env）
@@ -1106,6 +1105,10 @@ export class AgentOrchestrator {
     let workspace: import('@ma-proma/shared').AgentWorkspace | undefined
 
     try {
+      // 7. 注册会话槽位（放在 try 首行：仍在所有 await 之前，保证并发守卫语义不变；
+      // 同时确保上方环境构建 / 消息持久化任一失败时不会残留槽位导致会话被永久锁定）
+      this.activeSessions.set(sessionId, runGeneration)
+
       // 8. 动态导入 SDK
       const sdk = await loadClaudeAgentSdk()
 
@@ -1599,7 +1602,7 @@ export class AgentOrchestrator {
             })
 
             console.log(`[Agent 编排] 第 ${retryAttempt} 次重试，等待 ${delaySec}s...`)
-            await new Promise((r) => setTimeout(r, delayMs))
+            await this.waitRetryDelay(sessionId, delayMs)
 
             // 等待期间如果会话被中止，退出
             if (!this.activeSessions.has(sessionId)) {
@@ -1828,6 +1831,10 @@ export class AgentOrchestrator {
 
           // 错误 break 触发了 → 继续循环
           if (shouldRetryFromError) {
+            // 重试前释放当前 SDK 迭代器与子进程，防止孤儿 claude 进程与挂起 generator 泄漏
+            pendingNext?.catch(() => {})
+            queryIterator.return?.(undefined as never).catch(() => {})
+            this.adapter.abort(sessionId)
             continue
           }
 
@@ -1889,6 +1896,7 @@ export class AgentOrchestrator {
             capturedSdkSessionId = undefined
             lastRetryableError = this.prepareSessionNotFoundRecovery(sessionId, queryOptions, contextualMessage, agentCwd, accumulatedMessages, queryStartedAt)
             stderrChunks.length = 0
+            this.adapter.abort(sessionId) // 释放旧查询与子进程，防止重试泄漏
             continue  // 进入下一次 retry 循环
           }
 
@@ -1913,6 +1921,7 @@ export class AgentOrchestrator {
               '思考签名不兼容，切换到上下文回填模式',
             )
             stderrChunks.length = 0
+            this.adapter.abort(sessionId) // 释放旧查询与子进程，防止重试泄漏
             continue  // 进入下一次 retry 循环
           }
 
@@ -1926,6 +1935,7 @@ export class AgentOrchestrator {
             this.persistSDKMessages(sessionId, accumulatedMessages, Date.now() - queryStartedAt)
             accumulatedMessages.length = 0
             stderrChunks.length = 0
+            this.adapter.abort(sessionId) // 释放旧查询与子进程，防止重试泄漏
             continue  // 进入下一次 retry 循环
           }
 
@@ -2072,6 +2082,22 @@ export class AgentOrchestrator {
       // askUserService 不在 turn 结束时清理——AskUserQuestion 的生命周期由用户交互决定，
       // 仅在会话真正删除时（DELETE_SESSION IPC）才清理。
       exitPlanService.clearSessionPending(sessionId)
+    }
+  }
+
+  /**
+   * 可中止的重试退避等待
+   *
+   * 分段睡眠并轮询会话活跃状态：用户点停止后立即返回，
+   * 避免最长 15s 的退避期间停止操作无响应。
+   */
+  private async waitRetryDelay(sessionId: string, delayMs: number): Promise<void> {
+    const STEP_MS = 200
+    let waited = 0
+    while (waited < delayMs) {
+      if (!this.activeSessions.has(sessionId)) return
+      await new Promise((r) => setTimeout(r, Math.min(STEP_MS, delayMs - waited)))
+      waited += STEP_MS
     }
   }
 

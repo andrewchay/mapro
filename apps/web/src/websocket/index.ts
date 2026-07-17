@@ -94,6 +94,23 @@ export function createWebSocketHandler(
       return
     }
 
+    if (message.type === 'agent:attach') {
+      if (!agentOrchestrator) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          data: 'Agent 未配置：请设置 MAPRO_AGENT_API_KEY',
+        }))
+        return
+      }
+
+      // 断线重连后仅挂接传输层接收进行中会话的事件，不触发新的 Agent 运行
+      const payload = message.payload as { sessionId: string }
+      const transport = createWebSocketTransport(ws)
+      const detach = agentOrchestrator.attachTransport(payload.sessionId, transport)
+      trackDetach(ws, detach)
+      return
+    }
+
     if (message.type === 'agent:send') {
       if (!agentOrchestrator) {
         ws.send(JSON.stringify({

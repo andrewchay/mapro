@@ -88,6 +88,7 @@ import { seedDefaultSkills } from './lib/config-paths'
 import { upgradeDefaultSkillsInWorkspaces } from './lib/agent-workspace-manager'
 import { stopAllAgents, killOrphanedClaudeSubprocesses } from './lib/agent-service'
 import { stopAllGenerations } from './lib/chat-service'
+import { closeAllProxyAgents } from './lib/proxy-fetch'
 import { initAutoUpdater, cleanupUpdater } from './lib/updater/auto-updater'
 import { startWorkspaceWatcher, stopWorkspaceWatcher } from './lib/workspace-watcher'
 import { startChatToolsWatcher, stopChatToolsWatcher } from './lib/chat-tools-watcher'
@@ -571,6 +572,8 @@ app.on('before-quit', () => {
   stopWorkspaceWatcher()
   // 停止 Chat 工具配置文件监听
   stopChatToolsWatcher()
+  // 关闭缓存的代理连接池
+  closeAllProxyAgents().catch(() => {})
   // 停止所有 Bridge
   stopAllBridges()
   // 停止定时爬取服务

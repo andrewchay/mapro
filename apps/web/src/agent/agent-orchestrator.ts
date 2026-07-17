@@ -85,7 +85,7 @@ export class AgentOrchestrator {
   private adapter: ClaudeAgentAdapter
   private eventBus: AgentEventBus
   private abortControllers = new Map<string, AbortController>()
-  private transports = new Map<string, RendererTransport>()
+  private transports = new Map<string, Set<RendererTransport>>()
   private activeSessions = new Set<string>()
 
   private permissionService = new AgentPermissionService()
@@ -105,9 +105,14 @@ export class AgentOrchestrator {
     this.auditLogger = new AgentAuditLogger(deps.context)
   }
 
-  /** 注册当前 WebSocket 连接的传输层 */
+  /** 注册当前 WebSocket 连接的传输层（同一会话支持多连接广播） */
   attachTransport(sessionId: string, transport: RendererTransport): () => void {
-    this.transports.set(sessionId, transport)
+    let set = this.transports.get(sessionId)
+    if (!set) {
+      set = new Set()
+      this.transports.set(sessionId, set)
+    }
+    set.add(transport)
 
     const handler = (eventSessionId: string, payload: AgentStreamPayload) => {
       if (eventSessionId !== sessionId) return
@@ -117,7 +122,12 @@ export class AgentOrchestrator {
 
     return () => {
       unsubscribe()
-      this.transports.delete(sessionId)
+      // 仅移除自身，不影响同一会话的其他连接（如重复发送/多标签页场景）
+      const current = this.transports.get(sessionId)
+      if (current) {
+        current.delete(transport)
+        if (current.size === 0) this.transports.delete(sessionId)
+      }
     }
   }
 
@@ -146,12 +156,14 @@ export class AgentOrchestrator {
     const prompt = this.buildPrompt(history, userMessage)
 
     // 追加用户消息到持久化存储（放在 prompt 构建之后，避免同一条消息在 prompt 里重复）
-    await this.sessionManager.appendAgentMessage(sessionId, {
-      id: cryptoRandomId(),
-      role: 'user',
-      content: userMessage,
-      createdAt: Date.now(),
-    })
+    // 使用 SDKMessage 格式（与 Electron 侧一致）；SDK 流中的纯文本 user 回显不再重复落盘
+    await this.sessionManager.appendSDKMessages(sessionId, [
+      {
+        type: 'user',
+        message: { content: [{ type: 'text', text: userMessage }] },
+        parent_tool_use_id: null,
+      } as unknown as SDKMessage,
+    ])
 
     const sdkCliPath = this.config.sdkCliPath ?? resolveSDKCliPath()
     if (!existsSync(sdkCliPath)) {
@@ -394,8 +406,11 @@ export class AgentOrchestrator {
       this.auditLogger.log({ sessionId, eventType: 'error', output: message })
       this.emitError(sessionId, message)
     } finally {
-      this.abortControllers.delete(sessionId)
-      this.sessionPermissionModes.delete(sessionId)
+      // 仅当 controller 仍属于本轮运行时才清理，防止旧运行的 finally 误删新运行的条目（导致 stop 失效）
+      if (this.abortControllers.get(sessionId) === controller) {
+        this.abortControllers.delete(sessionId)
+        this.sessionPermissionModes.delete(sessionId)
+      }
       this.auditLogger.flush()
     }
     } finally {
@@ -463,8 +478,17 @@ export class AgentOrchestrator {
   }
 
   private async handleSDKMessage(sessionId: string, sdkMessage: SDKMessage): Promise<void> {
-    // 持久化 SDK 消息
-    await this.sessionManager.appendSDKMessages(sessionId, [sdkMessage])
+    // 纯文本 user 回显不落盘（用户消息已在 handleSend 中持久化，避免一条消息存两份）；
+    // 含 tool_result 的 user 消息仍需保留（工具执行上下文）
+    const isPlainUserEcho =
+      sdkMessage.type === 'user' &&
+      (() => {
+        const content = (sdkMessage as { message?: { content?: Array<{ type: string }> } }).message?.content
+        return !Array.isArray(content) || !content.some((b) => b.type === 'tool_result')
+      })()
+    if (!isPlainUserEcho) {
+      await this.sessionManager.appendSDKMessages(sessionId, [sdkMessage])
+    }
 
     // 记录工具执行结果
     this.recordToolResultFromSDKMessage(sessionId, sdkMessage)
@@ -510,8 +534,9 @@ export class AgentOrchestrator {
   }
 
   private send(sessionId: string, channel: string, data: unknown): void {
-    const transport = this.transports.get(sessionId)
-    if (transport) {
+    const set = this.transports.get(sessionId)
+    if (!set) return
+    for (const transport of set) {
       transport.send(channel, data)
     }
   }
@@ -533,8 +558,4 @@ function resolveSDKCliPath(): string {
 
   // 兜底：尝试相对 node_modules
   return join(process.cwd(), 'node_modules', '@anthropic-ai', subpkg, binaryName)
-}
-
-function cryptoRandomId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }

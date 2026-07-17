@@ -200,6 +200,16 @@ export async function sendMessage(
     thinkingEnabled, enabledToolIds, campaignId,
   } = input
 
+  // 0. 会话级并发守卫：同一对话不允许并行流式生成，
+  // 防止后一个流的 controller 覆盖前一个，导致停止失效与 JSONL 交叉写入
+  if (activeControllers.has(conversationId)) {
+    webContents.send(CHAT_IPC_CHANNELS.STREAM_ERROR, {
+      conversationId,
+      error: '当前对话正在生成中，请等待完成或先停止',
+    })
+    return
+  }
+
   // 1. 查找渠道
   const channels = listChannels()
   const channel = channels.find((c) => c.id === channelId)
@@ -552,7 +562,10 @@ ${kols.map((k) => `  - ${k.name}（${k.platform}）粉丝:${k.followers} 互动�
       error: errorMessage,
     })
   } finally {
-    activeControllers.delete(conversationId)
+    // 仅当 controller 仍属于本流时才删除，防止先结束的流误删后一个流的注册
+    if (activeControllers.get(conversationId) === controller) {
+      activeControllers.delete(conversationId)
+    }
   }
 }
 
