@@ -23,18 +23,18 @@ Bun workspace monorepo：
 ```
 proma-v2/
 ├── packages/
-│   ├── shared/     # 共享类型、IPC 通道常量、配置、工具函数 (v0.1.30)
-│   ├── core/       # AI Provider 适配器、代码高亮服务 (v0.2.9)
-│   ├── ui/         # 共享 React UI 组件 (CodeBlock, MermaidBlock) (v0.1.3)
-│   └── server/     # 服务端共享业务逻辑与跨平台抽象 (v0.1.39)
+│   ├── shared/     # 共享类型、IPC 通道常量、配置、工具函数 (v0.1.31)
+│   ├── core/       # AI Provider 适配器、代码高亮服务 (v0.2.10)
+│   ├── ui/         # 共享 React UI 组件 (CodeBlock, MermaidBlock) (v0.1.4)
+│   └── server/     # 服务端共享业务逻辑与跨平台抽象 (v0.1.42)
 └── apps/
-    ├── electron/   # Electron 桌面应用 (v0.1.24)
+    ├── electron/   # Electron 桌面应用 (v0.1.30)
     │   └── src/
     │       ├── main/       # 主进程 + 服务层 (main/lib/)
     │       ├── preload/    # IPC 上下文桥接
     │       └── renderer/   # React UI (Vite + Tailwind + Radix UI)
-    ├── web/        # Web 服务端入口 (Express + WebSocket) (v0.1.33)
-    └── web-ui/     # Web 端 React SPA (v0.1.32)
+    ├── web/        # Web 服务端入口 (Express + WebSocket) (v0.1.37)
+    └── web-ui/     # Web 端 React SPA (v0.1.33)
 ```
 
 **包命名规范**：`@ma-proma/*` 作用域（`@ma-proma/core`、`@ma-proma/shared`、`@ma-proma/ui`、`@ma-proma/server`、`@ma-proma/electron`）
@@ -43,36 +43,36 @@ proma-v2/
 
 ### 包职责详解
 
-#### @ma-proma/shared (v0.1.30)
+#### @ma-proma/shared (v0.1.31)
 - **导出模块**：`./types`、`./config`、`./utils`、`./constants/permission-rules`
 - **关键类型**：`AgentMessage`、`ChatMessage`、`Channel`、`PermissionRequest`、`FeishuConfig`、`Campaign`、`ContentAudit`
 - **依赖**：无运行时依赖（仅 TypeScript）
 
-#### @ma-proma/core (v0.2.9)
+#### @ma-proma/core (v0.2.10)
 - **导出模块**：`./providers`、`./highlight`、`./types`、`./utils`
 - **关键功能**：Provider 适配器注册表、代码高亮（Shiki）
 - **依赖**：`@ma-proma/shared`、`shiki`
 - **Peer 依赖**：`@anthropic-ai/claude-agent-sdk`、`@anthropic-ai/sdk`、`@modelcontextprotocol/sdk`
 
-#### @ma-proma/ui (v0.1.3)
+#### @ma-proma/ui (v0.1.4)
 - **关键组件**：共享 React UI 组件库
 - **依赖**：`@ma-proma/core`、`beautiful-mermaid`、`shiki`、Radix UI
 - **Peer 依赖**：`react@^18.3.0`、`react-dom@^18.3.0`
 
-#### @ma-proma/server (v0.1.39)
+#### @ma-proma/server (v0.1.42)
 - **导出模块**：`./campaign`、`./chat`、`./context`、`./db`、`./files`、`./kol`、`./secrets`、`./transport`
 - **关键功能**：
   - `CampaignRepository` / `CampaignQueryService` / `CampaignCommandService`：Campaign 项目 CRUD 与业务协调
-  - `CampaignWorkflowService`：13 步标准工作流状态机（JSON 持久化、Workspace 文件同步）
+  - `CampaignWorkflowService`：13 步标准工作流状态机（JSON 原子写持久化 + per-campaign 串行锁、`.bak` 恢复、Workspace 文件同步）
   - `CampaignArtifactValidator`：产物校验引擎（目录/文件/字数/语义锚点）与 Agent 兜底落盘
   - `ContentAuditRepository` / `ContentAuditService`：内容审核 SQLite 持久化与 LLM 三维度评分
   - `KOLDatabaseRepository`：KOL 主数据库访问
-  - `createDbProvider()`：根据 `MAPRO_DB_TYPE` / `MAPRO_DATABASE_URL` 切换 SQLite / PostgreSQL
+  - `createDbProvider()`：根据 `MAPRO_DB_TYPE` / `MAPRO_DATABASE_URL` 切换 SQLite / PostgreSQL（SQLite 统一 WAL + busy_timeout）
   - `SqliteMigrationService`：SQLite 数据库导出/导入与数据目录迁移
-  - 跨平台抽象：`DbProvider`（`SqliteDbProvider` / `PostgresDbProvider`）、`FileProvider`、`SecretsStore`、`RendererTransport`
-- **依赖**：`@ma-proma/shared`、`@ma-proma/core`、`better-sqlite3`、`pg`
+  - 跨平台抽象：`DbProvider`（`SqliteDbProvider` / `PostgresDbProvider`）、`FileProvider`（含可选 `writeTextFileAtomic`）、`SecretsStore`、`RendererTransport`
+- **依赖**：`@ma-proma/shared`、`@ma-proma/core`、`better-sqlite3`、`pg`、`ws`
 
-#### @ma-proma/web (v0.1.33)
+#### @ma-proma/web (v0.1.37)
 - **职责**：Web 服务端入口，基于 Express + WebSocket 暴露 REST / WS API
 - **关键模块**：
   - `routes/campaign.ts`：Campaign / KOL 候选池 / Brief / 内容审核 / 内容追踪 / 13 步工作流 REST 路由；已接入 `createDbProvider()`，支持 SQLite / PostgreSQL
@@ -82,17 +82,17 @@ proma-v2/
   - `security.ts`：CORS、API Token、本地 Origin 保护
 - **依赖**：`@ma-proma/server`、`@ma-proma/shared`、`@ma-proma/core`
 
-#### @ma-proma/web-ui (v0.1.19)
+#### @ma-proma/web-ui (v0.1.33)
 - **职责**：Web 端 React SPA，复用 Electron 渲染层交互设计
 - **关键模块**：
   - `api/platform-api.ts` / `web-api.ts`：`PlatformAPI` 抽象与 REST 实现，自动携带 Bearer Token
-  - `api/agent-websocket-client.ts`：按 `sessionId` 隔离的 Agent WebSocket 客户端
+  - `api/agent-websocket-client.ts`：按 `sessionId` 隔离的 Agent WebSocket 客户端（指数退避重连，重连后 `agent:attach` 仅接收进行中事件）
   - `pages/CampaignDetailPage.tsx`：Campaign 详情 + KOL 候选池 + 内容追踪
   - `components/CampaignBriefDialog.tsx` / `ContentAuditDialog.tsx` / `ContentTrackingManager.tsx`
   - `components/agent/PermissionBanner.tsx` / `AskUserBanner.tsx` / `ExitPlanModeBanner.tsx`
-- **依赖**：`@ma-proma/shared`、`@ma-proma/ui`、`@ma-proma/core`、Jotai、Radix UI、Tailwind CSS
+- **依赖**：`@ma-proma/shared`、Jotai、Radix UI、Tailwind CSS（不依赖 `@ma-proma/ui` / `@ma-proma/core`）
 
-#### @ma-proma/electron (v0.1.24)
+#### @ma-proma/electron (v0.1.30)
 - **职责**：Electron 桌面应用主体，集成所有包
 - **关键依赖**：
   - `@anthropic-ai/claude-agent-sdk@0.3.143` - Agent SDK
@@ -418,7 +418,7 @@ bun run generate:icons    # 生成应用图标
 **跨平台打包限制：**
 - optionalDependencies 的平台子包由包管理器按 `os`/`cpu` 字段筛选：Apple Silicon runner 只会装 darwin-arm64，不会装 darwin-x64（cpu 不匹配）
 - 因此当前 CI（macos-latest + windows-latest）**不支持在单个 macOS runner 上同时打 arm64 + x64 DMG**
-- 若要发布 darwin-x64 版本，需要在 macos-13（x64 runner）单独跑一次构建
+- darwin-x64 版本在 macos-15-intel（x64 runner）单独构建（CI 已覆盖）
 - Windows runner 默认 x64，打 win32-x64 正常
 
 **不使用 extraResources 放 binary 的原因：**
@@ -433,7 +433,7 @@ bun run generate:icons    # 生成应用图标
 5. ✅ 本地测试打包后的应用 Agent 功能（`CSC_IDENTITY_AUTO_DISCOVERY=false bun run dist:fast`）
 
 **其他依赖的打包策略：**
-- **原则**：只有 `electron` 和 `@anthropic-ai/claude-agent-sdk` 需要标记为 `--external`
+- **原则**：`electron`、`@anthropic-ai/claude-agent-sdk`、`bun:sqlite`、`better-sqlite3` 需要标记为 `--external`
 - `electron`：由 Electron 运行时提供，必须 external
 - `@anthropic-ai/claude-agent-sdk`：有特殊打包要求（含 214 MB native binary），必须 external + 在 files 中包含主包和平台子包
 - **所有其他依赖**（如 `electron-updater`、`undici`、`chokidar` 等）：应该让 esbuild 打包进 `main.cjs`
