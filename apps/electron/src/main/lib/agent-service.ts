@@ -362,7 +362,7 @@ export function saveFilesToAgentSession(input: AgentSaveFilesInput): AgentSavedF
     writeFileSync(targetPath, buffer)
 
     const actualFilename = targetPath.slice(sessionDir.length + 1)
-    results.push({ filename: actualFilename, targetPath })
+    results.push({ filename: actualFilename, targetPath, size: buffer.length })
     console.log(`[Agent 服务] 文件已保存: ${targetPath} (${buffer.length} bytes)`)
   }
 
@@ -408,7 +408,7 @@ export function saveFilesToWorkspaceFiles(input: AgentSaveWorkspaceFilesInput): 
     writeFileSync(targetPath, buffer)
 
     const actualFilename = targetPath.slice(wsFilesDir.length + 1)
-    results.push({ filename: actualFilename, targetPath })
+    results.push({ filename: actualFilename, targetPath, size: buffer.length })
     console.log(`[Agent 服务] 工作区文件已保存: ${targetPath} (${buffer.length} bytes)`)
   }
 
