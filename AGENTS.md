@@ -23,12 +23,12 @@ Bun workspace monorepo：
 ```
 proma-v2/
 ├── packages/
-│   ├── shared/     # 共享类型、IPC 通道常量、配置、工具函数 (v0.1.31)
-│   ├── core/       # AI Provider 适配器、代码高亮服务 (v0.2.10)
-│   ├── ui/         # 共享 React UI 组件 (CodeBlock, MermaidBlock) (v0.1.4)
+│   ├── shared/     # 共享类型、IPC 通道常量、配置、工具函数 (v0.1.32)
+│   ├── core/       # AI Provider 适配器、AI SDK 桥接、代码高亮服务 (v0.2.11)
+│   ├── ui/         # 共享 React UI 组件 (CodeBlock, MermaidBlock) (v0.1.5)
 │   └── server/     # 服务端共享业务逻辑与跨平台抽象 (v0.1.42)
 └── apps/
-    ├── electron/   # Electron 桌面应用 (v0.1.30)
+    ├── electron/   # Electron 桌面应用 (v0.1.32)
     │   └── src/
     │       ├── main/       # 主进程 + 服务层 (main/lib/)
     │       ├── preload/    # IPC 上下文桥接
@@ -43,18 +43,18 @@ proma-v2/
 
 ### 包职责详解
 
-#### @ma-proma/shared (v0.1.31)
+#### @ma-proma/shared (v0.1.32)
 - **导出模块**：`./types`、`./config`、`./utils`、`./constants/permission-rules`
-- **关键类型**：`AgentMessage`、`ChatMessage`、`Channel`、`PermissionRequest`、`FeishuConfig`、`Campaign`、`ContentAudit`
+- **关键类型**：`AgentMessage`、`ChatMessage`、`Channel`、`PermissionRequest`、`FeishuConfig`、`Campaign`、`ContentAudit`、`AgentRuntime`（`'claude' | 'proma' | 'pi' | 'ai-sdk'`）、`AGENT_RUNTIME_CAPABILITIES` / `AGENT_RUNTIME_HISTORY_SEMANTICS` / `AGENT_PROVIDER_RUNTIME_CAPABILITIES`（11 个 Provider 的 runtime 能力矩阵）、`resolveAgentRuntimeBaseUrl`
 - **依赖**：无运行时依赖（仅 TypeScript）
 
-#### @ma-proma/core (v0.2.10)
-- **导出模块**：`./providers`、`./highlight`、`./types`、`./utils`
-- **关键功能**：Provider 适配器注册表、代码高亮（Shiki）
-- **依赖**：`@ma-proma/shared`、`shiki`
+#### @ma-proma/core (v0.2.11)
+- **导出模块**：`./providers`、`./providers/ai-sdk-bridge`、`./highlight`、`./types`、`./utils`
+- **关键功能**：Provider 适配器注册表、AI SDK 桥接（`ai-sdk-bridge.ts`，将渠道配置映射为 Vercel AI SDK Provider 实例）、代码高亮（Shiki）
+- **依赖**：`@ma-proma/shared`、`shiki`、`ai@7.0.31`、`@ai-sdk/anthropic@4.0.16`、`@ai-sdk/openai@4.0.16`、`@ai-sdk/google@4.0.18`
 - **Peer 依赖**：`@anthropic-ai/claude-agent-sdk`、`@anthropic-ai/sdk`、`@modelcontextprotocol/sdk`
 
-#### @ma-proma/ui (v0.1.4)
+#### @ma-proma/ui (v0.1.5)
 - **关键组件**：共享 React UI 组件库
 - **依赖**：`@ma-proma/core`、`beautiful-mermaid`、`shiki`、Radix UI
 - **Peer 依赖**：`react@^18.3.0`、`react-dom@^18.3.0`
@@ -92,10 +92,11 @@ proma-v2/
   - `components/agent/PermissionBanner.tsx` / `AskUserBanner.tsx` / `ExitPlanModeBanner.tsx`
 - **依赖**：`@ma-proma/shared`、Jotai、Radix UI、Tailwind CSS（不依赖 `@ma-proma/ui` / `@ma-proma/core`）
 
-#### @ma-proma/electron (v0.1.30)
+#### @ma-proma/electron (v0.1.32)
 - **职责**：Electron 桌面应用主体，集成所有包
 - **关键依赖**：
-  - `@anthropic-ai/claude-agent-sdk@0.3.143` - Agent SDK
+  - `@anthropic-ai/claude-agent-sdk@0.3.143` - Agent SDK（claude runtime）
+  - `@earendil-works/pi-agent-core` / `pi-ai` / `pi-coding-agent@0.80.10` - Pi runtime
   - `@larksuiteoapi/node-sdk` - 飞书集成
   - Radix UI、TipTap、Tailwind CSS
   - 文件解析：`pdf-parse`、`officeparser`、`word-extractor`
@@ -172,6 +173,8 @@ bun run generate:icons    # 生成应用图标
 | **打包工具** | esbuild | 0.24.0+ |
 | **分发工具** | Electron Builder | 25.1.8 |
 | **Agent SDK** | @anthropic-ai/claude-agent-sdk | 0.3.143 |
+| **AI SDK** | ai（Vercel AI SDK） | 7.0.31 |
+| **Pi Agent** | @earendil-works/pi-agent-core / pi-ai / pi-coding-agent | 0.80.10 |
 | **飞书 SDK** | @larksuiteoapi/node-sdk | 最新 |
 
 ## 核心架构
@@ -211,13 +214,19 @@ bun run generate:icons    # 生成应用图标
 
 | 服务 | 职责 |
 |------|------|
-| `agent-orchestrator.ts` | Agent 核心编排层（71KB）：并发守卫、渠道查找、环境变量构建、SDK 路径解析、消息持久化、事件流处理、错误处理、自动标题生成 |
+| `agent-orchestrator.ts` | Agent 核心编排层：并发守卫、渠道查找、环境变量构建、消息持久化、事件流处理、错误处理、自动标题生成。已重构为只依赖 `AgentProviderAdapter` 接口 + AgentEventBus，通过 `adapters/runtime-routing-agent-adapter.ts` 按会话路由 claude / proma / pi / ai-sdk 四种 runtime；`claude-sdk-loader.ts` 保留（claude 路径的 MCP 工具注入仍需 SDK 对象） |
+| `agent-runtime/` | Provider-Agnostic 自建工具循环：`tool-registry.ts` + `tool-impls/` 40+ 内置工具（Read / Write / Edit / Bash / Grep / Plan / AskUser / Agent(SubAgent) / GoalCheckpoint / WebBridge×12 / ComputerUse×15）、`mcp-client.ts` + `mcp-client-cache.ts`（跨会话连接缓存）+ MCP OAuth 三件套（store / provider / pending）+ `mcp-client-secret-store.ts`（client_secret safeStorage 加密存 `~/.mapro/mcp-client-secrets.json`）、`prompt-builder.ts`、`attachment-enrichment.ts`、`retry.ts`（瞬时错误重试）、`ai-sdk-runtime-core.ts`（AI SDK runtime 核心）、`runtime-services.ts` / `runtime-mcp-service.ts` / `runtime-secret-codec.ts` |
+| `adapters/` | 多 runtime Agent 适配器：`provider-agnostic-agent-adapter.ts`（MAPro runtime，基于 `@ma-proma/core` ProviderAdapter + streamSSE）、`ai-sdk-agent-adapter.ts`（Vercel AI SDK runtime）、`pi-agent-adapter.ts` + `pi-message-adapter.ts` + `pi-model-registry.ts` + `pi-sdk-loader.ts`（Pi runtime，只读工具白名单）、`runtime-routing-agent-adapter.ts`（按会话 runtime 路由）、`claude-agent-adapter.ts`（Claude SDK runtime） |
+| `goal-runtime/` | Goal 控制平面：`goal-coordinator.ts`（目标状态机 / 检查点校验 / 最多连续 3 次立即续跑 / 重启恢复 `recoverDueGoals`）、`goal-store.ts`（持久化 `~/.mapro/goals.json` + `goals/{id}.jsonl` 审计）。用户在 Agent 输入框以 `@goal <目标>` 显式创建（仅 proma / ai-sdk runtime），`GoalCheckpoint` 工具由编排层拦截原子持久化 |
+| `web-bridge-service.ts` | Web Bridge 受管浏览器：每会话一个可见 BrowserWindow（session partition `persist:mapro-web-bridge-{sessionId}`）或连接用户 Chrome CDP；12 个 WebBridge* 工具。安全基线：仅 http(s)、禁 URL 内嵌凭据、上传必须系统文件选择器确认、下载 50MB 上限 + 文件名消毒落盘 `~/.mapro/web-bridge-downloads/`、页面快照 16000 字符截断 |
+| `computer-use-service.ts` | OS 级 Computer Use（macOS）：自研 N-API 模块 `resources/computer-use/macos/computer_use_addon.mm`（`scripts/build-computer-use-helper.ts` 编译，挂入 `build:resources`）；TCC 辅助功能 + 屏幕录制授权、CGEvent 输入、desktopCapturer 截图（DIP 逻辑坐标 + coordinateScale 回传）；15 个 ComputerUse* 工具；Web Bridge 有结构化页面元素时禁止降级到 Computer Use 操作网页；`ComputerUseRequestTakeover` 让用户接管敏感操作 |
+| `agent-audit-service.ts` | 本地操作审计统一查询导出；`web-bridge-audit-service.ts` / `computer-use-audit-service.ts` 追加写 `~/.mapro/{web-bridge-audit,computer-use-audit}/events.jsonl`（脱敏：不存截图 / 正文 / 输入原文 / 绝对路径） |
 | `agent-session-manager.ts` | Agent 会话管理：SDK 消息持久化、会话元数据 CRUD、JSONL 存储 |
 | `agent-prompt-builder.ts` | Agent 系统提示词构建（18KB）：动态上下文构建、内置 Agent 构建、工作区上下文注入 |
 | `agent-permission-service.ts` | Agent 权限管理：工具权限检查、权限模式管理 |
 | `agent-ask-user-service.ts` | Agent 用户交互：AskUser 请求处理 |
 | `agent-exit-plan-service.ts` | Agent 退出计划服务 |
-| `agent-workspace-manager.ts` | 工作区管理（16KB）：MCP Server 配置、Skills 配置、工作区 CRUD |
+| `agent-workspace-manager.ts` | 工作区管理：MCP Server 配置、Skills 配置、工作区 CRUD、`AgentWorkspace.rootPath` 本地项目工作区（`createAgentWorkspace(name, slug?, rootPath?)`，IPC 路径校验统一为 `resolveWorkspacePath`，覆盖 agent-workspaces 根 + 本地项目根） |
 | `chat-service.ts` | Chat 流式调用编排（20KB）：Provider 适配器集成、消息持久化、AbortController |
 | `conversation-manager.ts` | 对话管理（13KB）：对话 CRUD、JSONL 消息存储、置顶、上下文分割 |
 | `channel-manager.ts` | 渠道管理（16KB）：渠道 CRUD、API Key AES-256-GCM 加密（safeStorage）、连接测试、模型获取 |
@@ -246,7 +255,7 @@ bun run generate:icons    # 生成应用图标
 | 服务 | 职责 |
 |------|------|
 | `chat-tools/` | Chat 工具实现目录：内置工具函数（含 `web-scraper-tool.ts` 网页爬取工具） |
-| `browser-automation/` | 浏览器自动化：基于 Playwright Python 的脚本生成与执行（模式 A），支持持久 Profile、Cookie 注入、系统 Chrome/CDP、随机操作间隔、反检测参数、代理、headless 控制、真实环境检查（`checkPythonAndPlaywright`） |
+| `browser-automation/` | 浏览器自动化：基于 Playwright Python 的脚本生成与执行（模式 A），支持持久 Profile、Cookie 注入、系统 Chrome/CDP、随机操作间隔、反检测参数、代理、headless 控制、真实环境检查（`checkPythonAndPlaywright`）。原浏览器视觉循环 `computer_use` 已退役（相关服务 / Chat Tool / 渲染层面板与 IPC 通道组已删除）；交互式浏览器自动化由 Web Bridge 承担，桌面操控由 OS 级 Computer Use 承担 |
 | `ma-tools/` | MA 营销工具集：19 个营销相关 Chat Tool（见上方 Campaign 业务服务） |
 | `workspace-watcher.ts` | 工作区文件监听：文件系统变化监控 |
 | `chat-tools-watcher.ts` | Chat 工具监听：工具配置变化监控 |
@@ -323,8 +332,8 @@ bun run generate:icons    # 生成应用图标
 
 - **`app-shell/`**：三面板布局（LeftSidebar | NavigatorPanel | MainContentPanel），侧边栏含模式切换、置顶对话、日期分组列表、Campaign 列表、流式指示器
 - **`chat/`**：聊天核心 — ChatView（消息加载/流式订阅）、ChatHeader（模型选择/上下文设置）、ChatInput（Tiptap 富文本编辑器）、ChatMessages（消息列表/自动滚动）、ParallelChatMessages（并排模式）
-- **`agent/`**：Agent 模式 — AgentView（纯展示 + 交互，IPC 监听已提升到全局）、AgentHeader（渠道/模型选择）、AgentMessages（消息列表 + 工具活动）、ToolActivityItem（工具调用展示）、WorkspaceSelector（工作区切换）、PermissionBanner/AskUserBanner/ExitPlanModeBanner（权限/问答/计划审批请求 UI）；**Campaign 子模块**：CampaignList、CampaignDetail（基本信息 + 三阶段 + 候选池 + 内容追踪）、CampaignWorkflowSteps（13 步工作流执行/校验/重置）、CampaignCreateDialog、CampaignKOLImportDialog、CampaignBriefDialog、ContentAuditDialog、ContentTrackingManager、ContentTrackingList、FilePreviewDialog
-- **`settings/`**：设置面板 — GeneralSettings（用户档案）、AppearanceSettings（主题）、ChannelSettings（渠道管理）、ChannelForm（Provider 配置）、AgentSettings（Agent 渠道/工作区/MCP）、McpServerForm（MCP 服务器配置）、AboutSettings（版本/更新）、FeishuSettings（飞书集成）；含 `primitives/` 可复用表单组件
+- **`agent/`**：Agent 模式 — AgentView（纯展示 + 交互，IPC 监听已提升到全局；内含 AgentRuntimeSelector 按会话选择 claude / proma / pi / ai-sdk runtime、`@goal` 目标创建提示横幅）、AgentHeader（渠道/模型选择）、AgentMessages（消息列表 + 工具活动）、ToolActivityItem（工具调用展示）、TurnFileChangesSummary（Assistant Turn 文件改动汇总）、WorkspaceSelector（工作区切换）、PermissionBanner/AskUserBanner/ExitPlanModeBanner/McpOAuthBanner（权限/问答/计划审批/MCP OAuth 授权请求 UI；PermissionBanner 对 WebBridge / ComputerUse 写操作逐次确认，AskUserBanner 支持 computer_use_takeover 接管）；`renderer/lib/agent-runtime-channels.ts` 按 runtime 过滤可用渠道；**Campaign 子模块**：CampaignList、CampaignDetail（基本信息 + 三阶段 + 候选池 + 内容追踪）、CampaignWorkflowSteps（13 步工作流执行/校验/重置）、CampaignCreateDialog、CampaignKOLImportDialog、CampaignBriefDialog、ContentAuditDialog、ContentTrackingManager、ContentTrackingList、FilePreviewDialog
+- **`settings/`**：设置面板 — GeneralSettings（用户档案）、AppearanceSettings（主题）、ChannelSettings（渠道管理）、ChannelForm（Provider 配置）、AgentSettings（Agent 渠道/工作区/MCP）、McpServerForm（MCP 服务器配置）、AboutSettings（版本/更新）、FeishuSettings（飞书集成）、AutomationSettings（自动化与设备控制：Computer Use 授权状态 + 紧急停止全部受管浏览器 + AI SDK Runtime 诊断）、OperationAuditSettings（操作审计：Web Bridge / Computer Use 本地审计查询导出）；含 `primitives/` 可复用表单组件
 - **`file-browser/`**：文件浏览器 — FileBrowser（工作区文件树浏览）
 - **`diff/`**：Git Diff 展示
 - **`voice-dictation/`**：语音听写窗口
@@ -373,6 +382,16 @@ bun run generate:icons    # 生成应用图标
 │       └── skills/         # Skills 配置目录
 ├── campaign-database.sqlite # Campaign 项目数据库（Campaign / KOL 候选池 / Brief / 内容审核）
 ├── kol-database.sqlite      # KOL 主数据库（含 fan/engagement/content/overall_score 评分系统）
+├── goals.json               # Goal 索引（@goal 目标状态机）
+├── goals/                   # Goal 运行审计日志
+│   └── {goal-id}.jsonl
+├── mcp-client-secrets.json  # MCP OAuth client_secret（safeStorage 加密）
+├── web-bridge-downloads/    # Web Bridge 下载落盘（50MB 上限 + 文件名消毒）
+│   └── {session-id}/
+├── web-bridge-audit/        # Web Bridge 操作审计（脱敏 JSONL）
+│   └── events.jsonl
+├── computer-use-audit/      # Computer Use 操作审计（脱敏 JSONL）
+│   └── events.jsonl
 ├── attachments/            # 附件文件
 │   └── {conversationId}/
 │       └── {uuid}.ext
@@ -390,7 +409,7 @@ bun run generate:icons    # 生成应用图标
 
 ## 构建工具
 
-- **主进程/Preload**：esbuild (`--bundle --platform=node --format=cjs --external:electron --external:@anthropic-ai/claude-agent-sdk`)
+- **主进程/Preload**：esbuild（`--bundle --platform=node --format=cjs --external:electron --external:@anthropic-ai/claude-agent-sdk --external:bun:sqlite --external:better-sqlite3 --external:@earendil-works/pi-coding-agent --external:@earendil-works/pi-agent-core --external:@earendil-works/pi-ai`）
 - **渲染进程**：Vite + React 插件 + Tailwind CSS + HMR
 - **开发热重载**：渲染进程 Vite HMR 即时生效；主进程/Preload 通过 electronmon 监听 dist 文件变化自动重启
 - **打包分发**：electron-builder（配置见 `electron-builder.yml`）
@@ -433,9 +452,12 @@ bun run generate:icons    # 生成应用图标
 5. ✅ 本地测试打包后的应用 Agent 功能（`CSC_IDENTITY_AUTO_DISCOVERY=false bun run dist:fast`）
 
 **其他依赖的打包策略：**
-- **原则**：`electron`、`@anthropic-ai/claude-agent-sdk`、`bun:sqlite`、`better-sqlite3` 需要标记为 `--external`
+- **原则**：`electron`、`@anthropic-ai/claude-agent-sdk`、`bun:sqlite`、`better-sqlite3`、`@earendil-works/pi-coding-agent`、`@earendil-works/pi-agent-core`、`@earendil-works/pi-ai` 需要标记为 `--external`
 - `electron`：由 Electron 运行时提供，必须 external
 - `@anthropic-ai/claude-agent-sdk`：有特殊打包要求（含 214 MB native binary），必须 external + 在 files 中包含主包和平台子包
+- `@earendil-works/pi-*` 三包：Pi runtime 依赖（含 `pi-tui` native 模块），必须 external；`electron-builder.yml` 的 `files` 包含 `node_modules/@earendil-works/**/*`，`asarUnpack` 解包 `pi-tui/native/**`（及其 `photon-node` 依赖）
+- **Computer Use N-API 模块**：`resources/computer-use/macos/computer_use_addon.mm` 由 `scripts/build-computer-use-helper.ts` 编译为 `computer_use.node`（挂入 `build:resources`），`electron-builder.yml` 通过 `extraResources` 把 `resources/computer-use` 复制到安装包，运行时从 `process.resourcesPath` 加载
+- **mapro:// DeepLink 协议**：`electron-builder.yml` 的 `protocols` 注册 `mapro` scheme（MCP OAuth 回调）；`main/index.ts` 处理 macOS `open-url` 与 Windows `second-instance`；协议名集中在 `main/lib/app-identity.ts`（`APP_DEEP_LINK_PROTOCOL = 'mapro'`）
 - **所有其他依赖**（如 `electron-updater`、`undici`、`chokidar` 等）：应该让 esbuild 打包进 `main.cjs`
   - ✅ 优点：避免遗漏子依赖，简化 electron-builder 配置
   - ❌ 如果标记为 external：必须在 `electron-builder.yml` 的 `files` 中手动列出所有子依赖
@@ -481,7 +503,31 @@ bun run generate:icons    # 生成应用图标
 
 ## Agent SDK 集成架构
 
-基于 `@anthropic-ai/claude-agent-sdk@0.3.143` 实现 Agent 模式，与 Chat 模式并行。
+### 多 Runtime 架构（proma-mit 移植后新增）
+
+Agent 模式支持四种 runtime，由 `AgentRuntime = 'claude' | 'proma' | 'pi' | 'ai-sdk'`（`@ma-proma/shared`）标识，渲染层 AgentRuntimeSelector 按会话选择，`runtime-routing-agent-adapter.ts` 负责路由：
+
+| Runtime | 适配器 | 说明 |
+|---------|--------|------|
+| `claude`（默认） | `claude-agent-adapter.ts` | Claude Agent SDK 路径，即下方原有架构；MCP 工具注入（memos / nano-banana / KOL Data / browser_fetch）仍需 SDK 对象 |
+| `proma` | `provider-agnostic-agent-adapter.ts` | Provider-Agnostic MAPro runtime：基于 `@ma-proma/core` ProviderAdapter + streamSSE 的自建工具循环（`agent-runtime/`），不再依赖 Claude SDK |
+| `ai-sdk` | `ai-sdk-agent-adapter.ts` | Vercel AI SDK runtime：复用同一套 `agent-runtime/` 工具循环，模型调用走 `ai-sdk-runtime-core.ts` + `@ma-proma/core` 的 `providers/ai-sdk-bridge.ts` |
+| `pi` | `pi-agent-adapter.ts` | Pi runtime：基于 `@earendil-works/pi-coding-agent`，只读工具白名单 |
+
+配套机制：
+
+- **能力矩阵**：`AGENT_RUNTIME_CAPABILITIES` / `AGENT_RUNTIME_HISTORY_SEMANTICS` / `AGENT_PROVIDER_RUNTIME_CAPABILITIES`（11 个 Provider × runtime 能力）+ `resolveAgentRuntimeBaseUrl`；渲染层 `lib/agent-runtime-channels.ts` 按 runtime 过滤可用渠道
+- **新增 ProviderType**：`kimi-api` / `kimi-coding`
+- **编排层解耦**：`agent-orchestrator.ts` 只依赖 `AgentProviderAdapter` 接口 + AgentEventBus，不再直接调用 SDK
+- **权限模式**：新增 `safe` 模式（SAFE_TOOLS 只读白名单）；`AskUser` 工具在 proma / ai-sdk runtime 由编排层拦截转发
+- **MCP OAuth**：`agent-runtime/` 内置 OAuth 三件套（store / provider / pending）+ client_secret safeStorage 加密存储（`~/.mapro/mcp-client-secrets.json`），授权通过 `mapro://` DeepLink 回调完成，渲染层 McpOAuthBanner 提示
+- **Goal Runtime**：`@goal <目标>` 显式创建长程目标（仅 proma / ai-sdk runtime），`goal-runtime/` 负责状态机、检查点校验与重启恢复；`@goal` 同时是文件 mention 保留命令
+
+详细架构决策与安全基线见 [docs/agent-runtime.md](./docs/agent-runtime.md)。以下为 `claude` runtime 路径的原有描述。
+
+---
+
+基于 `@anthropic-ai/claude-agent-sdk@0.3.143` 实现 Agent 模式（claude runtime），与 Chat 模式并行。
 
 ### 核心流程
 

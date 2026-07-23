@@ -15,7 +15,9 @@ MAPro 是一个本地优先的 AI 桌面应用，把多模型 Chat、通用 Agen
 ## 现在能做什么
 
 - **Chat 模式**：多模型对话、附件解析、图片输入、Markdown / Mermaid / KaTeX / 代码高亮、并排对话、系统提示词、上下文管理。
-- **Agent 模式**：基于 `@anthropic-ai/claude-agent-sdk` 的通用 Agent，支持工作区隔离、权限模式、文件操作、长任务流式输出、计划确认和用户追问。
+- **Agent 模式**：支持四种 runtime 的通用 Agent——`claude`（基于 `@anthropic-ai/claude-agent-sdk`）、`proma` 与 `ai-sdk`（自建 Provider-Agnostic 工具循环，基于 `@ma-proma/core` Provider Adapter / Vercel AI SDK）、`pi`（只读工具白名单）。支持工作区隔离（含本地项目工作区 `rootPath`）、权限模式、文件操作、长任务流式输出、计划确认和用户追问。
+- **@goal 目标**：在 Agent 输入框以 `@goal <目标>` 创建长程目标（proma / ai-sdk runtime），Goal Runtime 负责状态机推进、检查点校验与重启恢复。
+- **Web Bridge 与 Computer Use**：Web Bridge 提供受管浏览器（每会话可见窗口或连接用户 Chrome CDP），适合交互式浏览器自动化；macOS 上另有 OS 级 Computer Use（CGEvent 输入 + 截图 + TCC 授权），可操控桌面应用。两者均有本地操作审计与安全限制。
 - **Campaign 项目管理（Web & 桌面端）**：KOL 投放项目、13 步标准工作流、产物校验、KOL 候选池、达人 Brief 生成、AI 内容审核、内容数据追踪与投流分析。
 - **SubAgent / Tasks**：复杂任务可以通过 Claude Agent SDK 的 Agent 工具拆分为子 Agent / Task，并在消息流中展示调用过程和结果。
 - **Skills & MCP**：每个工作区可以独立配置 Skills、MCP Server 和工作区文件，适合沉淀可复用能力。
@@ -36,7 +38,7 @@ MAPro 是一个本地优先的 AI 桌面应用，把多模型 Chat、通用 Agen
 1. 打开 MAPro，先完成环境检查。Agent 模式依赖本机基础环境，尤其是 Git、Node.js / Bun 以及可用的 Shell。
 2. 进入 **设置 > 渠道**，添加至少一个 AI 供应商渠道，填写 Base URL、API Key 和模型列表。
 3. Chat 模式可以使用 OpenAI、Anthropic、Google 或 OpenAI 兼容协议的渠道。
-4. Agent 模式需要 Anthropic 协议或 Anthropic 兼容协议渠道，例如 Anthropic、DeepSeek、Kimi API、Kimi Coding Plan。
+4. Agent 模式的默认 `claude` runtime 需要 Anthropic 协议或 Anthropic 兼容协议渠道，例如 Anthropic、DeepSeek、Kimi API、Kimi Coding Plan；`proma` / `ai-sdk` runtime 可使用更多协议的渠道（以设置中的 runtime 渠道过滤为准）。
 5. 进入 **设置 > Agent**，选择默认 Agent 渠道、模型和工作区。
 6. 如需记忆、联网搜索、飞书 / 钉钉 / 微信桥接，在设置页对应 Tab 中继续配置。
 
@@ -107,7 +109,7 @@ MAPro 支持豆包的流式语音输入功能，并且支持在 MAPro 内使用�
 | 通义千问 | 支持 | 支持 | Anthropic 兼容协议 |
 | 自定义端点 | 支持 | 暂不支持 | OpenAI 兼容协议 |
 
-Agent 模式底层使用 Claude Agent SDK，因此目前要求渠道提供 Anthropic 或 Anthropic 兼容协议。Chat 模式则通过 `@ma-proma/core` 的 Provider Adapter 统一接入不同协议。
+Agent 模式提供四种 runtime：`claude`（Claude Agent SDK，要求 Anthropic 或 Anthropic 兼容协议渠道）、`proma` / `ai-sdk`（自建 Provider-Agnostic 工具循环，基于 `@ma-proma/core` Provider Adapter / Vercel AI SDK）、`pi`（只读工具白名单）。表中「支持」指 claude runtime；各 runtime 的渠道能力以 `AGENT_PROVIDER_RUNTIME_CAPABILITIES` 能力矩阵为准，渲染层会按 runtime 过滤可用渠道。Chat 模式则通过 `@ma-proma/core` 的 Provider Adapter 统一接入不同协议。
 
 ## 本地数据
 
@@ -129,6 +131,11 @@ MAPro 采用本地文件存储，方便备份、迁移和排查问题。
 │       └── skills/
 ├── campaign-database.sqlite  # Campaign / KOL 候选池 / Brief / 内容审核 / 内容追踪
 ├── kol-database.sqlite       # KOL 主数据库与评分系统
+├── goals.json                # @goal 目标索引（goals/ 下为运行审计日志）
+├── mcp-client-secrets.json   # MCP OAuth client_secret（safeStorage 加密）
+├── web-bridge-downloads/     # Web Bridge 下载落盘
+├── web-bridge-audit/         # Web Bridge 操作审计（脱敏 JSONL）
+├── computer-use-audit/       # Computer Use 操作审计（脱敏 JSONL）
 ├── attachments/
 ├── user-profile.json
 ├── settings.json
