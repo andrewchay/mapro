@@ -7,7 +7,7 @@
 
 import * as React from 'react'
 import { useAtom } from 'jotai'
-import { FolderOpen, Plus, Pencil, Trash2, GripVertical } from 'lucide-react'
+import { FolderOpen, FolderPlus, Plus, Pencil, Trash2, GripVertical } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import {
@@ -20,16 +20,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import {
-  agentWorkspacesAtom,
-  currentAgentWorkspaceIdAtom,
-} from '@/atoms/agent-atoms'
 import { workspaceListHeightAtom } from '@/atoms/sidebar-atoms'
+import { useWorkspaceActions } from '@/hooks/useWorkspaceActions'
+import { agentWorkspacesAtom } from '@/atoms/agent-atoms'
 import type { AgentWorkspace } from '@ma-proma/shared'
 
 export function WorkspaceSelector(): React.ReactElement {
-  const [workspaces, setWorkspaces] = useAtom(agentWorkspacesAtom)
-  const [currentWorkspaceId, setCurrentWorkspaceId] = useAtom(currentAgentWorkspaceIdAtom)
+  const { workspaces, currentWorkspaceId, selectWorkspace, createWorkspace, createWorkspaceFromFolder } = useWorkspaceActions()
+  const [, setWorkspaces] = useAtom(agentWorkspacesAtom)
   const [listHeight, setListHeight] = useAtom(workspaceListHeightAtom)
 
   // 高度拖拽调整
@@ -78,8 +76,6 @@ export function WorkspaceSelector(): React.ReactElement {
   const [creating, setCreating] = React.useState(false)
   const [newName, setNewName] = React.useState('')
   const createInputRef = React.useRef<HTMLInputElement>(null)
-  /** 防止连续 Enter 触发多次创建请求 */
-  const createInFlightRef = React.useRef(false)
 
   // 重命名状态
   const [editingId, setEditingId] = React.useState<string | null>(null)
@@ -96,11 +92,7 @@ export function WorkspaceSelector(): React.ReactElement {
   /** 切换工作区 */
   const handleSelect = (workspace: AgentWorkspace): void => {
     if (editingId) return
-    setCurrentWorkspaceId(workspace.id)
-
-    window.electronAPI.updateSettings({
-      agentWorkspaceId: workspace.id,
-    }).catch(console.error)
+    selectWorkspace(workspace.id)
   }
 
   // ===== 新建 =====
@@ -114,30 +106,8 @@ export function WorkspaceSelector(): React.ReactElement {
   }
 
   const handleCreate = async (): Promise<void> => {
-    const trimmed = newName.trim()
-    if (!trimmed) {
-      setCreating(false)
-      return
-    }
-    if (createInFlightRef.current) return
-    createInFlightRef.current = true
-
-    try {
-      const workspace = await window.electronAPI.createAgentWorkspace(trimmed)
-      setWorkspaces((prev) => [workspace, ...prev])
-      setCurrentWorkspaceId(workspace.id)
-      setCreating(false)
-
-      window.electronAPI.updateSettings({
-        agentWorkspaceId: workspace.id,
-      }).catch(console.error)
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : '创建失败'
-      toast.error(msg)
-      setCreating(false)
-    } finally {
-      createInFlightRef.current = false
-    }
+    await createWorkspace(newName)
+    setCreating(false)
   }
 
   const handleCreateKeyDown = (e: React.KeyboardEvent): void => {
@@ -208,10 +178,7 @@ export function WorkspaceSelector(): React.ReactElement {
       setWorkspaces(remaining)
 
       if (deleteTargetId === currentWorkspaceId && remaining.length > 0) {
-        setCurrentWorkspaceId(remaining[0]!.id)
-        window.electronAPI.updateSettings({
-          agentWorkspaceId: remaining[0]!.id,
-        }).catch(console.error)
+        selectWorkspace(remaining[0]!.id)
       }
     } catch (error) {
       console.error('[WorkspaceSelector] 删除工作区失败:', error)
@@ -301,13 +268,22 @@ export function WorkspaceSelector(): React.ReactElement {
         {/* 头部 */}
         <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-border/40">
           <span className="text-[11px] font-medium text-foreground/50 uppercase tracking-wide">工作区</span>
-          <button
-            onClick={handleStartCreate}
-            className="p-1 rounded hover:bg-foreground/[0.06] text-foreground/35 hover:text-foreground/60 transition-colors titlebar-no-drag"
-            title="新建工作区"
-          >
-            <Plus size={13} />
-          </button>
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={() => { void createWorkspaceFromFolder() }}
+              className="p-1 rounded hover:bg-foreground/[0.06] text-foreground/35 hover:text-foreground/60 transition-colors titlebar-no-drag"
+              title="打开本地项目文件夹"
+            >
+              <FolderPlus size={13} />
+            </button>
+            <button
+              onClick={handleStartCreate}
+              className="p-1 rounded hover:bg-foreground/[0.06] text-foreground/35 hover:text-foreground/60 transition-colors titlebar-no-drag"
+              title="新建隔离工作区"
+            >
+              <Plus size={13} />
+            </button>
+          </div>
         </div>
 
         {/* 工作区列表 */}
@@ -358,6 +334,7 @@ export function WorkspaceSelector(): React.ReactElement {
               ) : (
                 <>
                   <span className="flex-1 min-w-0 truncate">{ws.name}</span>
+                  {ws.rootPath && <span className="text-[10px] text-foreground/35">本地</span>}
 
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
                     <button

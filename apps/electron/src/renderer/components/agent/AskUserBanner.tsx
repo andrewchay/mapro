@@ -7,7 +7,7 @@
 
 import * as React from 'react'
 import { useAtom, useSetAtom } from 'jotai'
-import { Send, X } from 'lucide-react'
+import { Hand, Send, X } from 'lucide-react'
 import Markdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button } from '@/components/ui/button'
@@ -45,6 +45,7 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
 
   const request = requests[0] ?? null
   const questions = request?.questions ?? []
+  const isTakeover = request?.kind === 'computer_use_takeover'
   const isLastTab = activeTab >= questions.length - 1
 
   // ===== Refs：确保 keydown handler 始终读取最新值，消除闭包过期问题 =====
@@ -64,6 +65,27 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
     }
   }, [])
 
+  const toggleOptionByState = React.useCallback((qIdx: number, q: AskUserQuestion, label: string): void => {
+    setAnswers((prev) => {
+      const map = new Map(prev)
+      const cur = map.get(qIdx) ?? EMPTY_ANSWER
+      const selected = q.multiSelect
+        ? (cur.selected.includes(label) ? cur.selected.filter((s) => s !== label) : [...cur.selected, label])
+        : [label]
+      map.set(qIdx, { ...cur, selected, showCustom: false, customText: '' })
+      return map
+    })
+  }, [])
+
+  const toggleCustomByState = React.useCallback((qIdx: number): void => {
+    setAnswers((prev) => {
+      const map = new Map(prev)
+      const cur = map.get(qIdx) ?? EMPTY_ANSWER
+      map.set(qIdx, { ...cur, showCustom: !cur.showCustom, selected: cur.showCustom ? cur.selected : [] })
+      return map
+    })
+  }, [])
+
   // 组件卸载时清理未触发的跳转定时器
   React.useEffect(() => clearAutoAdvanceTimer, [clearAutoAdvanceTimer])
 
@@ -75,7 +97,7 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
     setAnswers(firstOpt
       ? new Map([[0, { ...EMPTY_ANSWER, selected: [firstOpt.label] }]])
       : new Map())
-  }, [request?.requestId])
+  }, [clearAutoAdvanceTimer, questions[0]?.options[0]])
 
   // 切换 Tab 时重置焦点并默认选中第一个选项
   React.useEffect(() => {
@@ -88,7 +110,7 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
       map.set(activeTab, { ...EMPTY_ANSWER, selected: [firstOpt.label] })
       return map
     })
-  }, [activeTab])
+  }, [activeTab, questions])
 
   // 键盘导航：只在 requestId 变化时重建 handler，内部通过 ref 读取最新值
   React.useEffect(() => {
@@ -137,7 +159,7 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [request?.requestId])
+  }, [request, toggleCustomByState, toggleOptionByState, questions.length])
 
   /** 关闭问题：发送空答案取消并清理 UI */
   const handleDismiss = async (): Promise<void> => {
@@ -171,27 +193,6 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
   if (!request) return null
 
   const getAnswer = (idx: number): QuestionAnswer => answers.get(idx) ?? EMPTY_ANSWER
-
-  function toggleOptionByState(qIdx: number, q: AskUserQuestion, label: string): void {
-    setAnswers((prev) => {
-      const map = new Map(prev)
-      const cur = map.get(qIdx) ?? EMPTY_ANSWER
-      const selected = q.multiSelect
-        ? (cur.selected.includes(label) ? cur.selected.filter((s) => s !== label) : [...cur.selected, label])
-        : [label]
-      map.set(qIdx, { ...cur, selected, showCustom: false, customText: '' })
-      return map
-    })
-  }
-
-  function toggleCustomByState(qIdx: number): void {
-    setAnswers((prev) => {
-      const map = new Map(prev)
-      const cur = map.get(qIdx) ?? EMPTY_ANSWER
-      map.set(qIdx, { ...cur, showCustom: !cur.showCustom, selected: cur.showCustom ? cur.selected : [] })
-      return map
-    })
-  }
 
   const handleSubmit = async (): Promise<void> => {
     if (submitting) return
@@ -240,11 +241,14 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
   }
 
   return (
-    <div className="mx-4 mb-3 rounded-xl bg-card shadow-lg overflow-hidden animate-in slide-in-from-bottom-2 duration-200">
+    <div className={`mx-4 mb-3 rounded-xl bg-card shadow-lg overflow-hidden animate-in slide-in-from-bottom-2 duration-200 ${isTakeover ? 'ring-1 ring-amber-500/40' : ''}`}>
       {/* 头部 + Tab 栏 */}
       <div className="px-4 pt-3 pb-2">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-foreground">MAPro Agent 需要你的输入</span>
+          <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+            {isTakeover && <Hand className="size-4 text-amber-600" />}
+            {isTakeover ? '请你接管敏感操作' : 'MAPro Agent 需要你的输入'}
+          </span>
           <div className="flex items-center gap-1.5">
             {requests.length > 1 && (
               <span className="text-xs text-muted-foreground">(+{requests.length - 1})</span>
@@ -290,6 +294,12 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
         )}
       </div>
 
+      {isTakeover && (
+        <div className="mx-4 mb-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-900 dark:text-amber-200">
+          Agent 已暂停。请自行完成密码、验证码、支付、授权或最终提交；不要把敏感信息发给 Agent。完成后选择“我已完成，可继续”。
+        </div>
+      )}
+
       {/* 当前问题内容 */}
       <div className="px-4 pb-2">
         <QuestionCard
@@ -333,7 +343,7 @@ export function AskUserBanner({ sessionId }: AskUserBannerProps): React.ReactEle
             className="h-7 px-3 text-xs"
           >
             <Send className="size-3 mr-1" />
-            确认
+            {isTakeover ? '完成并继续' : '确认'}
           </Button>
         )}
       </div>

@@ -8,8 +8,10 @@
  * 照搬 conversation-manager.ts 的模式。
  */
 
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, unlinkSync, rmSync, renameSync, readdirSync, cpSync, copyFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, unlinkSync, rmSync, renameSync, readdirSync, cpSync, copyFileSync, createReadStream } from 'node:fs'
+import { createInterface } from 'node:readline'
 import { writeJsonFileAtomic, readJsonFileSafe } from './safe-file'
+import { safeParseJSONObject } from './safe-json'
 import { randomUUID } from 'node:crypto'
 import { join, resolve, dirname } from 'node:path'
 import {
@@ -36,7 +38,9 @@ import type {
   AgentMessageSearchResult,
   AgentSessionReferenceSearchInput,
   AgentSessionReferenceSearchResult,
+  AgentRuntime,
 } from '@ma-proma/shared'
+import { DEFAULT_AGENT_RUNTIME, normalizeAgentRuntime } from '@ma-proma/shared'
 import { getConversationMessages } from './conversation-manager'
 import { clearNanoBananaAgentHistory } from './chat-tools/nano-banana-mcp'
 
@@ -53,13 +57,25 @@ interface AgentSessionsIndex {
 /** 当前索引版本 */
 const INDEX_VERSION = 1
 
+function normalizeSessionMeta(meta: AgentSessionMeta): AgentSessionMeta {
+  return {
+    ...meta,
+    agentRuntime: normalizeAgentRuntime(meta.agentRuntime),
+  }
+}
+
 /**
  * 读取会话索引文件
  */
 function readIndex(): AgentSessionsIndex {
   const indexPath = getAgentSessionsIndexPath()
   const data = readJsonFileSafe<AgentSessionsIndex>(indexPath)
-  if (data) return data
+  if (data) {
+    return {
+      ...data,
+      sessions: data.sessions.map(normalizeSessionMeta),
+    }
+  }
   return { version: INDEX_VERSION, sessions: [] }
 }
 
@@ -100,6 +116,7 @@ export function createAgentSession(
   title?: string,
   channelId?: string,
   workspaceId?: string,
+  agentRuntime: AgentRuntime = DEFAULT_AGENT_RUNTIME,
 ): AgentSessionMeta {
   const index = readIndex()
   const now = Date.now()
@@ -108,6 +125,7 @@ export function createAgentSession(
     id: randomUUID(),
     title: title || '新 Agent 会话',
     channelId,
+    agentRuntime,
     workspaceId,
     createdAt: now,
     updatedAt: now,
@@ -129,10 +147,9 @@ export function createAgentSession(
       const claudeDir = join(sessionDir, '.claude')
       if (!existsSync(claudeDir)) mkdirSync(claudeDir, { recursive: true })
       const settingsPath = join(claudeDir, 'settings.json')
-      let sdkSettings: Record<string, unknown> = {}
-      try {
-        sdkSettings = JSON.parse(readFileSync(settingsPath, 'utf-8'))
-      } catch { /* 文件不存在或解析失败 */ }
+      const sdkSettings = existsSync(settingsPath)
+        ? safeParseJSONObject(readFileSync(settingsPath, 'utf-8'))
+        : {}
       let needsWrite = false
       if (sdkSettings.plansDirectory !== '.context') {
         sdkSettings.plansDirectory = '.context'
@@ -187,13 +204,16 @@ export function appendAgentMessage(id: string, message: AgentMessage): void {
     appendFileSync(filePath, line, 'utf-8')
 
     // 追加消息时更新 updatedAt，若已归档则自动恢复活跃
+    // 使用原子写避免 index 文件在并发更新时损坏
     const index = readIndex()
     const idx = index.sessions.findIndex((s) => s.id === id)
     if (idx !== -1) {
-      const session = index.sessions[idx]!
-      session.updatedAt = Date.now()
-      if (session.archived) session.archived = false
-      writeIndex(index)
+      const session = index.sessions[idx]
+      if (session) {
+        session.updatedAt = Date.now()
+        if (session.archived) session.archived = false
+        writeIndex(index)
+      }
     }
   } catch (error) {
     console.error(`[Agent 会话] 追加消息失败 (${id}):`, error)
@@ -242,12 +262,12 @@ function sanitizeOversizedMessage(msg: SDKMessage, originalLength: number): SDKM
   const truncationNote = `\n[内容已截断: 原始 ${(originalLength / 1024).toFixed(0)}K chars 超出存储限制]`
   const truncationThreshold = MAX_SDK_MESSAGE_LENGTH / 2
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const clone: any = JSON.parse(JSON.stringify(msg))
-  const content = clone.message?.content
+  const clone = JSON.parse(JSON.stringify(msg)) as Record<string, unknown>
+  const message = clone.message as Record<string, unknown> | undefined
+  const content = message?.content
   if (Array.isArray(content)) {
     for (let i = 0; i < content.length; i++) {
-      const block = content[i]
+      const block = content[i] as Record<string, unknown> | null | undefined
       if (!block || typeof block !== 'object') continue
 
       // 截断超长 text block
@@ -275,8 +295,9 @@ function sanitizeOversizedMessage(msg: SDKMessage, originalLength: number): SDKM
   }
 
   // 截断 error.message
-  if (clone.error && typeof clone.error === 'object' && typeof clone.error.message === 'string' && clone.error.message.length > truncationThreshold) {
-    clone.error.message = clone.error.message.slice(0, TRUNCATED_PREVIEW_LENGTH) + truncationNote
+  const errorObj = clone.error as Record<string, unknown> | undefined
+  if (errorObj && typeof errorObj === 'object' && typeof errorObj.message === 'string' && errorObj.message.length > truncationThreshold) {
+    errorObj.message = errorObj.message.slice(0, TRUNCATED_PREVIEW_LENGTH) + truncationNote
   }
 
   return clone as SDKMessage
@@ -377,7 +398,7 @@ function convertLegacyMessage(legacy: AgentMessage): SDKMessage {
  */
 export function updateAgentSessionMeta(
   id: string,
-  updates: Partial<Pick<AgentSessionMeta, 'title' | 'channelId' | 'sdkSessionId' | 'workspaceId' | 'pinned' | 'archived' | 'attachedDirectories' | 'attachedFiles' | 'forkSourceDir' | 'forkSourceSdkSessionId' | 'resumeAtMessageUuid' | 'stoppedByUser' | 'permissionMode'>>,
+  updates: Partial<Pick<AgentSessionMeta, 'title' | 'channelId' | 'agentRuntime' | 'sdkSessionId' | 'workspaceId' | 'pinned' | 'archived' | 'attachedDirectories' | 'attachedFiles' | 'forkSourceDir' | 'forkSourceSdkSessionId' | 'resumeAtMessageUuid' | 'stoppedByUser' | 'permissionMode'>>,
 ): AgentSessionMeta {
   const index = readIndex()
   const idx = index.sessions.findIndex((s) => s.id === id)
@@ -393,6 +414,7 @@ export function updateAgentSessionMeta(
   const updated: AgentSessionMeta = {
     ...existing,
     ...updates,
+    ...(updates.agentRuntime !== undefined ? { agentRuntime: normalizeAgentRuntime(updates.agentRuntime) } : {}),
     ...(autoUnarchive ? { archived: false } : {}),
     updatedAt: Date.now(),
   }
@@ -618,6 +640,71 @@ export function migrateChatToAgentSession(conversationId: string, agentSessionId
  *
  * @returns 新创建的会话元数据
  */
+/**
+ * 分叉 Provider-Agnostic Agent 会话
+ *
+ * 该会话没有 SDK session，仅复制 MAPro JSONL 历史和工作区文件到新会话。
+ */
+async function forkProviderAgnosticAgentSession(input: ForkSessionInput): Promise<AgentSessionMeta> {
+  const { sessionId, upToMessageUuid } = input
+
+  const sourceMeta = getAgentSessionMeta(sessionId)
+  if (!sourceMeta) {
+    throw new Error(`源 Agent 会话不存在: ${sessionId}`)
+  }
+
+  if (!sourceMeta.workspaceId) {
+    throw new Error('Provider-Agnostic 会话分叉需要绑定工作区')
+  }
+
+  const ws = getAgentWorkspace(sourceMeta.workspaceId)
+  if (!ws) {
+    throw new Error(`源 Agent 会话工作区不存在: ${sourceMeta.workspaceId}`)
+  }
+
+  const sourceDir = getAgentSessionWorkspacePath(ws.slug, sessionId)
+  const newMeta = createAgentSession(
+    `${sourceMeta.title} (fork)`,
+    sourceMeta.channelId,
+    sourceMeta.workspaceId,
+    sourceMeta.agentRuntime,
+  )
+  const destDir = getAgentSessionWorkspacePath(ws.slug, newMeta.id)
+
+  // 1. 复制工作区文件
+  if (existsSync(sourceDir)) {
+    mkdirSync(destDir, { recursive: true })
+    const entries = readdirSync(sourceDir)
+    const skip = (entry: string) => entry === '.claude' || entry === '.DS_Store' || entry === '.git'
+    for (const entry of entries) {
+      if (skip(entry)) continue
+      const srcPath = join(sourceDir, entry)
+      const destPath = join(destDir, entry)
+      cpSync(srcPath, destPath, { recursive: true })
+    }
+  }
+
+  // 2. 复制截断后的 JSONL 历史
+  const sourceMessages = getAgentSessionSDKMessages(sessionId)
+  let messagesToCopy: SDKMessage[]
+  if (upToMessageUuid) {
+    const cutIndex = sourceMessages.findIndex(
+      (m) => 'uuid' in m && (m as { uuid?: string }).uuid === upToMessageUuid,
+    )
+    messagesToCopy = cutIndex >= 0 ? sourceMessages.slice(0, cutIndex + 1) : sourceMessages
+  } else {
+    messagesToCopy = sourceMessages
+  }
+
+  if (messagesToCopy.length > 0) {
+    messagesToCopy = messagesToCopy.map((m) => rewritePathsInSDKMessage(m, sourceDir, destDir))
+    appendSDKMessages(newMeta.id, messagesToCopy)
+  }
+
+  console.log(`[Agent 会话] Provider-Agnostic 分叉完成: ${sourceMeta.title} → ${newMeta.title} (${messagesToCopy.length} 条消息)`)
+  return newMeta
+}
+
 export async function forkAgentSession(input: ForkSessionInput): Promise<AgentSessionMeta> {
   const { sessionId, upToMessageUuid } = input
 
@@ -627,8 +714,9 @@ export async function forkAgentSession(input: ForkSessionInput): Promise<AgentSe
     throw new Error(`源 Agent 会话不存在: ${sessionId}`)
   }
 
+  // Provider-Agnostic Runtime 会话没有 SDK session，走 MAPro 级分叉
   if (!sourceMeta.sdkSessionId) {
-    throw new Error('该会话没有 SDK session，无法分叉')
+    return forkProviderAgnosticAgentSession(input)
   }
 
   // 2. 确定源会话的工作目录（SDK 需要从此目录的项目空间读取 session 文件）
@@ -729,6 +817,7 @@ export async function forkAgentSession(input: ForkSessionInput): Promise<AgentSe
     forkTitle,
     sourceMeta.channelId,
     sourceMeta.workspaceId,
+    sourceMeta.agentRuntime,
   )
 
   updateAgentSessionMeta(newMeta.id, {
@@ -818,7 +907,7 @@ export async function forkAgentSession(input: ForkSessionInput): Promise<AgentSe
   }
 
   if (sourceDir && destDir && messagesToCopy.length > 0) {
-    messagesToCopy = messagesToCopy.map((m) => rewritePathsInSDKMessage(m, sourceDir, destDir!))
+    messagesToCopy = messagesToCopy.map((m) => rewritePathsInSDKMessage(m, sourceDir, destDir))
   }
 
   if (messagesToCopy.length > 0) {
@@ -887,6 +976,18 @@ function rewritePathsInSDKMessage(msg: SDKMessage, sourceDir: string, destDir: s
     console.warn(`[Agent 会话] 改写 SDKMessage 路径失败，使用原消息:`, err)
     return msg
   }
+}
+
+/**
+ * 回退 Provider-Agnostic Agent 会话
+ *
+ * 该会话没有 SDK session，仅截断 MAPro JSONL 历史到指定消息点。
+ */
+export function rewindProviderAgnosticSession(
+  sessionId: string,
+  assistantMessageUuid: string,
+): SDKMessage[] {
+  return truncateSDKMessages(sessionId, assistantMessageUuid)
 }
 
 /**
@@ -1277,13 +1378,13 @@ export function autoArchiveAgentSessions(daysThreshold: number): number {
 /**
  * 搜索 Agent 会话消息内容
  *
- * 遍历所有会话的 JSONL 文件，逐行搜索 content 字段。
- * 每个会话最多返回 1 条最佳匹配，总计最多 30 条结果。
+ * 按行流式读取每个会话的 JSONL 文件，命中即早退。兼容旧 AgentMessage 和新 SDKMessage 格式。
+ * 每个会话最多返回 1 条匹配，总计达到 maxResults 即停止扫描后续会话。
  *
  * @param query 搜索关键词
  * @returns 匹配结果列表
  */
-export function searchAgentSessionMessages(query: string): AgentMessageSearchResult[] {
+export async function searchAgentSessionMessages(query: string): Promise<AgentMessageSearchResult[]> {
   if (!query || query.length < 2) return []
 
   const index = readIndex()
@@ -1297,59 +1398,90 @@ export function searchAgentSessionMessages(query: string): AgentMessageSearchRes
     const filePath = getAgentSessionMessagesPath(session.id)
     if (!existsSync(filePath)) continue
 
-    try {
-      const raw = readFileSync(filePath, 'utf-8')
-      const lines = raw.split('\n').filter((line) => line.trim())
-
-      for (const line of lines) {
-        const parsed = JSON.parse(line)
-        // 兼容旧 AgentMessage 和新 SDKMessage 格式
-        const role = parsed.role ?? parsed.message?.role ?? 'assistant'
-        const messageId = parsed.id ?? parsed.uuid ?? parsed.message?.id ?? ''
-
-        let textContent = ''
-        if (typeof parsed.content === 'string') {
-          // 旧 AgentMessage 格式: {role, content: "..."}
-          textContent = parsed.content
-        } else if (Array.isArray(parsed.message?.content)) {
-          // 新 SDKMessage 格式: {type, message: {content: [{type:"text", text:"..."}]}}
-          textContent = parsed.message.content
-            .filter((b: { type: string; text?: string }) => b.type === 'text' && b.text)
-            .map((b: { text: string }) => b.text)
-            .join('\n')
-        }
-        if (!textContent) continue
-
-        const contentLower = textContent.toLowerCase()
-        const matchIndex = contentLower.indexOf(queryLower)
-        if (matchIndex === -1) continue
-        const snippetStart = Math.max(0, matchIndex - 40)
-        const snippetEnd = Math.min(textContent.length, matchIndex + query.length + 40)
-        const snippet = (snippetStart > 0 ? '...' : '') +
-          textContent.slice(snippetStart, snippetEnd) +
-          (snippetEnd < textContent.length ? '...' : '')
-        const matchStart = matchIndex - snippetStart + (snippetStart > 0 ? 3 : 0)
-
-        results.push({
-          sessionId: session.id,
-          sessionTitle: session.title,
-          messageId,
-          role,
-          snippet,
-          matchStart,
-          matchLength: query.length,
-          archived: session.archived,
-        })
-
-        // 每个会话只取 1 条匹配
-        break
-      }
-    } catch {
-      // 跳过读取失败的文件
+    const hit = await findFirstMatchInAgentJsonl(filePath, queryLower, query.length)
+    if (hit) {
+      results.push({
+        sessionId: session.id,
+        sessionTitle: session.title,
+        messageId: hit.messageId,
+        role: hit.role,
+        snippet: hit.snippet,
+        matchStart: hit.matchStart,
+        matchLength: query.length,
+        archived: session.archived,
+      })
     }
   }
 
   return results
+}
+
+/**
+ * 在单个 Agent 会话 JSONL 中按行流式查找第一条匹配。
+ *
+ * Agent 消息存在两种历史格式（旧 AgentMessage 与新 SDKMessage），都要兼容。
+ */
+async function findFirstMatchInAgentJsonl(
+  filePath: string,
+  queryLower: string,
+  queryLength: number
+): Promise<{ messageId: string; role: AgentMessageSearchResult['role']; snippet: string; matchStart: number } | null> {
+  const stream = createReadStream(filePath, { encoding: 'utf-8' })
+  const rl = createInterface({ input: stream, crlfDelay: Infinity })
+
+  try {
+    for await (const line of rl) {
+      if (!line.trim()) continue
+      let parsed: {
+        role?: string
+        id?: string
+        uuid?: string
+        content?: unknown
+        message?: { role?: string; id?: string; content?: Array<{ type: string; text?: string }> }
+      }
+      try {
+        parsed = JSON.parse(line)
+      } catch {
+        continue
+      }
+
+      const rawRole = parsed.role ?? parsed.message?.role ?? 'assistant'
+      // 收窄到 AgentMessageSearchResult.role 允许的联合类型；不在白名单的退化为 assistant
+      const role: AgentMessageSearchResult['role'] =
+        rawRole === 'user' || rawRole === 'assistant' || rawRole === 'tool' || rawRole === 'status'
+          ? rawRole
+          : 'assistant'
+      const messageId = parsed.id ?? parsed.uuid ?? parsed.message?.id ?? ''
+
+      let textContent = ''
+      if (typeof parsed.content === 'string') {
+        textContent = parsed.content
+      } else if (Array.isArray(parsed.message?.content)) {
+        textContent = parsed.message.content
+          .filter((b) => b.type === 'text' && typeof b.text === 'string')
+          .map((b) => b.text)
+          .join('\n')
+      }
+      if (!textContent) continue
+
+      const contentLower = textContent.toLowerCase()
+      const matchIndex = contentLower.indexOf(queryLower)
+      if (matchIndex === -1) continue
+
+      const snippetStart = Math.max(0, matchIndex - 40)
+      const snippetEnd = Math.min(textContent.length, matchIndex + queryLength + 40)
+      const snippet = (snippetStart > 0 ? '...' : '') +
+        textContent.slice(snippetStart, snippetEnd) +
+        (snippetEnd < textContent.length ? '...' : '')
+      const matchStart = matchIndex - snippetStart + (snippetStart > 0 ? 3 : 0)
+
+      return { messageId, role, snippet, matchStart }
+    }
+    return null
+  } finally {
+    rl.close()
+    stream.destroy()
+  }
 }
 
 function extractTextFromPersistedMessage(parsed: unknown): string {
@@ -1365,8 +1497,8 @@ function extractTextFromPersistedMessage(parsed: unknown): string {
 
   if (Array.isArray(record.message?.content)) {
     return record.message.content
-      .filter((b) => b.type === 'text' && b.text)
-      .map((b) => b.text!)
+      .filter((b) => b.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text)
       .join('\n')
   }
 
@@ -1419,7 +1551,7 @@ export function searchAgentSessionReferences(input: AgentSessionReferenceSearchI
 
   const query = (input?.query ?? '').trim()
   const queryLower = query.toLowerCase()
-  const requestedLimit = Number.isFinite(input?.limit) ? input.limit! : 20
+  const requestedLimit = Number.isFinite(input?.limit) ? (input.limit ?? 20) : 20
   const limit = Math.min(Math.max(requestedLimit, 1), 50)
 
   const candidates = listAgentSessions()

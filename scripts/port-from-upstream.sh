@@ -33,8 +33,20 @@ port_one() {
   fi
 
   mkdir -p "$(dirname "$dst")"
+  # 重命名规则（顺序敏感）：
+  #   @proma/ → @ma-proma/  workspace 包名
+  #   PROMA_  → MAPRO_      常量前缀
+  #   Proma   → MAPro       类型/类名前缀
+  #   'proma_event' → 'mapro_event'  payload kind
+  #   proma:// → mapro://   DeepLink 协议
+  #   .proma-mit → .mapro   配置目录字面量（兜底）
+  # 注意保留 'proma' runtime 字面量不改。
   git show "upstream/main:$src" \
     | sed -e 's|@proma/|@ma-proma/|g' \
+          -e 's/PROMA_/MAPRO_/g' \
+          -e 's/Proma/MAPro/g' \
+          -e "s/'proma_event'/'mapro_event'/g" \
+          -e 's|proma://|mapro://|g' \
           -e 's|\.proma-mit-dev|.mapro-dev|g' \
           -e 's|\.proma-mit|.mapro|g' \
     > "$dst"

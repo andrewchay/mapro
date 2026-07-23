@@ -21,7 +21,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { app } from 'electron'
-import type { AgentSendInput, AgentMessage, AgentGenerateTitleInput, AgentProviderAdapter, AgentSessionMeta, TypedError, RetryAttempt, SDKMessage, SDKAssistantMessage, AgentStreamPayload, RewindSessionResult, SdkBeta, ProviderType } from '@ma-proma/shared'
+import type { AgentSendInput, AgentMessage, AgentGenerateTitleInput, AgentProviderAdapter, AgentSessionMeta, TypedError, RetryAttempt, SDKMessage, SDKAssistantMessage, AgentStreamPayload, RewindSessionResult, SdkBeta, ProviderType, FileAttachment, ForkSessionInput, AgentGoalCheckpoint } from '@ma-proma/shared'
 import {
   MAPRO_DEFAULT_PERMISSION_MODE,
   MAPRO_PERMISSION_MODE_CONFIG,
@@ -29,23 +29,33 @@ import {
   THINKING_SIGNATURE_ERROR_CODE,
   THINKING_SIGNATURE_ERROR_MESSAGE,
   THINKING_SIGNATURE_ERROR_TITLE,
+  getAgentProviderProtocol,
+  getAgentRuntimeHistorySemantics,
+  getAgentRuntimeLabel,
+  isAgentCompatibleProvider,
+  normalizeAgentRuntime,
+  resolveAgentRuntimeBaseUrl,
 } from '@ma-proma/shared'
 import type { PermissionRequest, MAProPermissionMode, AskUserRequest, ExitPlanModeRequest } from '@ma-proma/shared'
 import type { ClaudeAgentQueryOptions } from './adapters/claude-agent-adapter'
 import { isPromptTooLongError, isThinkingSignatureError, friendlyErrorMessage, mapSDKErrorToTypedError, extractErrorDetails, shouldKeepChannelOpen } from './adapters/claude-agent-adapter'
+import { ProviderAgnosticAgentAdapter, type ProviderAgnosticAgentQueryOptions } from './adapters/provider-agnostic-agent-adapter'
+import type { PiAgentQueryOptions } from './adapters/pi-agent-adapter'
 import { isTransientNetworkError } from './error-patterns'
-import { AgentEventBus } from './agent-event-bus'
-import { decryptApiKey, getChannelById, listChannels } from './channel-manager'
+import type { AgentEventBus } from './agent-event-bus'
+import { decryptApiKey, getChannelById } from './channel-manager'
 import { getAdapter, fetchTitle, normalizeAnthropicBaseUrlForSdk } from '@ma-proma/core'
+import { normalizeAgentRuntimeError } from '@ma-proma/shared/utils'
 import { getFetchFn } from './proxy-fetch'
 import { getEffectiveProxyUrl } from './proxy-settings-service'
-import { appendSDKMessages, updateAgentSessionMeta, getAgentSessionMeta, getAgentSessionMessages, getAgentSessionSDKMessages, truncateSDKMessages, resolveUserUuidFromSDK, rewindFilesFromSnapshot } from './agent-session-manager'
-import { getAgentWorkspace, getWorkspaceMcpConfig, ensurePluginManifest } from './agent-workspace-manager'
+import { appendSDKMessages, updateAgentSessionMeta, getAgentSessionMeta, getAgentSessionMessages, getAgentSessionSDKMessages, truncateSDKMessages, resolveUserUuidFromSDK, rewindFilesFromSnapshot, rewindProviderAgnosticSession, forkAgentSession as forkAgentSessionInternal } from './agent-session-manager'
+import { getAgentWorkspace, getAgentWorkspaceCwd, getWorkspaceMcpConfig, ensurePluginManifest } from './agent-workspace-manager'
 import { getAgentWorkspacePath, getAgentSessionWorkspacePath, getSdkConfigDir, getWorkspaceFilesDir, getConfigDirName } from './config-paths'
 import { getWorkspaceAttachedDirectories, getWorkspaceAttachedFiles } from './agent-workspace-manager'
 import { getRuntimeStatus } from './runtime-init'
 import { getSettings } from './settings-service'
 import { buildSystemPrompt, buildDynamicContext, buildBuiltinAgents } from './agent-prompt-builder'
+import type { SubAgentInput } from './agent-runtime/types'
 import { permissionService } from './agent-permission-service'
 import type { PermissionResult, CanUseToolOptions } from './agent-permission-service'
 import { askUserService } from './agent-ask-user-service'
@@ -54,6 +64,7 @@ import { getMemoryConfig } from './memory-service'
 import { searchMemory, addMemory, formatSearchResult } from './memos-client'
 import { validateToolInput } from './agent-tool-input-validator'
 import { estimateTokenCount, WRITE_CONTENT_TOKEN_THRESHOLD } from './agent-tool-token-estimator'
+import { createElectronRuntimeServices, type RuntimeServices } from './agent-runtime/runtime-services'
 import { loadClaudeAgentSdk } from './claude-sdk-loader'
 
 // ===== 类型定义 =====
@@ -87,10 +98,10 @@ function extractApiError(stderr: string): { statusCode: number; message: string 
 
   // 模式 1：JSON 错误格式 - "401 {...}"
   const jsonMatch = stderr.match(/(\d{3})\s+(\{[^}]*"error"[^}]*\})/s)
-  if (jsonMatch) {
+  if (jsonMatch && jsonMatch[1] && jsonMatch[2]) {
     try {
-      const statusCode = parseInt(jsonMatch[1]!)
-      const errorObj = JSON.parse(jsonMatch[2]!)
+      const statusCode = parseInt(jsonMatch[1])
+      const errorObj = JSON.parse(jsonMatch[2])
       const message = errorObj.error?.message || errorObj.message || '未知错误'
       return { statusCode, message }
     } catch {
@@ -100,10 +111,10 @@ function extractApiError(stderr: string): { statusCode: number; message: string 
 
   // 模式 2：API error 格式 - "API error (attempt X/Y): 401 401 {...}"
   const apiErrorMatch = stderr.match(/API error[^:]*:\s+(\d{3})\s+\d{3}\s+(\{.*?\})/s)
-  if (apiErrorMatch) {
+  if (apiErrorMatch && apiErrorMatch[1] && apiErrorMatch[2]) {
     try {
-      const statusCode = parseInt(apiErrorMatch[1]!)
-      const errorObj = JSON.parse(apiErrorMatch[2]!)
+      const statusCode = parseInt(apiErrorMatch[1])
+      const errorObj = JSON.parse(apiErrorMatch[2])
       const message = errorObj.error?.message || errorObj.message || '未知错误'
       return { statusCode, message }
     } catch {
@@ -113,9 +124,9 @@ function extractApiError(stderr: string): { statusCode: number; message: string 
 
   // 模式 3：直接的状态码 + 消息
   const simpleMatch = stderr.match(/(\d{3})[:\s]+(.+?)(?:\n|$)/i)
-  if (simpleMatch) {
-    const statusCode = parseInt(simpleMatch[1]!)
-    const message = simpleMatch[2]!.trim()
+  if (simpleMatch && simpleMatch[1] && simpleMatch[2]) {
+    const statusCode = parseInt(simpleMatch[1])
+    const message = simpleMatch[2].trim()
     if (statusCode >= 400 && statusCode < 600) {
       return { statusCode, message }
     }
@@ -485,6 +496,7 @@ function collectAttachedDirectories(params: {
 export class AgentOrchestrator {
   private adapter: AgentProviderAdapter
   private eventBus: AgentEventBus
+  private runtimeServices: RuntimeServices
   private activeSessions = new Map<string, number>()
 
   /** 队列消息本地记录（sessionId → UUID 集合，用于防重） */
@@ -496,9 +508,459 @@ export class AgentOrchestrator {
   /** 运行中会话的当前权限模式（支持运行时动态切换） */
   private sessionPermissionModes = new Map<string, MAProPermissionMode>()
 
-  constructor(adapter: AgentProviderAdapter, eventBus: AgentEventBus) {
+  constructor(
+    adapter: AgentProviderAdapter,
+    eventBus: AgentEventBus,
+    runtimeServices?: RuntimeServices,
+    private readonly onGoalCheckpoint?: (sessionId: string, checkpoint: AgentGoalCheckpoint) => Promise<void>,
+    private readonly hasActiveGoal?: (sessionId: string) => boolean,
+  ) {
     this.adapter = adapter
     this.eventBus = eventBus
+    this.runtimeServices = runtimeServices ?? createElectronRuntimeServices(eventBus)
+  }
+
+  /**
+   * MAPro Provider-Agnostic Runtime 分支
+   *
+   * 已支持：多轮历史、错误重试/降级、多模态附件、MCP 工具、Plan 模式、权限回调。
+   */
+  private async runProviderAgnosticAgent(options: {
+    sessionId: string
+    agentRuntime?:  'proma' | 'ai-sdk'
+    channelId: string
+    workspaceId?: string
+    userMessage: string
+    modelId?: string
+    provider: ProviderType
+    adapterProvider?: ProviderType
+    apiKey: string
+    baseUrl: string
+    callbacks: SessionCallbacks
+    startedAt?: number
+    permissionMode?: MAProPermissionMode
+    attachments?: FileAttachment[]
+  }): Promise<void> {
+    const { sessionId, agentRuntime =  'proma', channelId, workspaceId, userMessage, modelId, provider, adapterProvider, apiKey, baseUrl, callbacks, startedAt, permissionMode, attachments } = options
+    let userMessageUuid = ''
+
+    try {
+      const runtimeServices = this.runtimeServices
+      const runtimeWorkspace = runtimeServices.workspaces.resolveWorkspaceContext({ workspaceId, sessionId })
+      const agentCwd = runtimeWorkspace.cwd
+      const workspaceSlug = runtimeWorkspace.workspaceSlug ?? ''
+      const mcpServerConfigs = runtimeWorkspace.mcpServers
+
+      console.log(`[Agent Runtime] 启动 ${agentRuntime} runtime — provider: ${provider}, adapter=${adapterProvider ?? provider}, model: ${modelId}, cwd: ${agentCwd}`)
+
+      // 加载历史消息（阶段 2），排除最后一条当前用户消息
+      const allHistory = runtimeServices.sessions.getHistoryMessages(sessionId)
+      const historyMessages = allHistory.length > 0 ? allHistory.slice(0, -1) : []
+      console.log(`[Agent Runtime] 加载历史消息：${historyMessages.length} 条`)
+
+      // 持久化初始用户消息（带 UUID，MAPro runtime 不依赖 SDK session）
+      userMessageUuid = randomUUID()
+      const userSDKMsg: SDKMessage = {
+        type: 'user',
+        message: { content: [{ type: 'text', text: userMessage }] },
+        parent_tool_use_id: null,
+        uuid: userMessageUuid,
+        _attachments: attachments,
+      } as unknown as SDKMessage
+      runtimeServices.sessions.appendMessages(sessionId, [userSDKMsg])
+
+      // 创建权限检查回调，复用 AgentPermissionService 的 auto/ask/safe 逻辑
+      const canUseTool = permissionService.createCanUseTool(
+        sessionId,
+        (request: PermissionRequest) => {
+          runtimeServices.events.emit(sessionId, { kind: 'mapro_event', event: { type: 'permission_request', request } } as AgentStreamPayload)
+        },
+        (sid, toolInput, signal, sendAskUser) => askUserService.handleAskUserQuestion(sid, toolInput, signal, sendAskUser),
+        (request: AskUserRequest) => {
+          runtimeServices.events.emit(sessionId, { kind: 'mapro_event', event: { type: 'ask_user_request', request } } as AgentStreamPayload)
+        },
+        () => permissionMode ?? MAPRO_DEFAULT_PERMISSION_MODE,
+      )
+
+      const queryOptions: ProviderAgnosticAgentQueryOptions = {
+        sessionId,
+        agentRuntime,
+        prompt: userMessage,
+        model: modelId,
+        provider,
+        adapterProvider,
+        apiKey,
+        baseUrl,
+        cwd: agentCwd,
+        systemPrompt: undefined,
+        historyMessages,
+        attachments,
+        permissionMode: permissionMode ?? MAPRO_DEFAULT_PERMISSION_MODE,
+        mcpServers: mcpServerConfigs,
+        workspaceSlug,
+        onMcpAuthRequired: ({ workspaceSlug: ws, serverName }: { workspaceSlug: string; serverName: string }) => {
+          runtimeServices.events.emit(sessionId, {
+            kind: 'mapro_event',
+            event: { type: 'mcp_auth_required', workspaceSlug: ws, serverName },
+          } as AgentStreamPayload)
+        },
+        canUseTool: async (toolName: string, input: Record<string, unknown>, signal: AbortSignal) => {
+          const result = await canUseTool(toolName, input, {
+            signal,
+            toolUseID: `tool-${Date.now()}`,
+          })
+          return { allowed: result.behavior === 'allow', message: result.behavior === 'deny' ? result.message : undefined }
+        },
+        onEnterPlanMode: () => {
+          runtimeServices.events.emit(sessionId, { kind: 'mapro_event', event: { type: 'enter_plan_mode', sessionId } } as AgentStreamPayload)
+        },
+        onExitPlanMode: async (
+          input: Record<string, unknown>,
+          signal: AbortSignal,
+        ): Promise<{ behavior: 'allow'; targetMode?: MAProPermissionMode } | { behavior: 'deny'; message: string }> => {
+          const result = await exitPlanService.handleExitPlanMode(
+            sessionId,
+            input,
+            signal,
+            (request: ExitPlanModeRequest) => {
+              runtimeServices.events.emit(sessionId, { kind: 'mapro_event', event: { type: 'exit_plan_mode_request', request } } as AgentStreamPayload)
+            },
+          )
+          if (result.behavior === 'allow' && 'targetMode' in result && result.targetMode) {
+            this.sessionPermissionModes.set(sessionId, result.targetMode)
+          }
+          return result as { behavior: 'allow'; targetMode?: MAProPermissionMode } | { behavior: 'deny'; message: string }
+        },
+        onAskUser: async (
+          input: Record<string, unknown>,
+          signal: AbortSignal,
+        ): Promise<{ behavior: 'allow'; answers: Record<string, string> } | { behavior: 'deny'; message: string }> => {
+          const result = await askUserService.handleAskUserQuestion(
+            sessionId,
+            input,
+            signal,
+            (request: AskUserRequest) => {
+              runtimeServices.events.emit(sessionId, { kind: 'mapro_event', event: { type: 'ask_user_request', request } } as AgentStreamPayload)
+            },
+          )
+          if (result.behavior === 'deny') {
+            return { behavior: 'deny', message: result.message }
+          }
+          const answers = (result.updatedInput?.answers as Record<string, string>) ?? {}
+          return { behavior: 'allow', answers }
+        },
+        runSubAgent: async (input: SubAgentInput): Promise<string> => {
+          return this.runProviderAgnosticSubAgent(sessionId, {
+            provider,
+            adapterProvider,
+            apiKey,
+            baseUrl,
+            model: modelId,
+            cwd: agentCwd,
+            mcpServers: mcpServerConfigs,
+            permissionMode: permissionMode ?? MAPRO_DEFAULT_PERMISSION_MODE,
+          }, input)
+        },
+        onAgentEvent: (event) => {
+          runtimeServices.events.emit(sessionId, { kind: 'agent_event', event } as AgentStreamPayload)
+        },
+        onGoalCheckpoint: this.onGoalCheckpoint && this.hasActiveGoal?.(sessionId)
+          ? (checkpoint: AgentGoalCheckpoint) => this.onGoalCheckpoint!(sessionId, checkpoint)
+          : undefined,
+      }
+
+      const iterable = this.adapter.query(queryOptions)
+      const accumulatedMessages: SDKMessage[] = []
+
+      for await (const msg of iterable) {
+        accumulatedMessages.push(msg)
+        runtimeServices.events.emit(sessionId, { kind: 'sdk_message', message: msg } as AgentStreamPayload)
+
+        // 自动标题生成（第一条 assistant 文本消息）
+        if (msg.type === 'assistant' && !this.hasTitle(sessionId)) {
+          const text = this.extractTextFromSDKMessage(msg as SDKAssistantMessage)
+          if (text) {
+            this.generateTitleAsync(sessionId, userMessage, channelId, modelId, callbacks)
+          }
+        }
+      }
+
+      // 持久化所有消息
+      if (accumulatedMessages.length > 0) {
+        runtimeServices.sessions.appendMessages(sessionId, accumulatedMessages)
+      }
+
+      callbacks.onComplete(accumulatedMessages as unknown as AgentMessage[], { startedAt })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error('[Agent Runtime] MAPro runtime 运行失败:', error)
+
+      // 用户主动中止时不走降级，直接向上抛出让外层处理
+      if (message.includes('中止') || message.includes('aborted')) {
+        throw error
+      }
+
+      if (userMessageUuid) {
+        try {
+          this.runtimeServices.sessions.truncateMessages(sessionId, userMessageUuid)
+        } catch (truncateError) {
+          console.error('[Agent Runtime] 运行失败后截断 MAPro runtime 用户消息失败:', truncateError)
+        }
+      }
+      if (agentRuntime !== 'ai-sdk') {
+        this.runtimeServices.events.emit(sessionId, {
+          kind: 'agent_event',
+          event: {
+            type: 'typed_error',
+            error: normalizeAgentRuntimeError({
+              runtime: agentRuntime,
+              provider,
+              model: modelId,
+              error,
+            }),
+          },
+        } as AgentStreamPayload)
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Pi Agent SDK runtime 分支。
+   *
+   * v1 复用 MAPro 的会话持久化和事件管线，Pi 只负责模型调用与只读 agent loop。
+   * MCP、AskUser、权限桥接后续单独接入，避免第一版绕过现有权限系统。
+   */
+  private async runPiAgent(options: {
+    sessionId: string
+    channelId: string
+    workspaceId?: string
+    userMessage: string
+    modelId?: string
+    provider: ProviderType
+    apiKey: string
+    baseUrl: string
+    callbacks: SessionCallbacks
+    startedAt?: number
+    permissionMode?: MAProPermissionMode
+    attachments?: FileAttachment[]
+  }): Promise<void> {
+    const { sessionId, channelId, workspaceId, userMessage, modelId, provider, apiKey, baseUrl, callbacks, startedAt, permissionMode, attachments } = options
+    let userMessageUuid = ''
+
+    try {
+      let agentCwd = homedir()
+      let workspaceName: string | undefined
+      let workspaceSlug: string | undefined
+      if (workspaceId) {
+        const ws = getAgentWorkspace(workspaceId)
+        if (ws) {
+          workspaceName = ws.name
+          workspaceSlug = ws.slug
+          agentCwd = getAgentWorkspaceCwd(ws, sessionId)
+          if (!existsSync(agentCwd)) {
+            mkdirSync(agentCwd, { recursive: true })
+          }
+        }
+      }
+
+      console.log(`[Pi Runtime] 启动 Pi runtime — provider: ${provider}, model: ${modelId}, cwd: ${agentCwd}`)
+
+      const historyMessages = getAgentSessionSDKMessages(sessionId)
+
+      userMessageUuid = randomUUID()
+      const userSDKMsg: SDKMessage = {
+        type: 'user',
+        message: { content: [{ type: 'text', text: userMessage }] },
+        parent_tool_use_id: null,
+        uuid: userMessageUuid,
+        _attachments: attachments,
+      } as unknown as SDKMessage
+      appendSDKMessages(sessionId, [userSDKMsg])
+
+      const queryOptions: PiAgentQueryOptions = {
+        sessionId,
+        agentRuntime: 'pi',
+        prompt: userMessage,
+        model: modelId,
+        provider,
+        apiKey,
+        baseUrl,
+        cwd: agentCwd,
+        historyMessages,
+        attachments,
+        systemPrompt: buildSystemPrompt({
+          workspaceName,
+          workspaceSlug,
+          agentCwd,
+          sessionId,
+          permissionMode: permissionMode ?? MAPRO_DEFAULT_PERMISSION_MODE,
+          memoryEnabled: (() => { const mc = getMemoryConfig(); return mc.enabled && !!mc.apiKey })(),
+          claudeAvailable: false,
+        }),
+      }
+
+      const accumulatedMessages: SDKMessage[] = []
+      for await (const msg of this.adapter.query(queryOptions)) {
+        accumulatedMessages.push(msg)
+        this.eventBus.emit(sessionId, { kind: 'sdk_message', message: msg } as AgentStreamPayload)
+
+        if (msg.type === 'assistant' && !this.hasTitle(sessionId)) {
+          const text = this.extractTextFromSDKMessage(msg as SDKAssistantMessage)
+          if (text) {
+            this.generateTitleAsync(sessionId, userMessage, channelId, modelId, callbacks)
+          }
+        }
+      }
+
+      if (accumulatedMessages.length > 0) {
+        appendSDKMessages(sessionId, accumulatedMessages)
+      }
+
+      callbacks.onComplete(accumulatedMessages as unknown as AgentMessage[], { startedAt })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error('[Pi Runtime] 运行失败:', error)
+
+      if (message.includes('中止') || message.includes('aborted')) {
+        throw error
+      }
+
+      if (userMessageUuid) {
+        try {
+          truncateSDKMessages(sessionId, userMessageUuid)
+        } catch (truncateError) {
+          console.error('[Pi Runtime] 运行失败后截断用户消息失败:', truncateError)
+        }
+      }
+      this.eventBus.emit(sessionId, {
+        kind: 'agent_event',
+        event: {
+          type: 'typed_error',
+          error: normalizeAgentRuntimeError({
+            runtime: 'pi',
+            provider,
+            model: modelId,
+            error,
+          }),
+        },
+      } as AgentStreamPayload)
+      throw error
+    }
+  }
+
+  /**
+   * 运行 Provider-Agnostic Sub Agent
+   *
+   * 在独立 session 中启动一个子代理，完成指定任务后返回文本摘要。
+   * 子代理不对外发送 UI 事件，避免污染主会话的流式输出。
+   */
+  private async runProviderAgnosticSubAgent(
+    parentSessionId: string,
+    ctx: {
+      provider: ProviderType
+      adapterProvider?: ProviderType
+      apiKey: string
+      baseUrl: string
+      model?: string
+      cwd: string
+      mcpServers?: Record<string, import('@ma-proma/shared').McpServerEntry>
+      permissionMode: MAProPermissionMode
+    },
+    input: SubAgentInput,
+  ): Promise<string> {
+    const agents = buildBuiltinAgents(false)
+    const def = agents[input.agentName]
+    if (!def) {
+      throw new Error(`未知子代理: ${input.agentName}`)
+    }
+
+    const childSessionId = `sub-${parentSessionId}-${randomUUID()}`
+    const childAdapter = new ProviderAgnosticAgentAdapter(this.runtimeServices.mcp)
+    const filesHint = input.files?.length
+      ? `\n\n重点关注以下文件：\n${input.files.map((f) => `- ${f}`).join('\n')}`
+      : ''
+    const prompt = `${input.task}${filesHint}`
+    const systemPrompt = def.prompt
+      ? `${def.prompt}\n\n你当前被委派的任务如下，请完成后直接返回结果，不要反问用户。`
+      : undefined
+
+    const messages: SDKMessage[] = []
+    try {
+      for await (const msg of childAdapter.query({
+        sessionId: childSessionId,
+        prompt,
+        model: input.model || ctx.model || '',
+        provider: ctx.provider,
+        adapterProvider: ctx.adapterProvider,
+        apiKey: ctx.apiKey,
+        baseUrl: ctx.baseUrl,
+        cwd: ctx.cwd,
+        systemPrompt,
+        historyMessages: [],
+        // 子代理在内部全放行，避免向主会话 UI 发送未知 sessionId 的审批请求
+        permissionMode: 'bypassPermissions',
+        mcpServers: ctx.mcpServers,
+        maxTurns: input.maxTurns ?? 10,
+        abortSignal: input.abortSignal,
+      })) {
+        messages.push(msg)
+      }
+    } finally {
+      childAdapter.dispose()
+    }
+
+    const assistantTexts: string[] = []
+    for (const msg of messages) {
+      if (msg.type === 'assistant') {
+        const text = this.extractTextFromSDKMessage(msg as SDKAssistantMessage)
+        if (text) assistantTexts.push(text)
+      }
+    }
+
+    return assistantTexts.join('\n\n') || '子代理已完成任务，但未返回文本结果'
+  }
+
+  /**
+   * 判断会话是否已有标题
+   */
+  private hasTitle(sessionId: string): boolean {
+    const meta = getAgentSessionMeta(sessionId)
+    return meta != null && meta.title != null && meta.title !== '' && meta.title !== DEFAULT_SESSION_TITLE
+  }
+
+  /**
+   * 从 SDK assistant 消息中提取文本内容
+   */
+  private extractTextFromSDKMessage(msg: SDKAssistantMessage): string {
+    const content = msg.message?.content
+    if (!Array.isArray(content)) return ''
+    return content
+      .filter((b) => b.type === 'text' && 'text' in b)
+      .map((b) => (b as { text: string }).text)
+      .join('\n')
+  }
+
+  /**
+   * 异步生成会话标题
+   */
+  private generateTitleAsync(
+    sessionId: string,
+    userMessage: string,
+    channelId: string,
+    modelId?: string,
+    callbacks?: SessionCallbacks,
+  ): void {
+    this.generateTitle({ userMessage, channelId, modelId: modelId || 'unknown' })
+      .then((title) => {
+        if (!title) return
+        const meta = getAgentSessionMeta(sessionId)
+        if (meta && meta.title === DEFAULT_SESSION_TITLE) {
+          updateAgentSessionMeta(sessionId, { title })
+          callbacks?.onTitleUpdated(title)
+        }
+      })
+      .catch((err) => console.error('[Agent Runtime] 标题生成失败:', err))
   }
 
   /**
@@ -773,18 +1235,16 @@ export class AgentOrchestrator {
     console.log('[Agent 标题生成] 开始生成标题:', { channelId, modelId, userMessage: userMessage.slice(0, 50) })
 
     try {
-      const channels = listChannels()
-      const channel = channels.find((c) => c.id === channelId)
+      const channel = await this.runtimeServices.credentials.resolveChannel(channelId)
       if (!channel) {
         console.warn('[Agent 标题生成] 渠道不存在:', channelId)
         return null
       }
 
-      const apiKey = decryptApiKey(channelId)
       const providerAdapter = getAdapter(channel.provider)
       const request = providerAdapter.buildTitleRequest({
         baseUrl: channel.baseUrl,
-        apiKey,
+        apiKey: channel.apiKey,
         modelId,
         prompt: TITLE_PROMPT + userMessage,
       })
@@ -942,7 +1402,7 @@ export class AgentOrchestrator {
    * 通过 EventBus 分发 AgentEvent，通过 callbacks 发送控制信号。
    */
   async sendMessage(input: AgentSendInput, callbacks: SessionCallbacks): Promise<void> {
-    const { sessionId, userMessage, channelId, modelId, workspaceId, additionalDirectories, customMcpServers, permissionModeOverride, mentionedSkills, mentionedMcpServers, mentionedSessionIds } = input
+    const { sessionId, userMessage, channelId, modelId, agentRuntime, workspaceId, additionalDirectories, customMcpServers, permissionModeOverride, mentionedSkills, mentionedMcpServers, mentionedSessionIds, attachments } = input
     const stderrChunks: string[] = []
 
     // 0. 并发保护
@@ -1046,6 +1506,147 @@ export class AgentOrchestrator {
     // 否则用本地 runGeneration 作为回退（headless 模式等无渲染进程场景）
     const streamStartedAt = input.startedAt ?? runGeneration
 
+    try {
+    // 2.2 读取会话 runtime，并在进入 Claude SDK 专用路径前处理非 Claude runtime。
+    const sessionMeta = getAgentSessionMeta(sessionId)
+    let existingSdkSessionId = sessionMeta?.sdkSessionId
+
+    // 检测回退后的 resume 截断点（快照回退功能）
+    let rewindResumeAt: string | undefined
+    if (sessionMeta?.resumeAtMessageUuid) {
+      rewindResumeAt = sessionMeta.resumeAtMessageUuid
+      // 消费一次后清除
+      updateAgentSessionMeta(sessionId, { resumeAtMessageUuid: undefined })
+      console.log(`[Agent 编排] 检测到回退 resume: resumeSessionAt=${rewindResumeAt}`)
+    }
+
+    const appSettings = getSettings()
+    const effectiveAgentRuntime = normalizeAgentRuntime(agentRuntime ?? sessionMeta?.agentRuntime ?? appSettings.agentRuntime)
+    if (!sessionMeta?.agentRuntime || sessionMeta.agentRuntime !== effectiveAgentRuntime) {
+      try {
+        updateAgentSessionMeta(sessionId, {
+          agentRuntime: effectiveAgentRuntime,
+          ...(effectiveAgentRuntime !== 'claude' ? { sdkSessionId: undefined } : {}),
+        })
+        if (effectiveAgentRuntime !== 'claude') {
+          existingSdkSessionId = undefined
+        }
+      } catch (err) {
+        console.error('[Agent 编排] 保存 Agent runtime 失败:', err)
+      }
+    } else if (effectiveAgentRuntime !== 'claude' && existingSdkSessionId) {
+      try {
+        updateAgentSessionMeta(sessionId, { sdkSessionId: undefined })
+        existingSdkSessionId = undefined
+      } catch (err) {
+        console.error('[Agent 编排] 清除非 Claude runtime 的 SDK session_id 失败:', err)
+      }
+    }
+
+    const initialPermissionMode: MAProPermissionMode = permissionModeOverride
+      ?? MAPRO_DEFAULT_PERMISSION_MODE
+    this.sessionPermissionModes.set(sessionId, initialPermissionMode)
+    console.log(`[Agent 编排] 权限模式: ${initialPermissionMode}${permissionModeOverride ? '（外部覆盖）' : ''}`)
+
+    if (initialPermissionMode === 'plan') {
+      this.eventBus.emit(sessionId, { kind: 'mapro_event', event: { type: 'enter_plan_mode', sessionId } })
+    }
+
+    if (effectiveAgentRuntime !== 'claude') {
+      let runtimeAgentCwd = homedir()
+      let runtimeWorkspaceSlug: string | undefined
+      let runtimeWorkspace: import('@ma-proma/shared').AgentWorkspace | undefined
+      if (workspaceId) {
+        const ws = getAgentWorkspace(workspaceId)
+        if (ws) {
+          runtimeAgentCwd = getAgentWorkspaceCwd(ws, sessionId)
+          runtimeWorkspaceSlug = ws.slug
+          runtimeWorkspace = ws
+        }
+      }
+
+      const dynamicCtx = buildDynamicContext({
+        workspaceName: runtimeWorkspace?.name,
+        workspaceSlug: runtimeWorkspaceSlug,
+        agentCwd: runtimeAgentCwd,
+      })
+
+      let enrichedMessage = userMessage
+      const referencedSessionsBlock = buildReferencedSessionsPrompt(sessionId, mentionedSessionIds, workspaceId)
+      if (referencedSessionsBlock) {
+        enrichedMessage = `${referencedSessionsBlock}\n\n${enrichedMessage}`
+        console.log(`[Agent 编排] 注入 referenced_sessions: ${mentionedSessionIds?.length ?? 0} sessions`)
+      }
+      if (mentionedSkills?.length || mentionedMcpServers?.length) {
+        const toolLines: string[] = ['用户在消息中明确引用了以下工具，请在本次回复中主动调用：']
+        for (const slug of mentionedSkills ?? []) {
+          const qualifiedName = runtimeWorkspaceSlug
+            ? `proma-workspace-${runtimeWorkspaceSlug}:${slug}`
+            : slug
+          toolLines.push(`- Skill: ${qualifiedName}（请立即调用此 Skill）`)
+        }
+        for (const name of mentionedMcpServers ?? []) {
+          toolLines.push(`- MCP 服务器: ${name}（请使用此 MCP 服务器的工具来完成任务）`)
+        }
+        enrichedMessage = `<mentioned_tools>\n${toolLines.join('\n')}\n</mentioned_tools>\n\n${userMessage}`
+        console.log(`[Agent 编排] 注入 mentioned_tools: ${mentionedSkills?.length ?? 0} skills, ${mentionedMcpServers?.length ?? 0} MCP`)
+      }
+
+      const contextualMessage = `${dynamicCtx}\n\n${enrichedMessage}`
+
+      if (!isAgentCompatibleProvider(channel.provider, effectiveAgentRuntime)) {
+        const runtimeLabel = getAgentRuntimeLabel(effectiveAgentRuntime)
+        reportPreflightError({
+          code: 'provider_error',
+          title: `当前渠道暂不支持 ${runtimeLabel} Runtime`,
+          message: `供应商 ${channel.provider} 尚未通过 ${runtimeLabel} runtime 的 Agent 合约验证，请选择兼容渠道或切回 Claude runtime。`,
+          actions: [
+            { key: 's', label: '打开渠道设置', action: 'open_channel_settings' },
+          ],
+          canRetry: false,
+        })
+        return
+      }
+
+      if (effectiveAgentRuntime === 'pi') {
+        await this.runPiAgent({
+          sessionId,
+          channelId,
+          workspaceId,
+          userMessage: contextualMessage,
+          modelId,
+          provider: channel.provider,
+          apiKey,
+          baseUrl: channel.baseUrl,
+          callbacks,
+          startedAt: input.startedAt,
+          permissionMode: initialPermissionMode,
+          attachments,
+        })
+        return
+      }
+
+      const protocol = getAgentProviderProtocol(channel.provider, effectiveAgentRuntime)
+      const adapterProvider: ProviderType | undefined = protocol === 'openai-chat' ? 'openai' : undefined
+      await this.runProviderAgnosticAgent({
+        sessionId,
+        agentRuntime: effectiveAgentRuntime,
+        channelId,
+        workspaceId,
+        userMessage: contextualMessage,
+        modelId,
+        provider: channel.provider,
+        adapterProvider,
+        apiKey,
+        baseUrl: resolveAgentRuntimeBaseUrl(channel.provider, effectiveAgentRuntime, channel.baseUrl),
+        callbacks,
+        startedAt: input.startedAt,
+        permissionMode: initialPermissionMode,
+        attachments,
+      })
+      return
+    }
+
     // 3. 构建环境变量
     // 同步凭证到 process.env（SDK in-process 代码可能直接读取 process.env）
     // 先清理再注入，确保 SDK 无论从 env 选项还是 process.env 都拿到正确值
@@ -1070,20 +1671,7 @@ export class AgentOrchestrator {
 
     const sdkEnv = await this.buildSdkEnv(apiKey, channel.baseUrl, channel.provider)
 
-    // 4. 读取已有的 SDK session ID（用于 resume）
-    const sessionMeta = getAgentSessionMeta(sessionId)
-    let existingSdkSessionId = sessionMeta?.sdkSessionId
-
-    // 4.1 检测回退后的 resume 截断点（快照回退功能）
-    let rewindResumeAt: string | undefined
-    if (sessionMeta?.resumeAtMessageUuid) {
-      rewindResumeAt = sessionMeta.resumeAtMessageUuid
-      // 消费一次后清除
-      updateAgentSessionMeta(sessionId, { resumeAtMessageUuid: undefined })
-      console.log(`[Agent 编排] 检测到回退 resume: resumeSessionAt=${rewindResumeAt}`)
-    }
-
-    console.log(`[Agent 编排] Resume 状态: sdkSessionId=${existingSdkSessionId || '无'}, mapro sessionId=${sessionId}`)
+    console.log(`[Agent 编排] Resume 状态: sdkSessionId=${existingSdkSessionId || '无'}, proma sessionId=${sessionId}`)
 
     // 5. 持久化用户消息（SDKMessage 格式）
     const userSDKMsg: SDKMessage = {
@@ -1103,11 +1691,6 @@ export class AgentOrchestrator {
     let agentCwd: string | undefined
     let workspaceSlug: string | undefined
     let workspace: import('@ma-proma/shared').AgentWorkspace | undefined
-
-    try {
-      // 7. 注册会话槽位（放在 try 首行：仍在所有 await 之前，保证并发守卫语义不变；
-      // 同时确保上方环境构建 / 消息持久化任一失败时不会残留槽位导致会话被永久锁定）
-      this.activeSessions.set(sessionId, runGeneration)
 
       // 8. 动态导入 SDK
       const sdk = await loadClaudeAgentSdk()
@@ -1157,7 +1740,7 @@ export class AgentOrchestrator {
       if (workspaceId) {
         const ws = getAgentWorkspace(workspaceId)
         if (ws) {
-          agentCwd = getAgentSessionWorkspacePath(ws.slug, sessionId)
+          agentCwd = getAgentWorkspaceCwd(ws, sessionId)
           workspaceSlug = ws.slug
           workspace = ws
           console.log(`[Agent 编排] 使用 session 级别 cwd: ${agentCwd} (${ws.name}/${sessionId})`)
@@ -1269,17 +1852,6 @@ export class AgentOrchestrator {
 
       // 12. 读取应用设置并确定权限模式
       // 权限模式只属于当前 session；新会话默认完全自动模式。
-      const appSettings = getSettings()
-      const initialPermissionMode: MAProPermissionMode = permissionModeOverride
-        ?? MAPRO_DEFAULT_PERMISSION_MODE
-      // 注册到 Map，支持运行中动态切换
-      this.sessionPermissionModes.set(sessionId, initialPermissionMode)
-      console.log(`[Agent 编排] 权限模式: ${initialPermissionMode}${permissionModeOverride ? '（外部覆盖）' : ''}`)
-
-      // 当初始模式为 plan 时，通知渲染进程展示计划模式 UI（如「Agent 正在规划」横幅）
-      if (initialPermissionMode === 'plan') {
-        this.eventBus.emit(sessionId, { kind: 'mapro_event', event: { type: 'enter_plan_mode', sessionId } })
-      }
 
       /** 读取当前会话的实时权限模式（支持运行中切换） */
       const getPermissionMode = (): MAProPermissionMode =>
@@ -1297,7 +1869,7 @@ export class AgentOrchestrator {
         )
       }
 
-      // 始终创建 auto 权限回调（运行中可能切换到 auto）
+      // 始终创建 auto 权限回调（运行中可能切换到 auto/safe）
       const autoCanUseTool = permissionService.createCanUseTool(
         sessionId,
         (request: PermissionRequest) => {
@@ -1307,6 +1879,7 @@ export class AgentOrchestrator {
         (request: AskUserRequest) => {
           this.eventBus.emit(sessionId, { kind: 'mapro_event', event: { type: 'ask_user_request', request } })
         },
+        getPermissionMode,
       )
 
       // Plan 模式下允许的只读工具（不包含 Write/Edit/Bash 等写操作）
@@ -1436,6 +2009,9 @@ export class AgentOrchestrator {
           case 'auto':
             return autoCanUseTool(toolName, input, options)
 
+          case 'safe':
+            return autoCanUseTool(toolName, input, options)
+
           default:
             return { behavior: 'allow' as const, updatedInput: input }
         }
@@ -1451,6 +2027,9 @@ export class AgentOrchestrator {
         sessionId,
         prompt: finalPrompt,
         model: modelId || DEFAULT_MODEL_ID,
+        // 当前代码块仍是 Claude SDK 专用 queryOptions。runtime 元数据已在上方保存；
+        // 后续阶段会把 proma/pi 的 options 构造拆到各自分支后再按 effectiveAgentRuntime 路由。
+        agentRuntime: 'claude',
         cwd: agentCwd,
         sdkCliPath: cliPath,
         env: sdkEnv,
@@ -1461,7 +2040,7 @@ export class AgentOrchestrator {
         // 当提供 canUseTool 回调时必须为 false，否则 CLI 同时收到
         // --allow-dangerously-skip-permissions 和 --permission-prompt-tool stdio
         // 两个矛盾的指令，导致 ExitPlanMode/AskUserQuestion 等交互式工具失败。
-        // canUseTool 已完整处理所有权限模式（plan/auto/bypassPermissions），
+        // canUseTool 已完整处理所有权限模式（plan/safe/auto/bypassPermissions），
         // Worker 子代理在 bypassPermissions 模式下也会被自动放行。
         allowDangerouslySkipPermissions: !canUseTool,
         canUseTool,
@@ -1474,6 +2053,7 @@ export class AgentOrchestrator {
           append: buildSystemPrompt({
             workspaceName: workspace?.name,
             workspaceSlug,
+            agentCwd,
             sessionId,
             permissionMode: initialPermissionMode,
             memoryEnabled: (() => { const mc = getMemoryConfig(); return mc.enabled && !!mc.apiKey })(),
@@ -1712,6 +2292,9 @@ export class AgentOrchestrator {
                   console.log(`[Agent 编排] 可重试错误 (assistant error): ${typedError.code} - ${lastRetryableError}`)
                   this.persistSDKMessages(sessionId, accumulatedMessages, Date.now() - queryStartedAt)
                   accumulatedMessages.length = 0
+                  // 与 catch 路径（isAutoRetryableCatchError）和思考签名回填路径保持一致：
+                  // 重试前清空已累积的 stderr，避免 25 次重试上限内字符串无限增长
+                  stderrChunks.length = 0
                   shouldRetryFromError = true
                   break
                 }
@@ -2137,6 +2720,20 @@ export class AgentOrchestrator {
     console.log(`[Agent 编排] 运行中权限模式已切换: sessionId=${sessionId}, mode=${mode}`)
   }
 
+  /**
+   * 分叉 Agent 会话
+   *
+   * 对 Provider-Agnostic Runtime 会话（无 sdkSessionId）：复制工作区文件并截断 MAPro JSONL 历史。
+   * 对 Claude SDK 会话：调用 SDK 原生 forkSession，再复制工作区文件与 JSONL 历史。
+   * 运行中的会话禁止分叉，避免 JSONL 并发写入损坏。
+   */
+  async forkAgentSession(input: ForkSessionInput): Promise<AgentSessionMeta> {
+    if (this.activeSessions.has(input.sessionId)) {
+      throw new Error('会话正在运行中，请停止后再分叉')
+    }
+    return forkAgentSessionInternal(input)
+  }
+
   // ===== 快照回退 =====
 
   /**
@@ -2159,8 +2756,23 @@ export class AgentOrchestrator {
     }
 
     const sessionMeta = getAgentSessionMeta(sessionId)
-    if (!sessionMeta?.sdkSessionId) {
-      throw new Error('会话没有 SDK session ID，无法回退')
+    if (!sessionMeta) {
+      throw new Error(`会话不存在: ${sessionId}`)
+    }
+
+    // 非 SDK snapshot runtime 回退路径：不支持文件快照，仅截断对话历史
+    if (!sessionMeta.sdkSessionId) {
+      const runtime = normalizeAgentRuntime(sessionMeta.agentRuntime)
+      const semantics = getAgentRuntimeHistorySemantics(runtime)
+      const kept = rewindProviderAgnosticSession(sessionId, assistantMessageUuid)
+      console.log(`[Agent 编排] ${runtime} 回退完成: sessionId=${sessionId}, 保留 ${kept.length} 条消息, 文件状态未恢复`)
+      return {
+        remainingMessages: kept.length,
+        fileRewind: {
+          canRewind: semantics.restoresFileSnapshot,
+          error: `${semantics.description} 已截断对话历史，文件状态未恢复。`,
+        },
+      }
     }
 
     // 0.5 从 SDK session JSONL 解析对应的 user message UUID（rewindFiles 需要）
@@ -2170,7 +2782,7 @@ export class AgentOrchestrator {
       const ws = getAgentWorkspace(sessionMeta.workspaceId)
       if (ws) {
         workspaceSlug = ws.slug
-        projectDir = getAgentSessionWorkspacePath(ws.slug, sessionMeta.id)
+        projectDir = getAgentWorkspaceCwd(ws, sessionMeta.id)
       }
     }
     const userMessageUuid = resolveUserUuidFromSDK(sessionMeta.sdkSessionId, assistantMessageUuid, projectDir, sessionMeta.forkSourceSdkSessionId)
