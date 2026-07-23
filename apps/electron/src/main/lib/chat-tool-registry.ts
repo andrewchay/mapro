@@ -27,11 +27,6 @@ import {
   isWebScraperAvailable,
 } from './chat-tools/web-scraper-tool'
 import {
-  COMPUTER_USE_TOOL_META,
-  COMPUTER_USE_TOOL_DEFINITIONS,
-  isComputerUseAvailable,
-} from './chat-tools/computer-use-tool'
-import {
   AGENT_RECOMMEND_TOOL_META,
   AGENT_RECOMMEND_TOOL_DEFINITIONS,
   isAgentRecommendAvailable,
@@ -121,11 +116,6 @@ const BUILTIN_TOOLS: BuiltinToolEntry[] = [
     meta: WEB_SCRAPER_TOOL_META,
     getDefinitions: () => WEB_SCRAPER_TOOL_DEFINITIONS,
     checkAvailable: isWebScraperAvailable,
-  },
-  {
-    meta: COMPUTER_USE_TOOL_META,
-    getDefinitions: () => COMPUTER_USE_TOOL_DEFINITIONS,
-    checkAvailable: isComputerUseAvailable,
   },
   {
     meta: AGENT_RECOMMEND_TOOL_META,

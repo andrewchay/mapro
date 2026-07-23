@@ -665,24 +665,6 @@ function WebScraperSettings(): React.ReactElement {
   )
 }
 
-/** 视觉浏览器自动化工具设置区域 */
-function ComputerUseSettings(): React.ReactElement {
-  return (
-    <BrowserAutomationSettings
-      toolId="computer-use"
-      title="视觉浏览器自动化"
-      description="启用后 AI 可以通过截图和视觉推理自动操作浏览器"
-      guideTitle="适合复杂动态页面、需要视觉判断的任务（如识别按钮位置、处理验证码、多步交互）。"
-      guideContent={
-        <>
-          <p className="text-xs">AI 每步都会看截图并决定下一步操作，直到完成任务或达到最大步数。</p>
-          <p className="text-xs mt-1">注意：每步都要发送截图给多模态 LLM，token 消耗较高。</p>
-        </>
-      }
-    />
-  )
-}
-
 /** 定时爬取任务设置区域 */
 function ScheduledScrapingSettings(): React.ReactElement {
   const [tasks, setTasks] = React.useState<ScheduledScrapingTask[]>([])
@@ -1386,9 +1368,6 @@ export function ToolSettings(): React.ReactElement {
 
       {/* 网页爬取工具 */}
       <WebScraperSettings />
-
-      {/* 视觉浏览器自动化工具 */}
-      <ComputerUseSettings />
 
       {/* 定时爬取任务 */}
       <ScheduledScrapingSettings />

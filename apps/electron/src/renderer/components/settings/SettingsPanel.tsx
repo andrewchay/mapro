@@ -20,6 +20,10 @@ import {
   GraduationCap,
   X,
   Mic,
+  HardDriveDownload,
+  HardDrive,
+  ShieldCheck,
+  MonitorCog,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { settingsTabAtom, channelFormDirtyAtom, settingsCloseRequestedAtom } from "@/atoms/settings-tab";
@@ -51,6 +55,8 @@ import { ShortcutSettings } from "./ShortcutSettings";
 import { VoiceInputSettings } from "./VoiceInputSettings";
 import { MigrationSettings } from "./MigrationSettings";
 import { StorageSettings } from "./StorageSettings";
+import { OperationAuditSettings } from "./OperationAuditSettings";
+import { AutomationSettings } from "./AutomationSettings";
 
 /** 设置 Tab 定义 */
 interface TabItem {
@@ -92,6 +98,16 @@ const VOICE_INPUT_TAB: TabItem = {
   label: "语音输入",
   icon: <Mic size={16} />,
 };
+const OPERATION_AUDIT_TAB: TabItem = {
+  id: "operation-audit",
+  label: "操作审计",
+  icon: <ShieldCheck size={16} />,
+};
+const AUTOMATION_TAB: TabItem = {
+  id: "automation",
+  label: "自动化与设备控制",
+  icon: <MonitorCog size={16} />,
+};
 
 /** 尾部 Tabs */
 const TAIL_TABS: TabItem[] = [
@@ -130,6 +146,10 @@ function renderTabContent(tab: SettingsTab): React.ReactElement {
       return <MigrationSettings />;
     case "storage":
       return <StorageSettings />;
+    case "operation-audit":
+      return <OperationAuditSettings />;
+    case "automation":
+      return <AutomationSettings />;
   }
 }
 
@@ -201,6 +221,8 @@ export function SettingsPanel({
       return [
         ...BASE_TABS,
         AGENT_TAB,
+        AUTOMATION_TAB,
+        OPERATION_AUDIT_TAB,
         TOOLS_TAB,
         VOICE_INPUT_TAB,
         BOTS_TAB,

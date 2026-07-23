@@ -1,6 +1,6 @@
 {
   "name": "@ma-proma/core",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "license": "UNLICENSED",
   "description": "MAPro core types, storage and core logic with agents",
   "type": "module",
@@ -11,10 +11,15 @@
     "./types": "./src/types/index.ts",
     "./utils": "./src/utils/index.ts",
     "./providers": "./src/providers/index.ts",
+    "./providers/ai-sdk-bridge": "./src/providers/ai-sdk-bridge.ts",
     "./highlight": "./src/highlight/index.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "4.0.16",
+    "@ai-sdk/google": "4.0.18",
+    "@ai-sdk/openai": "4.0.16",
     "@ma-proma/shared": "workspace:*",
+    "ai": "7.0.31",
     "shiki": "^3.22.0"
   },
   "peerDependencies": {

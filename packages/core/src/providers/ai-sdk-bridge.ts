@@ -1,0 +1,303 @@
+/**
+ * Vercel AI SDK 兼容桥接层。
+ *
+ * 这层只做模型工厂和事件协议转换，不接管 MAPro 当前的 Agent 工具循环。
+ * 后续如果要迁移到 Web/Server runtime，可以在这里继续扩展 provider 与工具映射。
+ */
+
+import { createAnthropic } from '@ai-sdk/anthropic'
+import { createGoogle } from '@ai-sdk/google'
+import { createOpenAI } from '@ai-sdk/openai'
+import type { AgentProviderProtocol, ProviderType } from '@ma-proma/shared'
+import type { LanguageModel, LanguageModelUsage, TextStreamPart, ToolSet } from 'ai'
+import { streamText } from 'ai'
+import type { StreamEvent, StreamEventCallback } from './types.ts'
+import { normalizeBaseUrl } from './url-utils.ts'
+
+export interface AISDKOpenAICompatibleModelInput {
+  /** OpenAI-compatible API Base URL，通常包含 /v1 或兼容路径 */
+  baseUrl: string
+  /** 明文 API Key */
+  apiKey: string
+  /** 模型 ID */
+  modelId: string
+  /** AI SDK provider 名称，用于日志/metadata 区分第三方 OpenAI-compatible provider */
+  providerName?: string
+  /** 额外请求头 */
+  headers?: Record<string, string>
+}
+
+export interface AISDKProviderModelInput extends AISDKOpenAICompatibleModelInput {
+  /** MAPro 渠道 provider，用于选择 AI SDK provider package */
+  provider: ProviderType
+  /** Agent runtime 下实际使用的协议族 */
+  protocol: AgentProviderProtocol
+}
+
+export interface AISDKStreamTextBridgeInput {
+  model: LanguageModel
+  prompt: string
+  system?: string
+  abortSignal?: AbortSignal
+  onEvent: StreamEventCallback
+}
+
+export interface AISDKStreamToolCallSnapshot {
+  toolCallId: string
+  toolName: string
+  input: unknown
+}
+
+export interface AISDKStreamToolResultSnapshot {
+  toolCallId: string
+  toolName: string
+  input: unknown
+  output: unknown
+}
+
+export interface AISDKStreamStepSnapshot {
+  text: string
+  reasoningText?: string
+  toolCalls: AISDKStreamToolCallSnapshot[]
+  toolResults: AISDKStreamToolResultSnapshot[]
+  finishReason: string
+  usage?: LanguageModelUsage
+}
+
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return String(error)
+  }
+}
+
+function toToolArgumentsDelta(input: unknown): string {
+  if (input === undefined) return ''
+  if (typeof input === 'string') return input
+  return JSON.stringify(input)
+}
+
+function toUsageEvent(usage: LanguageModelUsage): StreamEvent {
+  return {
+    type: 'usage',
+    usage: {
+      input_tokens: usage.inputTokens,
+      output_tokens: usage.outputTokens,
+      total_tokens: usage.totalTokens,
+      cache_read_input_tokens: usage.inputTokenDetails.cacheReadTokens,
+      cache_creation_input_tokens: usage.inputTokenDetails.cacheWriteTokens,
+    },
+  }
+}
+
+function toDoneStopReason(finishReason: string): string {
+  if (finishReason === 'stop') return 'end_turn'
+  if (finishReason === 'tool-calls') return 'tool_use'
+  return finishReason
+}
+
+/** 创建 OpenAI Chat Completions 兼容的 AI SDK 模型实例。 */
+export function createOpenAICompatibleAISDKModel(input: AISDKOpenAICompatibleModelInput): LanguageModel {
+  const provider = createOpenAI({
+    apiKey: input.apiKey,
+    baseURL: normalizeBaseUrl(input.baseUrl),
+    name: input.providerName ?? 'proma-openai-compatible',
+    headers: input.headers,
+  })
+
+  return provider.chat(input.modelId)
+}
+
+/** 创建 Anthropic Messages API 的 AI SDK 模型实例。 */
+export function createAnthropicAISDKModel(input: AISDKOpenAICompatibleModelInput): LanguageModel {
+  const provider = createAnthropic({
+    apiKey: input.apiKey,
+    baseURL: normalizeBaseUrl(input.baseUrl),
+    name: input.providerName ?? 'proma-anthropic',
+    headers: input.headers,
+  })
+
+  return provider.messages(input.modelId)
+}
+
+/** 创建 Google Generative Language API 的 AI SDK 模型实例。 */
+export function createGoogleAISDKModel(input: AISDKOpenAICompatibleModelInput): LanguageModel {
+  const provider = createGoogle({
+    apiKey: input.apiKey,
+    baseURL: normalizeGoogleBaseUrl(input.baseUrl),
+    name: input.providerName ?? 'proma-google',
+    headers: input.headers,
+  })
+
+  return provider.chat(input.modelId)
+}
+
+/** 根据 Agent runtime 协议族创建对应的 AI SDK 模型实例。 */
+export function createAgentAISDKModel(input: AISDKProviderModelInput): LanguageModel {
+  if (input.protocol === 'anthropic-messages') {
+    return createAnthropicAISDKModel(input)
+  }
+  if (input.protocol === 'google-generative') {
+    return createGoogleAISDKModel(input)
+  }
+  return createOpenAICompatibleAISDKModel(input)
+}
+
+function normalizeGoogleBaseUrl(baseUrl: string): string {
+  const normalized = normalizeBaseUrl(baseUrl)
+  if (/\/v\d+(?:beta)?$/i.test(normalized)) return normalized
+  return `${normalized}/v1beta`
+}
+
+/**
+ * 有状态的 AI SDK stream part 转换器。
+ *
+ * AI SDK 可能同时发 tool-input-* 增量和最终 tool-call 事件；转换器记录已开始的
+ * toolCallId，避免下游重复创建同一个工具调用。
+ */
+export class AISDKStreamPartConverter {
+  private readonly startedToolCallIds = new Set<string>()
+
+  convert(part: TextStreamPart<ToolSet>): StreamEvent[] {
+    switch (part.type) {
+      case 'text-delta':
+        return [{ type: 'chunk', delta: part.text }]
+      case 'reasoning-start':
+        return [{ type: 'reasoning_block_start' }]
+      case 'reasoning-delta':
+        return [{ type: 'reasoning', delta: part.text }]
+      case 'reasoning-end':
+        return [{ type: 'reasoning_block_stop' }]
+      case 'tool-input-start':
+        this.startedToolCallIds.add(part.id)
+        return [{ type: 'tool_call_start', toolCallId: part.id, toolName: part.toolName }]
+      case 'tool-input-delta':
+        return [{ type: 'tool_call_delta', toolCallId: part.id, argumentsDelta: part.delta }]
+      case 'tool-call': {
+        const events: StreamEvent[] = []
+        if (!this.startedToolCallIds.has(part.toolCallId)) {
+          this.startedToolCallIds.add(part.toolCallId)
+          events.push({ type: 'tool_call_start', toolCallId: part.toolCallId, toolName: part.toolName })
+        }
+
+        const argumentsDelta = toToolArgumentsDelta(part.input)
+        if (argumentsDelta) {
+          events.push({ type: 'tool_call_delta', toolCallId: part.toolCallId, argumentsDelta })
+        }
+        return events
+      }
+      case 'finish':
+        return [
+          toUsageEvent(part.totalUsage),
+          { type: 'done', stopReason: toDoneStopReason(part.finishReason) },
+        ]
+      case 'error':
+        return [{ type: 'error', error: formatUnknownError(part.error) }]
+      case 'abort':
+        return [{ type: 'error', error: part.reason ?? 'AI SDK stream aborted' }]
+      case 'tool-error':
+        return [{ type: 'error', error: formatUnknownError(part.error) }]
+      default:
+        return []
+    }
+  }
+}
+
+/**
+ * 从 AI SDK stream 直接累积每个 step 的快照。
+ *
+ * Electron 当前仍以 SDKMessage 驱动 UI；未来 Web/Server runtime 可以复用该快照，
+ * 直接把 text/tool/result/usage 转成自己的传输协议。
+ */
+export class AISDKStreamStepAccumulator {
+  private text = ''
+  private reasoningText = ''
+  private readonly toolCalls = new Map<string, AISDKStreamToolCallSnapshot>()
+  private readonly toolResults: AISDKStreamToolResultSnapshot[] = []
+
+  consume(part: TextStreamPart<ToolSet>): AISDKStreamStepSnapshot[] {
+    switch (part.type) {
+      case 'text-delta':
+        this.text += part.text
+        return []
+      case 'reasoning-delta':
+        this.reasoningText += part.text
+        return []
+      case 'tool-call':
+        this.toolCalls.set(part.toolCallId, {
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          input: part.input,
+        })
+        return []
+      case 'tool-result':
+        this.toolResults.push({
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          input: part.input,
+          output: part.output,
+        })
+        return []
+      case 'finish-step':
+        return this.flush(part.finishReason, part.usage)
+      case 'finish':
+        return this.flush(toDoneStopReason(part.finishReason), part.totalUsage)
+      default:
+        return []
+    }
+  }
+
+  private flush(finishReason: string, usage?: LanguageModelUsage): AISDKStreamStepSnapshot[] {
+    if (!this.text && !this.reasoningText && this.toolCalls.size === 0 && this.toolResults.length === 0) {
+      return []
+    }
+
+    const snapshot: AISDKStreamStepSnapshot = {
+      text: this.text,
+      ...(this.reasoningText ? { reasoningText: this.reasoningText } : {}),
+      toolCalls: Array.from(this.toolCalls.values()),
+      toolResults: [...this.toolResults],
+      finishReason: toDoneStopReason(finishReason),
+      ...(usage ? { usage } : {}),
+    }
+
+    this.text = ''
+    this.reasoningText = ''
+    this.toolCalls.clear()
+    this.toolResults.length = 0
+
+    return [snapshot]
+  }
+}
+
+/** 消费 AI SDK stream，并把事件转发为 MAPro core 的 StreamEvent。 */
+export async function consumeAISDKStream(
+  stream: AsyncIterable<TextStreamPart<ToolSet>>,
+  onEvent: StreamEventCallback,
+): Promise<void> {
+  const converter = new AISDKStreamPartConverter()
+  for await (const part of stream) {
+    for (const event of converter.convert(part)) {
+      onEvent(event)
+    }
+  }
+}
+
+/**
+ * 最小化的 streamText 桥接入口。
+ *
+ * 当前只用于 future Web/Server runtime spike；生产 Agent runtime 仍走现有 MAPro 工具循环。
+ */
+export async function streamTextToMAProEvents(input: AISDKStreamTextBridgeInput): Promise<void> {
+  const result = streamText({
+    model: input.model,
+    prompt: input.prompt,
+    system: input.system,
+    abortSignal: input.abortSignal,
+  })
+
+  await consumeAISDKStream(result.stream, input.onEvent)
+}

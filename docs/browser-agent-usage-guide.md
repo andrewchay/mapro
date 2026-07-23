@@ -16,12 +16,14 @@ MAPro 提供三类浏览器自动化能力：
 |------|------|----------|------|------|
 | **脚本自动化** | `web_scraper` | 结构化列表页、搜索页、数据表格 | 低 | 快 |
 | **认证页面获取** | `browser_fetch` | 需要登录态的页面内容抓取（替代 SDK WebFetch） | 低 | 快 |
-| **视觉浏览器自动化** | `computer_use` | 复杂交互、验证码、动态页面、需要人类式判断 | 高 | 慢 |
+| **受管浏览器（Web Bridge）** | `WebBridge*` 系列工具 | 复杂交互、动态页面、需要可见窗口逐步操作的场景 | 中 | 中 |
+
+> 原 `computer_use` 浏览器视觉循环已退役（见 8.2 节）。交互式浏览器自动化由 Web Bridge 承担；桌面应用操控由 OS 级 Computer Use（macOS）承担。
 
 建议流程：
 1. **结构化数据** → 先用 `web_scraper`。
 2. **登录态页面内容** → 使用 `browser_fetch`（自动复用 web-scraper 的 Profile / Cookie）。
-3. **复杂动态交互** → 使用 `computer_use` 视觉模式作为兜底。
+3. **复杂动态交互** → 使用 Web Bridge 受管浏览器。
 4. **固定流程反复失败** → 让 Agent 生成并保存「自定义脚本模板」。
 
 ---
@@ -106,7 +108,7 @@ playwright install chromium
 2. 将 **最小操作延迟** 和 **最大操作延迟** 设置为 `3000` 和 `5000`（毫秒）。
 3. 让 Agent 在脚本中加入自然滚动和随机停顿（环境变量 `MIN_ACTION_DELAY_MS` / `MAX_ACTION_DELAY_MS` 已自动注入）。
 
-> 注意：系统 Chrome 和随机延迟设置同时影响 `web_scraper`、`browser_fetch` 和 `computer_use` 三个工具。
+> 注意：系统 Chrome 和随机延迟设置同时影响 `web_scraper` 和 `browser_fetch` 两个工具。
 >
 > CDP 安全行为：MAPro 仅关闭任务自己打开的页面标签，不会关闭你的外部 Chrome 窗口或已有上下文，也不会向已有上下文注入额外 Cookie。
 
@@ -238,24 +240,23 @@ Agent 会：
 
 模板保存后，MAPro 会优先使用模板生成脚本，而不是完全依赖 LLM 推理，稳定性更高。
 
-### 8.2 视觉模式：`computer_use`
+### 8.2 受管浏览器：Web Bridge
 
-如果脚本模板仍无法处理复杂页面（如随机验证码、动态弹窗、需要人类视觉判断），可以让 Agent 使用 `computer_use`：
+如果脚本模板仍无法处理复杂页面（如动态弹窗、多步交互、需要逐步观察页面状态），可以让 Agent 使用 Web Bridge（`WebBridge*` 系列工具，仅 proma / ai-sdk runtime 提供）：
 
 ```text
-这个页面结构太复杂，切换到视觉浏览器模式。
+这个页面结构太复杂，请用受管浏览器操作。
 打开小红书蒲公英后台，完成登录，然后进入「达人合作」页面，
 提取前 10 个达人的昵称和粉丝数。
 ```
 
-视觉模式特点：
-- 自动弹出 `ComputerUsePanel` 面板。
-- 左侧实时显示浏览器截图。
-- 右侧显示动作历史、当前步骤、任务目标。
-- 支持 **单步模式**：每步执行后暂停，等待你点击「下一步」或「继续」。
-- 支持 **暂停 / 继续 / 终止**。
+Web Bridge 特点：
+- 每个会话打开一个可见的受管 BrowserWindow（独立 session partition），或通过 CDP 连接你自己的 Chrome。
+- Agent 优先读取结构化页面元素（快照、选择器）再执行点击 / 输入 / 滚动等操作。
+- 安全基线：仅允许 http(s)、禁止 URL 内嵌凭据、文件上传必须经过系统文件选择器确认、下载 50MB 上限且文件名消毒后落盘 `~/.mapro/web-bridge-downloads/`、页面快照 16000 字符截断。
+- 所有操作写入本地审计日志 `~/.mapro/web-bridge-audit/events.jsonl`（脱敏），可在 **设置 → 操作审计** 查询导出；**设置 → 自动化与设备控制** 可一键紧急停止全部受管浏览器。
 
-> 提示：`computer_use` 在 0.1.25 中已修复 greenlet 线程切换异常，现在可以正常启动。
+> **已退役**：原 `computer_use` 浏览器视觉循环（截图 → LLM → 执行 action 的 Playwright 循环）已从代码库移除（服务、Chat Tool、渲染层 `ComputerUsePanel`、IPC 通道组均已删除）。如需操控桌面应用本身（非网页），使用 macOS 上的 OS 级 Computer Use（`ComputerUse*` 系列工具，需 TCC 辅助功能 + 屏幕录制授权）；当 Web Bridge 能获取结构化页面元素时，Agent 不会降级用 Computer Use 操作网页。
 
 ---
 
@@ -339,7 +340,7 @@ playwright install chromium
 - 尝试关闭 headless 观察实际页面行为。
 - 让 Agent 生成并保存一段「自定义脚本模板」，把固定流程固化下来。
 - 如果只需要页面内容，换用 `browser_fetch`。
-- 复杂动态交互可用 `computer_use` 视觉模式作为兜底。
+- 复杂动态交互可用 Web Bridge 受管浏览器（见 8.2 节）。
 
 ### Q4：抓取结果被风控拦截？
 
@@ -355,14 +356,17 @@ playwright install chromium
 | 文件 | 说明 |
 |------|------|
 | `apps/electron/src/main/lib/browser-automation/browser-automation-service.ts` | 脚本模式核心：`web_scraper`、`browser_fetch`、Profile/Cookie 准备、执行、重试 |
-| `apps/electron/src/main/lib/browser-automation/computer-use-service.ts` | 视觉模式核心：截图 → LLM → 执行 action 循环 |
-| `apps/electron/src/main/lib/browser-automation/playwright-browser-driver.ts` | `computer_use` 的 Playwright Python HTTP 驱动 |
+| `apps/electron/src/main/lib/browser-automation/playwright-browser-driver.ts` | Playwright Python HTTP 驱动（模式 A 脚本执行） |
+| `apps/electron/src/main/lib/web-bridge-service.ts` | Web Bridge 受管浏览器：会话窗口管理、CDP 连接、安全限制 |
+| `apps/electron/src/main/lib/agent-runtime/tool-impls/web-bridge-tools.ts` | `WebBridge*` 系列 Agent 工具入口 |
+| `apps/electron/src/main/lib/computer-use-service.ts` | OS 级 Computer Use（macOS）：CGEvent 输入、截图、TCC 授权 |
 | `apps/electron/src/main/lib/chat-tools/web-scraper-tool.ts` | `web_scraper` Chat Tool 入口 |
-| `apps/electron/src/main/lib/chat-tools/computer-use-tool.ts` | `computer_use` Chat Tool 入口 |
 | `apps/electron/src/main/lib/chat-tools/browser-fetch-mcp.ts` | Agent 模式 `browser_fetch` MCP 工具入口 |
-| `apps/electron/src/renderer/components/agent/ComputerUsePanel.tsx` | 视觉模式专用 UI 面板 |
-| `apps/electron/src/renderer/components/settings/ToolSettings.tsx` | 网页爬取 / 视觉浏览器自动化设置面板 |
+| `apps/electron/src/renderer/components/settings/ToolSettings.tsx` | 网页爬取设置面板 |
+| `apps/electron/src/renderer/components/settings/AutomationSettings.tsx` | 自动化与设备控制设置面板（Computer Use 授权、紧急停止受管浏览器） |
+
+> 已删除：`browser-automation/computer-use-service.ts`、`computer-use-controller.ts`、`computer-use-llm.ts`、`chat-tools/computer-use-tool.ts`、`computer-use-mcp.ts`、渲染层 `ComputerUsePanel`（原视觉循环实现）。
 
 ---
 
-*最后更新：2026-07-17*
+*最后更新：2026-07-22*

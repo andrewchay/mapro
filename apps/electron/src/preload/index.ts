@@ -6,7 +6,7 @@
  */
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, COMPUTER_USE_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, CAMPAIGN_IPC_CHANNELS, KOL_DATA_IPC_CHANNELS, CONTENT_AUDIT_IPC_CHANNELS, CONTENT_TRACKING_IPC_CHANNELS, PHASE_REPORT_IPC_CHANNELS, AB_TEST_IPC_CHANNELS } from '@ma-proma/shared'
+import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, CAMPAIGN_IPC_CHANNELS, KOL_DATA_IPC_CHANNELS, CONTENT_AUDIT_IPC_CHANNELS, CONTENT_TRACKING_IPC_CHANNELS, PHASE_REPORT_IPC_CHANNELS, AB_TEST_IPC_CHANNELS } from '@ma-proma/shared'
 import { USER_PROFILE_IPC_CHANNELS, SETTINGS_IPC_CHANNELS, SCRATCH_PAD_IPC_CHANNELS, APP_ICON_IPC_CHANNELS, DOCK_BADGE_IPC_CHANNELS, STORAGE_IPC_CHANNELS } from '../types'
 import type {
   RuntimeStatus,
@@ -31,6 +31,7 @@ import type {
   RecentMessagesResult,
   MessageSearchResult,
   AgentSessionMeta,
+  AgentRuntime,
   SDKMessage,
   AgentSendInput,
   AgentStreamEvent,
@@ -77,8 +78,6 @@ import type {
   ChatToolState,
   ChatToolMeta,
   ScheduledScrapingTask,
-  ComputerUseUIEvent,
-  ComputerUseControlCommand,
   MoveSessionToWorkspaceInput,
   ForkSessionInput,
   RewindSessionInput,
@@ -86,6 +85,8 @@ import type {
   AgentMessageSearchResult,
   AgentSessionReferenceSearchInput,
   AgentSessionReferenceSearchResult,
+  AgentAuditEvent,
+  AgentAuditQuery,
   DetachedPreviewWindowData,
   DetachedPreviewWindowInput,
   FeishuConfig,
@@ -410,13 +411,16 @@ export interface ElectronAPI {
   listAgentSessions: () => Promise<AgentSessionMeta[]>
 
   /** 创建 Agent 会话 */
-  createAgentSession: (title?: string, channelId?: string, workspaceId?: string) => Promise<AgentSessionMeta>
+  createAgentSession: (title?: string, channelId?: string, workspaceId?: string, agentRuntime?: AgentRuntime) => Promise<AgentSessionMeta>
 
   /** 获取 Agent 会话 SDKMessage（Phase 4 新格式） */
   getAgentSessionSDKMessages: (id: string) => Promise<SDKMessage[]>
 
   /** 更新 Agent 会话标题 */
   updateAgentSessionTitle: (id: string, title: string) => Promise<AgentSessionMeta>
+
+  /** 更新 Agent 会话 Runtime */
+  updateSessionAgentRuntime: (sessionId: string, runtime: AgentRuntime) => Promise<AgentSessionMeta>
 
   /** 删除 Agent 会话 */
   deleteAgentSession: (id: string) => Promise<void>
@@ -448,6 +452,11 @@ export interface ElectronAPI {
   /** 快照回退（同一会话内回退到指定点，恢复文件 + 截断对话） */
   rewindSession: (input: RewindSessionInput) => Promise<RewindSessionResult>
 
+  /** 获取会话关联的 Goal */
+  listAgentGoals: (sessionId: string) => Promise<import('@ma-proma/shared').AgentGoal[]>
+  /** 暂停、恢复、标记阻塞或取消 Goal */
+  updateAgentGoalStatus: (input: import('@ma-proma/shared').UpdateAgentGoalStatusInput) => Promise<import('@ma-proma/shared').AgentGoal>
+
   /** 生成 Agent 会话标题 */
   generateAgentTitle: (input: AgentGenerateTitleInput) => Promise<string | null>
 
@@ -456,6 +465,22 @@ export interface ElectronAPI {
 
   /** 中止 Agent 执行 */
   stopAgent: (sessionId: string) => Promise<void>
+  /** 读取当前会话的 Web Bridge 状态 */
+  getWebBridgeStatus: (sessionId: string) => Promise<{ active: boolean; mode?: 'managed' | 'chrome-cdp'; url?: string; accessibilityAvailable: boolean }>
+  /** 关闭当前会话的 Web Bridge */
+  stopWebBridge: (sessionId: string) => Promise<void>
+  /** 紧急关闭全部受管 Web Bridge 会话 */
+  stopAllWebBridges: () => Promise<number>
+  /** 读取 Computer Use 平台能力 */
+  getComputerUseCapabilities: () => Promise<{ platform: string; screenshot: boolean; input: boolean; frontmostWindow: boolean; message: string }>
+  /** 读取 Computer Use 系统授权状态 */
+  getComputerUseStatus: () => Promise<{ supported: boolean; accessibility: boolean; screenRecording: boolean; message: string }>
+  /** 请求 Computer Use 所需系统授权 */
+  requestComputerUsePermissions: () => Promise<{ supported: boolean; accessibility: boolean; screenRecording: boolean; message: string }>
+  /** 查询本地 Web Bridge / Computer Use 审计（不会上传） */
+  listAgentAuditEvents: (query?: AgentAuditQuery) => Promise<AgentAuditEvent[]>
+  /** 将当前筛选结果导出为用户选择位置的 JSONL */
+  exportAgentAuditEvents: (query?: AgentAuditQuery) => Promise<{ canceled: boolean; count: number }>
 
   // ===== Agent 队列消息 =====
 
@@ -476,7 +501,7 @@ export interface ElectronAPI {
   listAgentWorkspaces: () => Promise<AgentWorkspace[]>
 
   /** 创建 Agent 工作区 */
-  createAgentWorkspace: (name: string, slug?: string) => Promise<AgentWorkspace>
+  createAgentWorkspace: (name: string, slug?: string, rootPath?: string) => Promise<AgentWorkspace>
 
   /** 更新 Agent 工作区 */
   updateAgentWorkspace: (id: string, updates: { name: string }) => Promise<AgentWorkspace>
@@ -558,6 +583,9 @@ export interface ElectronAPI {
   /** 订阅 Agent 标题自动更新事件 */
   onAgentTitleUpdated: (callback: (data: { sessionId: string; title: string }) => void) => () => void
 
+  /** 订阅 MCP OAuth 授权完成事件 */
+  onMcpAuthResolved: (callback: (data: { workspaceSlug: string; serverName: string }) => void) => () => void
+
   // ===== Agent 权限系统 =====
 
   /** 响应权限请求 */
@@ -606,12 +634,6 @@ export interface ElectronAPI {
 
   /** 保存定时爬取任务列表 */
   saveScheduledScrapingTasks: (tasks: ScheduledScrapingTask[]) => Promise<void>
-
-  /** 监听 Computer Use 视觉浏览器自动化事件 */
-  onComputerUseEvent: (callback: (event: ComputerUseUIEvent) => void) => () => void
-
-  /** 向运行中的 Computer Use 任务发送控制命令 */
-  controlComputerUse: (taskId: string, command: ComputerUseControlCommand) => Promise<void>
 
   // ===== AskUserQuestion 交互式问答 =====
 
@@ -1483,8 +1505,8 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.LIST_SESSIONS)
   },
 
-  createAgentSession: (title?: string, channelId?: string, workspaceId?: string) => {
-    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.CREATE_SESSION, title, channelId, workspaceId)
+  createAgentSession: (title?: string, channelId?: string, workspaceId?: string, agentRuntime?: AgentRuntime) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.CREATE_SESSION, title, channelId, workspaceId, agentRuntime)
   },
 
   getAgentSessionSDKMessages: (id: string) => {
@@ -1493,6 +1515,10 @@ const electronAPI: ElectronAPI = {
 
   updateAgentSessionTitle: (id: string, title: string) => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.UPDATE_TITLE, id, title)
+  },
+
+  updateSessionAgentRuntime: (sessionId: string, runtime: AgentRuntime) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.UPDATE_SESSION_AGENT_RUNTIME, sessionId, runtime)
   },
 
   deleteAgentSession: (id: string) => {
@@ -1534,6 +1560,12 @@ const electronAPI: ElectronAPI = {
   rewindSession: (input: RewindSessionInput) => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.REWIND_SESSION, input)
   },
+  listAgentGoals: (sessionId: string) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.LIST_GOALS, sessionId)
+  },
+  updateAgentGoalStatus: (input: import('@ma-proma/shared').UpdateAgentGoalStatusInput) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.UPDATE_GOAL_STATUS, input)
+  },
 
   generateAgentTitle: (input: AgentGenerateTitleInput) => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.GENERATE_TITLE, input)
@@ -1546,6 +1578,14 @@ const electronAPI: ElectronAPI = {
   stopAgent: (sessionId: string) => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.STOP_AGENT, sessionId)
   },
+  getWebBridgeStatus: (sessionId: string) => ipcRenderer.invoke(AGENT_IPC_CHANNELS.GET_WEB_BRIDGE_STATUS, sessionId),
+  stopWebBridge: (sessionId: string) => ipcRenderer.invoke(AGENT_IPC_CHANNELS.STOP_WEB_BRIDGE, sessionId),
+  stopAllWebBridges: () => ipcRenderer.invoke(AGENT_IPC_CHANNELS.STOP_ALL_WEB_BRIDGES),
+  getComputerUseCapabilities: () => ipcRenderer.invoke(AGENT_IPC_CHANNELS.GET_COMPUTER_USE_CAPABILITIES),
+  getComputerUseStatus: () => ipcRenderer.invoke(AGENT_IPC_CHANNELS.GET_COMPUTER_USE_STATUS),
+  requestComputerUsePermissions: () => ipcRenderer.invoke(AGENT_IPC_CHANNELS.REQUEST_COMPUTER_USE_PERMISSIONS),
+  listAgentAuditEvents: (query: AgentAuditQuery = {}) => ipcRenderer.invoke(AGENT_IPC_CHANNELS.LIST_AUDIT_EVENTS, query),
+  exportAgentAuditEvents: (query: AgentAuditQuery = {}) => ipcRenderer.invoke(AGENT_IPC_CHANNELS.EXPORT_AUDIT_EVENTS, query),
 
   // Agent 队列消息
   queueAgentMessage: (input: AgentQueueMessageInput) => {
@@ -1566,8 +1606,8 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.LIST_WORKSPACES)
   },
 
-  createAgentWorkspace: (name: string, slug?: string) => {
-    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.CREATE_WORKSPACE, name, slug)
+  createAgentWorkspace: (name: string, slug?: string, rootPath?: string) => {
+    return ipcRenderer.invoke(AGENT_IPC_CHANNELS.CREATE_WORKSPACE, name, slug, rootPath)
   },
 
   updateAgentWorkspace: (id: string, updates: { name: string }) => {
@@ -1702,6 +1742,13 @@ const electronAPI: ElectronAPI = {
     return () => { ipcRenderer.removeListener(AGENT_IPC_CHANNELS.TITLE_UPDATED, listener) }
   },
 
+  // MCP OAuth 授权完成通知
+  onMcpAuthResolved: (callback: (data: { workspaceSlug: string; serverName: string }) => void) => {
+    const listener = (_: unknown, data: { workspaceSlug: string; serverName: string }): void => callback(data)
+    ipcRenderer.on(AGENT_IPC_CHANNELS.MCP_AUTH_RESOLVED, listener)
+    return () => { ipcRenderer.removeListener(AGENT_IPC_CHANNELS.MCP_AUTH_RESOLVED, listener) }
+  },
+
   // Agent 权限系统
   respondPermission: (response: PermissionResponse) => {
     return ipcRenderer.invoke(AGENT_IPC_CHANNELS.PERMISSION_RESPOND, response)
@@ -1764,16 +1811,6 @@ const electronAPI: ElectronAPI = {
 
   saveScheduledScrapingTasks: (tasks: ScheduledScrapingTask[]) => {
     return ipcRenderer.invoke(CHAT_TOOL_IPC_CHANNELS.SAVE_SCHEDULED_SCRAPING_TASKS, tasks)
-  },
-
-  onComputerUseEvent: (callback: (event: ComputerUseUIEvent) => void) => {
-    const listener = (_: unknown, event: ComputerUseUIEvent) => callback(event)
-    ipcRenderer.on(COMPUTER_USE_IPC_CHANNELS.EVENT, listener)
-    return () => { ipcRenderer.removeListener(COMPUTER_USE_IPC_CHANNELS.EVENT, listener) }
-  },
-
-  controlComputerUse: (taskId: string, command: ComputerUseControlCommand) => {
-    return ipcRenderer.invoke(COMPUTER_USE_IPC_CHANNELS.CONTROL, taskId, command)
   },
 
   // AskUserQuestion 交互式问答

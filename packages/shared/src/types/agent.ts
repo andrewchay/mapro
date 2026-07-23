@@ -4,6 +4,8 @@
  * 包含 Agent SDK 集成所需的事件类型、会话管理、消息持久化和 IPC 通道常量。
  */
 
+import type { FileAttachment } from './chat'
+
 // ===== 记忆配置 =====
 
 /** 全局记忆配置（MemOS Cloud） */
@@ -30,6 +32,22 @@ export const MEMORY_IPC_CHANNELS = {
   TEST_CONNECTION: 'memory:test-connection',
 } as const
 
+/** 本地 Computer Use 与 Web Bridge 的审计记录。 */
+export interface AgentAuditEvent {
+  at: string
+  sessionId: string
+  source: 'web-bridge' | 'computer-use'
+  action: string
+  detail: Record<string, unknown>
+}
+
+export interface AgentAuditQuery {
+  source?: AgentAuditEvent['source'] | 'all'
+  sessionId?: string
+  action?: string
+  limit?: number
+}
+
 // ===== Agent 工作区 =====
 
 /** Agent 工作区 */
@@ -40,6 +58,8 @@ export interface AgentWorkspace {
   name: string
   /** URL-safe 目录名（创建后不可变） */
   slug: string
+  /** 已有本地项目的根目录；未设置时使用 MAPro 管理的隔离工作区 */
+  rootPath?: string
   /** 创建时间戳 */
   createdAt: number
   /** 更新时间戳 */
@@ -342,6 +362,7 @@ export type ErrorCode =
   | 'channel_not_found'
   | 'api_key_decrypt_failed'
   | 'claude_binary_not_found'
+  | 'runtime_unavailable'
   | 'session_busy'
   | 'unknown_error'
 
@@ -517,12 +538,291 @@ export type MAProEvent =
   | { type: 'retry'; status: 'starting' | 'attempt' | 'cleared' | 'failed'; attempt?: number; maxAttempts?: number; delaySeconds?: number; reason?: string; attemptData?: RetryAttempt; error?: TypedError }
   | { type: 'model_resolved'; model: string }
   | { type: 'permission_mode_changed'; mode: MAProPermissionMode }
+  | { type: 'mcp_auth_required'; workspaceSlug: string; serverName: string; authorizationUrl?: string }
+  | { type: 'mcp_auth_resolved'; workspaceSlug: string; serverName: string }
 
 
 /** IPC 传输的统一 payload（替代 AgentEvent） */
 export type AgentStreamPayload =
   | { kind: 'sdk_message'; message: SDKMessage }
+  | { kind: 'agent_event'; event: AgentEvent }
   | { kind: 'mapro_event'; event: MAProEvent }
+
+/**
+ * 面向 SSE / WebSocket 的 Agent 流式事件 envelope。
+ *
+ * Electron IPC 当前仍直接传输 AgentStreamPayload；服务端 Web runtime 可以使用该 envelope
+ * 提供事件 ID、时间戳和 sessionId，便于断线重连、日志追踪和多租户路由。
+ */
+export interface AgentStreamEnvelope {
+  /** 事件 ID，可作为 SSE Last-Event-ID 使用 */
+  id: string
+  /** 会话 ID */
+  sessionId: string
+  /** 事件创建时间 */
+  createdAt: number
+  /** 事件载荷 */
+  payload: AgentStreamPayload
+}
+
+export interface CreateAgentStreamEnvelopeOptions {
+  id?: string
+  createdAt?: number
+}
+
+export function createAgentStreamEnvelope(
+  sessionId: string,
+  payload: AgentStreamPayload,
+  options: CreateAgentStreamEnvelopeOptions = {},
+): AgentStreamEnvelope {
+  return {
+    id: options.id ?? createAgentStreamEventId(),
+    sessionId,
+    createdAt: options.createdAt ?? Date.now(),
+    payload,
+  }
+}
+
+export function serializeAgentStreamEnvelopeForSSE(envelope: AgentStreamEnvelope): string {
+  return [
+    `id: ${envelope.id}`,
+    'event: agent-stream',
+    `data: ${JSON.stringify(envelope)}`,
+    '',
+    '',
+  ].join('\n')
+}
+
+function createAgentStreamEventId(): string {
+  const randomUUID = globalThis.crypto?.randomUUID
+  if (randomUUID) {
+    return randomUUID.call(globalThis.crypto)
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+// ===== Agent Runtime =====
+
+/** Agent 运行时类型 */
+export type AgentRuntime = 'claude' | 'proma' | 'pi' | 'ai-sdk'
+
+/** 默认 Agent 运行时，旧会话和旧设置统一按 Claude SDK 路径处理 */
+export const DEFAULT_AGENT_RUNTIME: AgentRuntime = 'claude'
+
+/** Agent runtime 展示名称，避免 UI / 编排层硬编码分支文案 */
+export const AGENT_RUNTIME_LABELS: Record<AgentRuntime, string> = {
+  claude: 'Claude',
+  proma: 'MAPro',
+  pi: 'Pi',
+  'ai-sdk': 'AI SDK',
+}
+
+export function getAgentRuntimeLabel(runtime: AgentRuntime): string {
+  return AGENT_RUNTIME_LABELS[runtime]
+}
+
+/** Agent 运行时能力摘要，用于 UI 和编排层显式区分 runtime 语义 */
+export interface AgentRuntimeCapabilities {
+  /** 是否支持工具调用 */
+  supportsTools: boolean
+  /** 是否支持用户配置的 MCP 工具 */
+  supportsMcp: boolean
+  /** 是否支持 Plan 模式 */
+  supportsPlanMode: boolean
+  /** 是否支持 AskUser 交互 */
+  supportsAskUser: boolean
+  /** 是否支持子 Agent / Agent 工具 */
+  supportsSubAgent: boolean
+  /** 是否支持 runtime 原生 resume */
+  supportsNativeResume: boolean
+  /** 是否支持文件快照级 rewind */
+  supportsFileSnapshotRewind: boolean
+  /** 是否支持模型输出的 partial streaming */
+  supportsPartialStreaming: boolean
+}
+
+export type AgentRuntimeForkMode = 'sdk_snapshot' | 'jsonl_history_copy'
+export type AgentRuntimeRewindMode = 'sdk_file_snapshot' | 'history_truncate'
+
+export interface AgentRuntimeHistorySemantics {
+  runtime: AgentRuntime
+  /** fork 的历史来源语义 */
+  forkMode: AgentRuntimeForkMode
+  /** rewind 的恢复语义 */
+  rewindMode: AgentRuntimeRewindMode
+  /** fork 后是否复制工作区文件 */
+  copiesWorkspaceFiles: boolean
+  /** rewind 是否恢复文件系统快照 */
+  restoresFileSnapshot: boolean
+  /** 是否依赖 runtime / SDK 原生 session resume */
+  usesNativeSessionResume: boolean
+  /** 面向 UI / API 的短说明 */
+  description: string
+}
+
+/** 当前内置 runtime 的能力基线 */
+export const AGENT_RUNTIME_CAPABILITIES: Record<AgentRuntime, AgentRuntimeCapabilities> = {
+  claude: {
+    supportsTools: true,
+    supportsMcp: true,
+    supportsPlanMode: true,
+    supportsAskUser: true,
+    supportsSubAgent: true,
+    supportsNativeResume: true,
+    supportsFileSnapshotRewind: true,
+    supportsPartialStreaming: true,
+  },
+  proma: {
+    supportsTools: true,
+    supportsMcp: true,
+    supportsPlanMode: true,
+    supportsAskUser: true,
+    supportsSubAgent: true,
+    supportsNativeResume: false,
+    supportsFileSnapshotRewind: false,
+    supportsPartialStreaming: false,
+  },
+  pi: {
+    supportsTools: true,
+    supportsMcp: false,
+    supportsPlanMode: false,
+    supportsAskUser: false,
+    supportsSubAgent: false,
+    supportsNativeResume: false,
+    supportsFileSnapshotRewind: false,
+    supportsPartialStreaming: true,
+  },
+  'ai-sdk': {
+    supportsTools: true,
+    supportsMcp: true,
+    supportsPlanMode: true,
+    supportsAskUser: true,
+    supportsSubAgent: true,
+    supportsNativeResume: false,
+    supportsFileSnapshotRewind: false,
+    supportsPartialStreaming: true,
+  },
+}
+
+/** 当前内置 runtime 的 fork / rewind 语义，供 UI 和服务端 API 明确展示能力差异 */
+export const AGENT_RUNTIME_HISTORY_SEMANTICS: Record<AgentRuntime, AgentRuntimeHistorySemantics> = {
+  claude: {
+    runtime: 'claude',
+    forkMode: 'sdk_snapshot',
+    rewindMode: 'sdk_file_snapshot',
+    copiesWorkspaceFiles: true,
+    restoresFileSnapshot: true,
+    usesNativeSessionResume: true,
+    description: 'Claude runtime 使用 SDK 原生 session / file-history snapshot；fork 与 rewind 语义最接近完整时间线恢复。',
+  },
+  proma: {
+    runtime: 'proma',
+    forkMode: 'jsonl_history_copy',
+    rewindMode: 'history_truncate',
+    copiesWorkspaceFiles: true,
+    restoresFileSnapshot: false,
+    usesNativeSessionResume: false,
+    description: 'MAPro runtime 复制 JSONL 历史与工作区文件；rewind 只截断消息历史，不恢复文件快照。',
+  },
+  pi: {
+    runtime: 'pi',
+    forkMode: 'jsonl_history_copy',
+    rewindMode: 'history_truncate',
+    copiesWorkspaceFiles: true,
+    restoresFileSnapshot: false,
+    usesNativeSessionResume: false,
+    description: 'Pi runtime 使用 JSONL/history replay 语义；当前定位为 SDK 验证 runtime，不提供文件快照级 rewind。',
+  },
+  'ai-sdk': {
+    runtime: 'ai-sdk',
+    forkMode: 'jsonl_history_copy',
+    rewindMode: 'history_truncate',
+    copiesWorkspaceFiles: true,
+    restoresFileSnapshot: false,
+    usesNativeSessionResume: false,
+    description: 'AI SDK runtime 使用 MAPro 的 history replay 语义；适合服务端 Web，但不声明 SDK 原生 snapshot restore。',
+  },
+}
+
+export function getAgentRuntimeHistorySemantics(runtime: AgentRuntime): AgentRuntimeHistorySemantics {
+  return AGENT_RUNTIME_HISTORY_SEMANTICS[runtime]
+}
+
+/** 判断未知值是否为合法 Agent runtime */
+export function isAgentRuntime(value: unknown): value is AgentRuntime {
+  return value === 'claude' || value === 'proma' || value === 'pi' || value === 'ai-sdk'
+}
+
+/** 归一化 runtime，旧数据或非法值回退到 Claude SDK 路径 */
+export function normalizeAgentRuntime(value: unknown): AgentRuntime {
+  return isAgentRuntime(value) ? value : DEFAULT_AGENT_RUNTIME
+}
+
+// ===== Goal Runtime =====
+
+/** 可持续跟进目标的状态。Goal 独立于聊天消息，便于重启后恢复调度。 */
+export type AgentGoalStatus = 'active' | 'waiting' | 'blocked' | 'completed' | 'cancelled'
+
+/** Goal 的下一次唤醒条件。 */
+export type AgentGoalWakeTrigger =
+  | { type: 'immediate' }
+  | { type: 'at'; wakeAt: number }
+  | { type: 'user_input' }
+  | { type: 'interaction'; requestId: string }
+  | { type: 'external_task'; taskId: string }
+  | { type: 'file_change'; paths: string[] }
+
+/** 目标检查点附带的可审计证据。 */
+export interface AgentGoalEvidence {
+  kind: 'test' | 'command' | 'file' | 'tool' | 'user'
+  value: string
+}
+
+/** 一轮 Agent 执行结束时提交的结构化检查点。 */
+export interface AgentGoalCheckpoint {
+  outcome: 'continue' | 'waiting' | 'blocked' | 'complete'
+  summary: string
+  completed: string[]
+  evidence: AgentGoalEvidence[]
+  nextAction?: string
+  wakeTrigger?: AgentGoalWakeTrigger
+  blocker?: string
+}
+
+/** 持久化的 Goal 实体；桌面端与服务端使用同一契约。 */
+export interface AgentGoal {
+  id: string
+  sessionId: string
+  workspaceId?: string
+  channelId?: string
+  modelId?: string
+  runtime: Extract<AgentRuntime, 'proma' | 'ai-sdk'>
+  objective: string
+  acceptanceCriteria: string[]
+  status: AgentGoalStatus
+  checkpoint?: AgentGoalCheckpoint
+  activeRunId?: string
+  createdAt: number
+  updatedAt: number
+  version: number
+}
+
+/** 显式创建 Goal 的输入。普通消息不得隐式创建 Goal。 */
+export interface CreateAgentGoalInput {
+  sessionId: string
+  workspaceId?: string
+  channelId?: string
+  modelId?: string
+  runtime: Extract<AgentRuntime, 'proma' | 'ai-sdk'>
+  objective: string
+  acceptanceCriteria?: string[]
+}
+
+/** UI 控制 Goal 生命周期的输入。 */
+export interface UpdateAgentGoalStatusInput {
+  goalId: string
+  status: Extract<AgentGoalStatus, 'active' | 'waiting' | 'blocked' | 'cancelled'>
+}
 
 // ===== Agent 会话管理 =====
 
@@ -539,6 +839,8 @@ export interface AgentSessionMeta {
   title: string
   /** 使用的渠道 ID */
   channelId?: string
+  /** 本会话使用的 Agent runtime */
+  agentRuntime?: AgentRuntime
   /** SDK 内部会话 ID（用于 resume 衔接上下文） */
   sdkSessionId?: string
   /** 所属工作区 ID */
@@ -676,6 +978,31 @@ export interface AgentGenerateTitleInput {
 /** MCP 传输类型 */
 export type McpTransportType = 'stdio' | 'http' | 'sse'
 
+/** MCP 认证类型 */
+export type McpServerAuthType = 'none' | 'bearer' | 'oauthAuthorizationCode' | 'oauthClientCredentials'
+
+/** MCP 服务器认证配置 */
+export interface McpServerAuthConfig {
+  /** 认证类型 */
+  type: McpServerAuthType
+  /** 静态 Bearer Token（type=bearer 时使用） */
+  bearerToken?: string
+  /** OAuth client id */
+  clientId?: string
+  /** OAuth client secret（建议加密存储） */
+  clientSecret?: string
+  /** 请求的 scope */
+  scope?: string
+  /** 授权码模式：授权端点 URL */
+  authorizationEndpoint?: string
+  /** 令牌端点 URL */
+  tokenEndpoint?: string
+  /** OAuth 资源元数据地址，用于自动发现 */
+  resourceMetadataUrl?: string
+  /** 授权码模式回调地址 */
+  redirectUri?: string
+}
+
 /** MCP 服务器条目 */
 export interface McpServerEntry {
   type: McpTransportType
@@ -687,8 +1014,10 @@ export interface McpServerEntry {
   env?: Record<string, string>
   /** http/sse: 服务端 URL */
   url?: string
-  /** http/sse: 请求头 */
+  /** http/sse: 请求头（静态头，可用于补充认证或自定义头） */
   headers?: Record<string, string>
+  /** 认证配置 */
+  auth?: McpServerAuthConfig
   /** 启动超时（秒），仅 stdio 类型有效，默认 30 */
   timeout?: number
   /** 是否启用 */
@@ -786,6 +1115,8 @@ export interface AgentSendInput {
   channelId: string
   /** 模型 ID */
   modelId?: string
+  /** 本次发送使用的 Agent runtime，未传时继承会话或默认 Claude */
+  agentRuntime?: AgentRuntime
   /** 工作区 ID（用于确定 cwd） */
   workspaceId?: string
   /** 附加的外部目录（绝对路径，传递给 SDK additionalDirectories） */
@@ -802,6 +1133,8 @@ export interface AgentSendInput {
   mentionedSessionIds?: string[]
   /** 渲染进程生成的流式开始时间戳，主进程原样回传到 STREAM_COMPLETE，确保竞态保护比较的是同一个值 */
   startedAt?: number
+  /** 多模态附件（图片 / 文档） */
+  attachments?: FileAttachment[]
 }
 
 // ===== Agent 队列消息 =====
@@ -991,6 +1324,8 @@ export interface AgentSaveFilesInput {
 export interface AgentSavedFile {
   filename: string
   targetPath: string
+  /** 文件大小（字节） */
+  size: number
 }
 
 /** Agent 文件保存到工作区文件目录的输入 */
@@ -1061,6 +1396,8 @@ export interface AskUserRequest {
   requestId: string
   /** 会话 ID */
   sessionId: string
+  /** 交互类型；接管状态使用专用 UI，避免被当作普通问答。 */
+  kind?: 'question' | 'computer_use_takeover'
   /** 问题列表 */
   questions: AskUserQuestion[]
   /** 工具原始输入（用于构建 updatedInput） */
@@ -1113,7 +1450,7 @@ export interface ExitPlanModeResponse {
 // ===== 权限系统类型 =====
 
 /** 当前 MAPro 支持的权限模式，值直接映射 SDK 原生 permissionMode */
-export const MAPRO_PERMISSION_MODES = ['auto', 'bypassPermissions', 'plan'] as const
+export const MAPRO_PERMISSION_MODES = ['safe', 'auto', 'bypassPermissions', 'plan'] as const
 
 export type MAProPermissionMode = typeof MAPRO_PERMISSION_MODES[number]
 
@@ -1128,6 +1465,11 @@ export interface MAProPermissionModeConfig {
 
 /** MAPro 权限模式的单一配置来源 */
 export const MAPRO_PERMISSION_MODE_CONFIG = {
+  safe: {
+    sdkMode: 'safe',
+    label: '安全模式',
+    description: '只放行只读工具与命令，默认拒绝写操作',
+  },
   auto: {
     sdkMode: 'auto',
     label: '自动审批',
@@ -1214,6 +1556,8 @@ export const AGENT_IPC_CHANNELS = {
   GET_SDK_MESSAGES: 'agent:get-sdk-messages',
   /** 更新会话标题 */
   UPDATE_TITLE: 'agent:update-title',
+  /** 更新会话 Agent Runtime */
+  UPDATE_SESSION_AGENT_RUNTIME: 'agent:update-session-agent-runtime',
   /** 删除会话 */
   DELETE_SESSION: 'agent:delete-session',
   /** 迁移 Chat 对话记录到 Agent 会话 */
@@ -1234,6 +1578,12 @@ export const AGENT_IPC_CHANNELS = {
   FORK_SESSION: 'agent:fork-session',
   /** 快照回退（同一会话内回退到指定点，恢复文件 + 截断对话） */
   REWIND_SESSION: 'agent:rewind-session',
+
+  // Goal Runtime
+  /** 查询指定会话的 Goal */
+  LIST_GOALS: 'agent:list-goals',
+  /** 更新 Goal 生命周期状态 */
+  UPDATE_GOAL_STATUS: 'agent:update-goal-status',
 
   // 工作区管理
   /** 获取工作区列表 */
@@ -1256,6 +1606,22 @@ export const AGENT_IPC_CHANNELS = {
   SEND_MESSAGE: 'agent:send-message',
   /** 中止 Agent 执行 */
   STOP_AGENT: 'agent:stop',
+  /** 读取当前会话的 Web Bridge 状态 */
+  GET_WEB_BRIDGE_STATUS: 'agent:get-web-bridge-status',
+  /** 关闭当前会话的 Web Bridge */
+  STOP_WEB_BRIDGE: 'agent:stop-web-bridge',
+  /** 关闭全部受管 Web Bridge 会话（紧急停止） */
+  STOP_ALL_WEB_BRIDGES: 'agent:stop-all-web-bridges',
+  /** 查询 Computer Use 平台能力 */
+  GET_COMPUTER_USE_CAPABILITIES: 'agent:get-computer-use-capabilities',
+  /** 查询 Computer Use 系统授权状态 */
+  GET_COMPUTER_USE_STATUS: 'agent:get-computer-use-status',
+  /** 请求 Computer Use 所需的系统授权 */
+  REQUEST_COMPUTER_USE_PERMISSIONS: 'agent:request-computer-use-permissions',
+  /** 查询本地操作审计 */
+  LIST_AUDIT_EVENTS: 'agent:list-audit-events',
+  /** 导出筛选后的本地操作审计 */
+  EXPORT_AUDIT_EVENTS: 'agent:export-audit-events',
 
   // 后台任务管理
   /** 获取任务输出 */
@@ -1310,6 +1676,8 @@ export const AGENT_IPC_CHANNELS = {
   STREAM_COMPLETE: 'agent:stream:complete',
   /** Agent 流式错误 */
   STREAM_ERROR: 'agent:stream:error',
+  /** MCP OAuth 授权完成通知 */
+  MCP_AUTH_RESOLVED: 'agent:mcp-auth-resolved',
 
   // 附件
   /** 保存文件到 Agent session 工作目录 */

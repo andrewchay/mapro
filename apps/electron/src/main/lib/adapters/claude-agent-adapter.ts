@@ -32,6 +32,13 @@ import { loadClaudeAgentSdk } from '../claude-sdk-loader'
 /** SDK Query 对象类型（从动态导入中推断） */
 type SDKQuery = ReturnType<typeof import('@anthropic-ai/claude-agent-sdk').query>
 
+/** 将 MAPro 权限模式映射为 Claude SDK 支持的权限模式 */
+function toSDKPermissionMode(mode: MAProPermissionMode): import('@anthropic-ai/claude-agent-sdk').PermissionMode {
+  // Claude SDK 没有 safe 模式，safe 在 SDK 路径退化为 auto，由 canUseTool 做更严格兜底
+  if (mode === 'safe') return 'auto'
+  return mode as import('@anthropic-ai/claude-agent-sdk').PermissionMode
+}
+
 /** SDK 用户消息类型 */
 type SDKUserMessage = import('@anthropic-ai/claude-agent-sdk').SDKUserMessage
 
@@ -663,7 +670,7 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
         pathToClaudeCodeExecutable: options.sdkCliPath,
         model: options.model || 'claude-sonnet-4-6',
         ...(options.maxTurns != null && { maxTurns: options.maxTurns }),
-        permissionMode: options.sdkPermissionMode,
+        permissionMode: toSDKPermissionMode(options.sdkPermissionMode),
         allowDangerouslySkipPermissions: options.allowDangerouslySkipPermissions,
         // 关键：false 获取完整消息，与 v2 stream() 返回格式一致
         includePartialMessages: false,
@@ -719,11 +726,14 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
           })
           // 手动转发 stderr（SDK 默认在 spawnLocalProcess 里做，自定义 spawn 需自己做）
           // 同时必须消费 stderr 流避免缓冲区满（默认 64KB）导致子进程挂起
-          if (options.onStderr) {
-            const onStderr = options.onStderr
-            child.stderr?.on('data', (chunk: Buffer) => {
-              try { onStderr(chunk.toString()) } catch { /* 用户回调异常不影响流 */ }
-            })
+          const onStderr = options.onStderr
+          const stderrHandler = onStderr
+            ? (chunk: Buffer) => {
+                try { onStderr(chunk.toString()) } catch { /* 用户回调异常不影响流 */ }
+              }
+            : undefined
+          if (stderrHandler) {
+            child.stderr?.on('data', stderrHandler)
           } else {
             // 即便上层不关心，也要 resume() 流否则缓冲会阻塞
             child.stderr?.resume()
@@ -734,6 +744,10 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
               // 仅当当前记录就是这个 pid 时才清理，防止并发会话误删
               if (pidMap.get(options.sessionId) === child.pid) {
                 pidMap.delete(options.sessionId)
+              }
+              // 子进程退出后移除 stderr 监听器，避免内存泄漏
+              if (stderrHandler) {
+                child.stderr?.off('data', stderrHandler)
               }
             })
           }
@@ -888,7 +902,7 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
       return
     }
     await (query as ReturnType<typeof import('@anthropic-ai/claude-agent-sdk').query>).setPermissionMode(
-      mode as import('@anthropic-ai/claude-agent-sdk').PermissionMode,
+      toSDKPermissionMode(mode as MAProPermissionMode),
     )
     console.log(`[Claude 适配器] 权限模式已切换: sessionId=${sessionId}, mode=${mode}`)
   }

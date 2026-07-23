@@ -135,7 +135,7 @@ function buildPreviewUrl(baseUrl: string, provider: ProviderType): string {
 const AUTO_SAVE_DELAY = 600
 
 function isAgentEligibleChannel(channel: Pick<Channel, 'provider' | 'enabled'>): boolean {
-  return channel.enabled && isAgentCompatibleProvider(channel.provider)
+  return channel.enabled && isAgentCompatibleProvider(channel.provider, 'claude')
 }
 
 export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCancel }: ChannelFormProps): React.ReactElement {
@@ -338,7 +338,7 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
           setModels((prev) => [...prev, ...newModels])
         }
       }
-    } catch (error) {
+    } catch {
       setFetchResult({ success: false, message: '拉取模型请求失败', models: [] })
     } finally {
       setFetchingModels(false)
@@ -359,7 +359,7 @@ export function ChannelForm({ channel, onSaved, onAgentEligibilityChange, onCanc
         apiKey,
       })
       setTestResult(result)
-    } catch (error) {
+    } catch {
       setTestResult({ success: false, message: '测试请求失败' })
     } finally {
       setTesting(false)

@@ -2,11 +2,11 @@
  * Agent Provider 适配器接口
  *
  * 定义 MAPro 自己的 Agent 接口层，让底层 SDK 可替换。
- * 当前实现：ClaudeAgentAdapter（基于 @anthropic-ai/claude-agent-sdk）
- * 未来可扩展：PiAgentAdapter 等。
+ * 当前实现：Claude / MAPro / Pi / AI SDK 多 runtime 路由。
  */
 
-import type { SDKMessage } from './agent'
+import type { AgentEvent, AgentRuntime, SDKMessage } from './agent'
+import type { FileAttachment } from './chat'
 
 /** SDK 用户消息（队列消息注入用，匹配 SDK SDKUserMessage 结构） */
 export interface SDKUserMessageInput {
@@ -16,6 +16,16 @@ export interface SDKUserMessageInput {
   priority?: 'now' | 'next' | 'later'
   uuid?: string
   session_id: string
+}
+
+/** 队列消息注入选项 */
+export interface SendQueuedMessageOptions {
+  /** 先软中断当前 turn，再把消息作为新一轮用户输入发送 */
+  interrupt?: boolean
+  /** 当前用户输入显式引用的 Skill name（兼容历史 slug 已在编排层归一化） */
+  skillMentions?: string[]
+  /** runtime/adapter 已接收消息后回调；用于调用方区分失败时是否可回滚本地历史 */
+  onAccepted?: () => void
 }
 
 /**
@@ -31,10 +41,24 @@ export interface AgentQueryInput {
   prompt: string
   /** 模型 ID */
   model?: string
+  /** Agent 运行时 */
+  agentRuntime?: AgentRuntime
   /** Agent 工作目录 */
   cwd?: string
   /** 中止信号 */
   abortSignal?: AbortSignal
+  /** 渠道 ID（Provider-Agnostic Runtime 使用） */
+  channelId?: string
+  /** 供应商类型（Provider-Agnostic Runtime 使用） */
+  provider?: import('./channel').ProviderType
+  /** 明文 API Key（Provider-Agnostic Runtime 使用） */
+  apiKey?: string
+  /** API Base URL（Provider-Agnostic Runtime 使用） */
+  baseUrl?: string
+  /** 多模态附件（图片 / 文档） */
+  attachments?: FileAttachment[]
+  /** runtime 内部增量事件回调，用于 text/tool/usage 的实时 UI 更新 */
+  onAgentEvent?: (event: AgentEvent) => void
 }
 
 /**
@@ -56,7 +80,7 @@ export interface AgentProviderAdapter {
   /** 释放资源 */
   dispose(): void
   /** 向活跃查询注入队列消息（可选，仅支持队列的 Provider 实现） */
-  sendQueuedMessage?(sessionId: string, message: SDKUserMessageInput): Promise<void>
+  sendQueuedMessage?(sessionId: string, message: SDKUserMessageInput, options?: SendQueuedMessageOptions): Promise<void>
   /** 取消队列中的待发送消息（可选） */
   cancelQueuedMessage?(sessionId: string, messageUuid: string): Promise<void>
   /** 动态切换活跃查询的权限模式（可选，仅支持 SDK 原生 setPermissionMode 的 Provider） */

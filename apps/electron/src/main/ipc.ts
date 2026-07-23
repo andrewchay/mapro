@@ -9,7 +9,7 @@ import { join, resolve, sep, dirname } from 'node:path'
 import { existsSync, realpathSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, COMPUTER_USE_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, CAMPAIGN_IPC_CHANNELS, KOL_DATA_IPC_CHANNELS, CONTENT_AUDIT_IPC_CHANNELS, CONTENT_TRACKING_IPC_CHANNELS, PHASE_REPORT_IPC_CHANNELS, AB_TEST_IPC_CHANNELS, isMAProPermissionMode } from '@ma-proma/shared'
+import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, CAMPAIGN_IPC_CHANNELS, KOL_DATA_IPC_CHANNELS, CONTENT_AUDIT_IPC_CHANNELS, CONTENT_TRACKING_IPC_CHANNELS, PHASE_REPORT_IPC_CHANNELS, AB_TEST_IPC_CHANNELS, isAgentRuntime, isMAProPermissionMode } from '@ma-proma/shared'
 import { USER_PROFILE_IPC_CHANNELS, SETTINGS_IPC_CHANNELS, SCRATCH_PAD_IPC_CHANNELS, QUICK_TASK_IPC_CHANNELS, VOICE_DICTATION_IPC_CHANNELS, APP_ICON_IPC_CHANNELS, DOCK_BADGE_IPC_CHANNELS, STORAGE_IPC_CHANNELS } from '../types'
 import type {
   QuickTaskSubmitInput,
@@ -41,6 +41,7 @@ import type {
   FileDialogResult,
   RecentMessagesResult,
   AgentSessionMeta,
+  AgentRuntime,
   AgentSendInput,
   AgentWorkspace,
   AgentGenerateTitleInput,
@@ -221,12 +222,14 @@ import {
   deleteAgentSession,
   migrateChatToAgentSession,
   moveSessionToWorkspace,
-  forkAgentSession,
   autoArchiveAgentSessions,
   searchAgentSessionMessages,
   searchAgentSessionReferences,
 } from './lib/agent-session-manager'
-import { runAgent, stopAgent, generateAgentTitle, saveFilesToAgentSession, saveFilesToWorkspaceFiles, isAgentSessionActive, queueAgentMessage, updateAgentPermissionMode, rewindAgentSession } from './lib/agent-service'
+import { runAgent, stopAgent, generateAgentTitle, saveFilesToAgentSession, saveFilesToWorkspaceFiles, isAgentSessionActive, queueAgentMessage, updateAgentPermissionMode, rewindAgentSession, forkAgentSession, listAgentGoals, updateAgentGoalStatus } from './lib/agent-service'
+import { webBridgeService } from './lib/web-bridge-service'
+import { computerUseService } from './lib/computer-use-service'
+import { exportAgentAuditEvents, listAgentAuditEvents } from './lib/agent-audit-service'
 import { permissionService } from './lib/agent-permission-service'
 import { askUserService } from './lib/agent-ask-user-service'
 import { exitPlanService } from './lib/agent-exit-plan-service'
@@ -236,6 +239,7 @@ import type { CleanupOptions } from './lib/storage-service'
 import {
   listAgentWorkspaces,
   createAgentWorkspace,
+  getAgentWorkspaceCwd,
   updateAgentWorkspace,
   deleteAgentWorkspace,
   reorderAgentWorkspaces,
@@ -340,7 +344,10 @@ function getAuthorizedRoots(options?: FileAccessOptions): string[] {
     }
     if (meta?.workspaceId) {
       const workspace = getAgentWorkspace(meta.workspaceId)
-      if (workspace?.slug) workspaceSlugs.add(workspace.slug)
+      if (workspace?.slug) {
+        workspaceSlugs.add(workspace.slug)
+        if (workspace.rootPath) roots.push(workspace.rootPath)
+      }
     }
   }
 
@@ -349,6 +356,8 @@ function getAuthorizedRoots(options?: FileAccessOptions): string[] {
   }
 
   for (const slug of workspaceSlugs) {
+    const workspace = listAgentWorkspaces().find((item) => item.slug === slug)
+    if (workspace?.rootPath) roots.push(workspace.rootPath)
     roots.push(getWorkspaceFilesDir(slug))
     roots.push(...getWorkspaceAttachedDirectories(slug))
     roots.push(...getWorkspaceAttachedFiles(slug))
@@ -377,6 +386,19 @@ function isUnderAgentWorkspaces(targetPath: string, workspacesRoot: string): boo
     resolved = resolve(targetPath)
   }
   return isUnderRoot(resolved, workspacesRoot)
+}
+
+
+/** 校验并解析路径必须位于 MAPro 工作区或用户明确选择的本地项目根目录下。 */
+function resolveWorkspacePath(filePath: string): string {
+  const safePath = realpathSync(resolve(filePath))
+  const workspacesRoot = resolve(getAgentWorkspacesDir())
+  const localProjectRoots = listAgentWorkspaces()
+    .flatMap((workspace) => workspace.rootPath ? [workspace.rootPath] : [])
+  if (!isUnderRoot(safePath, workspacesRoot) && !localProjectRoots.some((root) => isUnderRoot(safePath, root))) {
+    throw new Error('访问路径超出 Agent 工作区范围')
+  }
+  return safePath
 }
 
 function isPathAllowed(filePath: string, options?: FileAccessOptions): boolean {
@@ -1308,8 +1330,11 @@ export function registerIpcHandlers(): void {
   // 创建 Agent 会话
   ipcMain.handle(
     AGENT_IPC_CHANNELS.CREATE_SESSION,
-    async (_, title?: string, channelId?: string, workspaceId?: string): Promise<AgentSessionMeta> => {
-      return createAgentSession(title, channelId, workspaceId)
+    async (_, title?: string, channelId?: string, workspaceId?: string, agentRuntime?: AgentRuntime): Promise<AgentSessionMeta> => {
+      if (agentRuntime !== undefined && !isAgentRuntime(agentRuntime)) {
+        throw new Error(`非法的 Agent runtime: ${String(agentRuntime)}`)
+      }
+      return createAgentSession(title, channelId, workspaceId, agentRuntime ?? getSettings().agentRuntime)
     }
   )
 
@@ -1326,6 +1351,31 @@ export function registerIpcHandlers(): void {
     AGENT_IPC_CHANNELS.UPDATE_TITLE,
     async (_, id: string, title: string): Promise<AgentSessionMeta> => {
       return updateAgentSessionMeta(id, { title })
+    }
+  )
+
+  // 更新 Agent 会话 Runtime
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.UPDATE_SESSION_AGENT_RUNTIME,
+    async (_, sessionId: string, runtime: AgentRuntime): Promise<AgentSessionMeta> => {
+      if (!isAgentRuntime(runtime)) {
+        throw new Error(`非法的 Agent runtime: ${String(runtime)}`)
+      }
+      const current = getAgentSessionMeta(sessionId)
+      if (!current) {
+        throw new Error(`Agent 会话不存在: ${sessionId}`)
+      }
+      if (isAgentSessionActive(sessionId)) {
+        throw new Error('Agent 正在运行，完成后再切换 Runtime')
+      }
+
+      const updates: Partial<Pick<AgentSessionMeta, 'agentRuntime' | 'sdkSessionId'>> = {
+        agentRuntime: runtime,
+      }
+      if ((current.agentRuntime ?? 'claude') !== runtime) {
+        updates.sdkSessionId = undefined
+      }
+      return updateAgentSessionMeta(sessionId, updates)
     }
   )
 
@@ -1461,6 +1511,18 @@ export function registerIpcHandlers(): void {
     }
   )
 
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.LIST_GOALS,
+    async (_, sessionId: string): Promise<import('@ma-proma/shared').AgentGoal[]> => listAgentGoals(sessionId),
+  )
+
+  ipcMain.handle(
+    AGENT_IPC_CHANNELS.UPDATE_GOAL_STATUS,
+    async (_, input: import('@ma-proma/shared').UpdateAgentGoalStatusInput): Promise<import('@ma-proma/shared').AgentGoal> => {
+      return updateAgentGoalStatus(input)
+    },
+  )
+
   // ===== Agent 工作区管理相关 =====
 
   // 确保默认工作区存在
@@ -1477,8 +1539,8 @@ export function registerIpcHandlers(): void {
   // 创建 Agent 工作区
   ipcMain.handle(
     AGENT_IPC_CHANNELS.CREATE_WORKSPACE,
-    async (_, name: string, slug?: string): Promise<AgentWorkspace> => {
-      return createAgentWorkspace(name, slug)
+    async (_, name: string, slug?: string, rootPath?: string): Promise<AgentWorkspace> => {
+      return createAgentWorkspace(name, slug, rootPath)
     }
   )
 
@@ -1674,6 +1736,21 @@ export function registerIpcHandlers(): void {
       stopAgent(sessionId)
     }
   )
+
+  ipcMain.handle(AGENT_IPC_CHANNELS.GET_WEB_BRIDGE_STATUS, async (_, sessionId: string) => webBridgeService.getStatus(sessionId))
+  ipcMain.handle(AGENT_IPC_CHANNELS.STOP_WEB_BRIDGE, async (_, sessionId: string): Promise<void> => { webBridgeService.close(sessionId) })
+  ipcMain.handle(AGENT_IPC_CHANNELS.STOP_ALL_WEB_BRIDGES, async (): Promise<number> => webBridgeService.closeAll())
+  ipcMain.handle(AGENT_IPC_CHANNELS.GET_COMPUTER_USE_CAPABILITIES, async () => computerUseService.getCapabilities())
+  ipcMain.handle(AGENT_IPC_CHANNELS.GET_COMPUTER_USE_STATUS, async () => computerUseService.getStatus())
+  ipcMain.handle(AGENT_IPC_CHANNELS.REQUEST_COMPUTER_USE_PERMISSIONS, async () => computerUseService.requestPermissions())
+  ipcMain.handle(AGENT_IPC_CHANNELS.LIST_AUDIT_EVENTS, async (_, query: import('@ma-proma/shared').AgentAuditQuery) => listAgentAuditEvents(query))
+  ipcMain.handle(AGENT_IPC_CHANNELS.EXPORT_AUDIT_EVENTS, async (event, query: import('@ma-proma/shared').AgentAuditQuery): Promise<{ canceled: boolean; count: number }> => {
+    const result = await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()!, {
+      title: '导出操作审计', defaultPath: 'proma-operation-audit.jsonl', filters: [{ name: 'JSON Lines', extensions: ['jsonl'] }],
+    })
+    if (result.canceled || !result.filePath) return { canceled: true, count: 0 }
+    return { canceled: false, count: await exportAgentAuditEvents(result.filePath, query) }
+  })
 
   // ===== Agent 队列消息 =====
 
@@ -1938,13 +2015,6 @@ export function registerIpcHandlers(): void {
         const { available, message } = getWebScraperAvailability()
         return { success: available, message }
       }
-      // 视觉浏览器自动化工具测试
-      if (toolId === 'computer-use') {
-        const { getComputerUseAvailability, refreshComputerUseAvailability } = await import('./lib/chat-tools/computer-use-tool')
-        refreshComputerUseAvailability()
-        const { available, message } = getComputerUseAvailability()
-        return { success: available, message }
-      }
       // Nano Banana 生图工具测试
       if (toolId === 'nano-banana') {
         const { getToolCredentials: getCredentials } = await import('./lib/chat-tool-config')
@@ -1975,19 +2045,6 @@ export function registerIpcHandlers(): void {
         }
       }
       return { success: false, message: `工具 ${toolId} 不支持测试` }
-    }
-  )
-
-  // ===== Computer Use 视觉浏览器自动化控制 =====
-  ipcMain.handle(
-    COMPUTER_USE_IPC_CHANNELS.CONTROL,
-    async (_, taskId: string, command: import('@ma-proma/shared').ComputerUseControlCommand): Promise<void> => {
-      const { getComputerUseController } = await import('./lib/browser-automation/computer-use-controller')
-      const controller = getComputerUseController(taskId)
-      if (!controller) {
-        throw new Error(`未找到运行中的 Computer Use 任务: ${taskId}`)
-      }
-      controller.handleCommand(command)
     }
   )
 
@@ -2243,7 +2300,7 @@ export function registerIpcHandlers(): void {
     async (_, workspaceId: string, sessionId: string): Promise<string | null> => {
       const ws = getAgentWorkspace(workspaceId)
       if (!ws) return null
-      return getAgentSessionWorkspacePath(ws.slug, sessionId)
+      return getAgentWorkspaceCwd(ws, sessionId)
     }
   )
 
@@ -2254,12 +2311,8 @@ export function registerIpcHandlers(): void {
       const { readdirSync, statSync } = await import('node:fs')
       const { resolve } = await import('node:path')
 
-      // 安全校验：路径必须在 agent-workspaces 目录下
-      const safePath = resolve(dirPath)
-      const workspacesRoot = resolve(getAgentWorkspacesDir())
-      if (!isUnderAgentWorkspaces(safePath, workspacesRoot)) {
-        throw new Error('访问路径超出 Agent 工作区范围')
-      }
+      // 安全校验：路径必须在 agent-workspaces 目录下（解析 symlink 并用路径分隔符防止前缀绕过）
+      const safePath = resolveWorkspacePath(dirPath)
 
       const entries: FileEntry[] = []
       const items = readdirSync(safePath, { withFileTypes: true })
@@ -2295,14 +2348,9 @@ export function registerIpcHandlers(): void {
     AGENT_IPC_CHANNELS.DELETE_FILE,
     async (_, filePath: string): Promise<void> => {
       const { rmSync } = await import('node:fs')
-      const { resolve } = await import('node:path')
 
-      // 安全校验：路径必须在 agent-workspaces 目录下
-      const safePath = resolve(filePath)
-      const workspacesRoot = resolve(getAgentWorkspacesDir())
-      if (!isUnderAgentWorkspaces(safePath, workspacesRoot)) {
-        throw new Error('访问路径超出 Agent 工作区范围')
-      }
+      // 安全校验：路径必须在 agent-workspaces 目录下（解析 symlink 并用路径分隔符防止前缀绕过）
+      const safePath = resolveWorkspacePath(filePath)
 
       rmSync(safePath, { recursive: true, force: true })
       console.log(`[Agent 文件] 已删除: ${safePath}`)
@@ -2313,14 +2361,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     AGENT_IPC_CHANNELS.OPEN_FILE,
     async (_, filePath: string): Promise<void> => {
-      const { resolve } = await import('node:path')
-
-      const safePath = resolve(filePath)
-      const workspacesRoot = resolve(getAgentWorkspacesDir())
-      if (!isUnderAgentWorkspaces(safePath, workspacesRoot)) {
-        throw new Error('访问路径超出 Agent 工作区范围')
-      }
-
+      const safePath = resolveWorkspacePath(filePath)
       await shell.openPath(safePath)
     }
   )
@@ -2393,14 +2434,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     AGENT_IPC_CHANNELS.SHOW_IN_FOLDER,
     async (_, filePath: string): Promise<void> => {
-      const { resolve } = await import('node:path')
-
-      const safePath = resolve(filePath)
-      const workspacesRoot = resolve(getAgentWorkspacesDir())
-      if (!isUnderAgentWorkspaces(safePath, workspacesRoot)) {
-        throw new Error('访问路径超出 Agent 工作区范围')
-      }
-
+      const safePath = resolveWorkspacePath(filePath)
       shell.showItemInFolder(safePath)
     }
   )
@@ -2526,18 +2560,13 @@ export function registerIpcHandlers(): void {
     AGENT_IPC_CHANNELS.RENAME_FILE,
     async (_, filePath: string, newName: string): Promise<void> => {
       const { renameSync } = await import('node:fs')
-      const { resolve, dirname, join, sep } = await import('node:path')
+      const { dirname, join, sep } = await import('node:path')
 
       if (newName.includes('/') || newName.includes('\\') || newName.includes('..') || newName.includes(sep)) {
         throw new Error('文件名不能包含路径分隔符或 ".."')
       }
 
-      const safePath = resolve(filePath)
-      const workspacesRoot = resolve(getAgentWorkspacesDir())
-      if (!isUnderAgentWorkspaces(safePath, workspacesRoot)) {
-        throw new Error('访问路径超出 Agent 工作区范围')
-      }
-
+      const safePath = resolveWorkspacePath(filePath)
       const newPath = join(dirname(safePath), newName)
       renameSync(safePath, newPath)
       console.log(`[Agent 文件] 已重命名: ${safePath} → ${newPath}`)
@@ -2549,15 +2578,10 @@ export function registerIpcHandlers(): void {
     AGENT_IPC_CHANNELS.MOVE_FILE,
     async (_, filePath: string, targetDir: string): Promise<void> => {
       const { renameSync } = await import('node:fs')
-      const { resolve, basename, join } = await import('node:path')
+      const { basename, join } = await import('node:path')
 
-      const safePath = resolve(filePath)
-      const safeTarget = resolve(targetDir)
-      const workspacesRoot = resolve(getAgentWorkspacesDir())
-      if (!isUnderAgentWorkspaces(safePath, workspacesRoot) || !isUnderAgentWorkspaces(safeTarget, workspacesRoot)) {
-        throw new Error('访问路径超出 Agent 工作区范围')
-      }
-
+      const safePath = resolveWorkspacePath(filePath)
+      const safeTarget = resolveWorkspacePath(targetDir)
       const newPath = join(safeTarget, basename(safePath))
       renameSync(safePath, newPath)
       console.log(`[Agent 文件] 已移动: ${safePath} → ${newPath}`)

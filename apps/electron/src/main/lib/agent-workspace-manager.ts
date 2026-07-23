@@ -6,20 +6,23 @@
  * - 工作区目录：~/.mapro/agent-workspaces/{slug}/（Agent 的 cwd）
  */
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, cpSync, rmSync, mkdirSync, statSync, renameSync, openSync, readSync, closeSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, readdirSync, cpSync, rmSync, mkdirSync, statSync, renameSync, openSync, readSync, closeSync, realpathSync } from 'node:fs'
 import { writeJsonFileAtomic, readJsonFileSafe } from './safe-file'
+import { safeParseJSON } from './safe-json'
 import { randomUUID } from 'node:crypto'
 import { join, resolve, relative, isAbsolute, dirname, basename } from 'node:path'
 import { getChatToolsConfig, saveChatToolsConfig } from './chat-tool-config'
 import {
   getAgentWorkspacesIndexPath,
   getAgentWorkspacePath,
+  getAgentSessionWorkspacePath,
   getWorkspaceMcpPath,
   getWorkspaceSkillsDir,
   getInactiveSkillsDir,
   getDefaultSkillsDir,
   parseSkillVersion,
 } from './config-paths'
+import { getMcpClientSecret, setMcpClientSecret, removeMcpClientSecret } from './agent-runtime/mcp-client-secret-store'
 import type { AgentWorkspace, WorkspaceMcpConfig, SkillMeta, SkillImportSource, OtherWorkspaceSkillsGroup, WorkspaceCapabilities, SkillFileNode, SkillFileContent } from '@ma-proma/shared'
 
 interface AgentWorkspacesIndex {
@@ -194,7 +197,7 @@ function copyDefaultSkills(workspaceSlug: string): void {
   }
 }
 
-export function createAgentWorkspace(name: string, slug?: string): AgentWorkspace {
+export function createAgentWorkspace(name: string, slug?: string, rootPath?: string): AgentWorkspace {
   const index = readIndex()
 
   const duplicate = index.workspaces.find((w) => w.name === name)
@@ -210,10 +213,19 @@ export function createAgentWorkspace(name: string, slug?: string): AgentWorkspac
 
   const now = Date.now()
 
+  const resolvedRootPath = rootPath ? realpathSync(resolve(rootPath)) : undefined
+  if (resolvedRootPath && !statSync(resolvedRootPath).isDirectory()) {
+    throw new Error('所选路径不是文件夹')
+  }
+  if (resolvedRootPath && index.workspaces.some((w) => w.rootPath === resolvedRootPath)) {
+    throw new Error('该本地文件夹已关联到其他工作区')
+  }
+
   const workspace: AgentWorkspace = {
     id: randomUUID(),
     name,
     slug: finalSlug,
+    ...(resolvedRootPath && { rootPath: resolvedRootPath }),
     createdAt: now,
     updatedAt: now,
   }
@@ -227,6 +239,17 @@ export function createAgentWorkspace(name: string, slug?: string): AgentWorkspac
 
   console.log(`[Agent 工作区] 已创建工作区: ${name} (slug: ${finalSlug})`)
   return workspace
+}
+
+/** 返回 Agent 实际运行目录；已有项目工作区直接在项目根目录运行。 */
+export function getAgentWorkspaceCwd(workspace: AgentWorkspace, sessionId: string): string {
+  if (workspace.rootPath) {
+    if (!existsSync(workspace.rootPath) || !statSync(workspace.rootPath).isDirectory()) {
+      throw new Error(`本地项目文件夹不可用: ${workspace.rootPath}`)
+    }
+    return workspace.rootPath
+  }
+  return getAgentSessionWorkspacePath(workspace.slug, sessionId)
 }
 
 /** 更新工作区名称（slug 和目录不变） */
@@ -488,8 +511,18 @@ export function getWorkspaceMcpConfig(workspaceSlug: string): WorkspaceMcpConfig
 
   try {
     const raw = readFileSync(mcpPath, 'utf-8')
-    const parsed = JSON.parse(raw) as Partial<WorkspaceMcpConfig>
-    return { servers: parsed.servers ?? {} }
+    const parsed = safeParseJSON<Partial<WorkspaceMcpConfig>>(raw, {})
+    const servers = parsed.servers ?? {}
+    // 将加密存储的 client_secret 注入到内存对象，避免明文落盘
+    for (const [name, entry] of Object.entries(servers)) {
+      if (entry.auth && !entry.auth.clientSecret) {
+        const secret = getMcpClientSecret(workspaceSlug, name)
+        if (secret) {
+          entry.auth.clientSecret = secret
+        }
+      }
+    }
+    return { servers }
   } catch (error) {
     console.error('[Agent 工作区] 读取 MCP 配置失败:', error)
     return { servers: {} }
@@ -500,7 +533,21 @@ export function saveWorkspaceMcpConfig(workspaceSlug: string, config: WorkspaceM
   const mcpPath = getWorkspaceMcpPath(workspaceSlug)
 
   try {
-    writeFileSync(mcpPath, JSON.stringify(config, null, 2), 'utf-8')
+    // client_secret 单独加密存储，不写入 mcp.json
+    const toSave: WorkspaceMcpConfig = { servers: {} }
+    for (const [name, entry] of Object.entries(config.servers ?? {})) {
+      const cloned = { ...entry }
+      if (cloned.auth?.clientSecret) {
+        setMcpClientSecret(workspaceSlug, name, cloned.auth.clientSecret)
+        cloned.auth = { ...cloned.auth, clientSecret: '' }
+      } else if (cloned.auth?.clientSecret === '') {
+        // 用户清空 secret 时同步删除加密存储
+        removeMcpClientSecret(workspaceSlug, name)
+        cloned.auth = { ...cloned.auth, clientSecret: '' }
+      }
+      toSave.servers[name] = cloned
+    }
+    writeFileSync(mcpPath, JSON.stringify(toSave, null, 2), 'utf-8')
     console.log(`[Agent 工作区] 已保存 MCP 配置: ${workspaceSlug}`)
   } catch (error) {
     console.error('[Agent 工作区] 保存 MCP 配置失败:', error)
@@ -815,11 +862,7 @@ const SOURCE_META_FILE = '.source.json'
 function readSkillImportSource(skillDir: string): SkillImportSource | undefined {
   const p = join(skillDir, SOURCE_META_FILE)
   if (!existsSync(p)) return undefined
-  try {
-    return JSON.parse(readFileSync(p, 'utf-8')) as SkillImportSource
-  } catch {
-    return undefined
-  }
+  return safeParseJSON<SkillImportSource | undefined>(readFileSync(p, 'utf-8'), undefined)
 }
 
 function writeSkillImportSource(skillDir: string, source: SkillImportSource): void {
@@ -1085,19 +1128,15 @@ function readWorkspaceConfig(workspaceSlug: string): WorkspaceConfig {
     return {}
   }
 
-  try {
-    const raw = readFileSync(configPath, 'utf-8')
-    const data = JSON.parse(raw) as Partial<WorkspaceConfig>
-    return {
-      attachedDirectories: Array.isArray(data.attachedDirectories)
-        ? data.attachedDirectories.filter((dir): dir is string => typeof dir === 'string')
-        : undefined,
-      attachedFiles: Array.isArray(data.attachedFiles)
-        ? data.attachedFiles.filter((file): file is string => typeof file === 'string')
-        : undefined,
-    }
-  } catch {
-    return {}
+  const raw = readFileSync(configPath, 'utf-8')
+  const data = safeParseJSON<Partial<WorkspaceConfig>>(raw, {})
+  return {
+    attachedDirectories: Array.isArray(data.attachedDirectories)
+      ? data.attachedDirectories.filter((dir): dir is string => typeof dir === 'string')
+      : undefined,
+    attachedFiles: Array.isArray(data.attachedFiles)
+      ? data.attachedFiles.filter((file): file is string => typeof file === 'string')
+      : undefined,
   }
 }
 

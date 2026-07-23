@@ -44,7 +44,7 @@ export function getConfigDirName(): string {
  *
  * 优先级：
  * 1. MAPRO_DATA_DIR 环境变量（用于 Docker / 服务端部署）
- * 2. _MAPRO_TEST_CONFIG_DIR 环境变量（用于测试）
+ * 2. _MAPRO_TEST_CONFIG_DIR / MAPRO_TEST_CONFIG_DIR 环境变量（用于测试）
  * 3. 开发模式返回 ~/.mapro-dev/，正式版本返回 ~/.mapro/
  *
  * 如果目录不存在则自动创建。
@@ -65,6 +65,15 @@ export function getConfigDir(): string {
       mkdirSync(testConfigDir, { recursive: true })
     }
     return testConfigDir
+  }
+
+  // 上游 proma-mit 移植的测试使用该环境变量隔离配置目录
+  const overrideDir = process.env.MAPRO_TEST_CONFIG_DIR?.trim()
+  if (overrideDir) {
+    if (!existsSync(overrideDir)) {
+      mkdirSync(overrideDir, { recursive: true })
+    }
+    return overrideDir
   }
 
   const configDir = join(homedir(), getConfigDirName())
@@ -224,12 +233,40 @@ export function getChatToolsConfigPath(): string {
 }
 
 /**
+ * 获取 MCP 服务器 client_secret 加密存储文件路径
+ *
+ * @returns ~/.mapro/mcp-client-secrets.json
+ */
+export function getMcpClientSecretsPath(): string {
+  return join(getConfigDir(), 'mcp-client-secrets.json')
+}
+
+/**
  * 获取 Agent 会话索引文件路径
  *
  * @returns ~/.mapro/agent-sessions.json
  */
 export function getAgentSessionsIndexPath(): string {
   return join(getConfigDir(), 'agent-sessions.json')
+}
+
+/** Goal 索引文件路径。Goal 的运行事件单独追加到 goals/ 目录，避免污染会话历史。 */
+export function getAgentGoalsIndexPath(): string {
+  return join(getConfigDir(), 'goals.json')
+}
+
+/** Goal 事件目录；按 Goal ID 保存 append-only JSONL 审计记录。 */
+export function getAgentGoalsDir(): string {
+  const dir = join(getConfigDir(), 'goals')
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+  return dir
+}
+
+/** 指定 Goal 的事件日志路径。 */
+export function getAgentGoalEventsPath(goalId: string): string {
+  return join(getAgentGoalsDir(), `${goalId}.jsonl`)
 }
 
 /**

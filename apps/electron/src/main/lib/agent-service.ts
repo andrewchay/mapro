@@ -14,7 +14,7 @@ import { join, dirname } from 'node:path'
 import { writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { BrowserWindow } from 'electron'
 import type { WebContents } from 'electron'
-import { AGENT_IPC_CHANNELS, MAX_ATTACHMENT_SIZE } from '@ma-proma/shared'
+import { AGENT_IPC_CHANNELS, MAX_ATTACHMENT_SIZE, normalizeAgentRuntime } from '@ma-proma/shared'
 import type {
   AgentSendInput,
   AgentGenerateTitleInput,
@@ -25,8 +25,16 @@ import type {
   AgentStreamPayload,
   AgentQueueMessageInput,
   MAProPermissionMode,
+  ForkSessionInput,
+  AgentSessionMeta,
+  AgentGoal,
+  UpdateAgentGoalStatusInput,
 } from '@ma-proma/shared'
 import { ClaudeAgentAdapter, scanAndKillOrphanedClaudeSubprocesses } from './adapters/claude-agent-adapter'
+import { AISDKAgentAdapter } from './adapters/ai-sdk-agent-adapter'
+import { ProviderAgnosticAgentAdapter } from './adapters/provider-agnostic-agent-adapter'
+import { PiAgentAdapter } from './adapters/pi-agent-adapter'
+import { RuntimeRoutingAgentAdapter } from './adapters/runtime-routing-agent-adapter'
 import { AgentEventBus } from './agent-event-bus'
 import { AgentOrchestrator } from './agent-orchestrator'
 import { getAgentSessionWorkspacePath, getWorkspaceFilesDir } from './config-paths'
@@ -34,15 +42,57 @@ import { getAgentSessionMeta } from './agent-session-manager'
 import { getAgentWorkspace } from './agent-workspace-manager'
 import { loadCampaignWorkflow, updateWorkflowStep, completeStepWithValidation, isStepExecutionMessage } from './campaign-workflow-service'
 import type { CampaignWorkflowStepId } from '@ma-proma/shared'
+import { createElectronRuntimeServices } from './agent-runtime/runtime-services'
+import { GoalCoordinator } from './goal-runtime/goal-coordinator'
 
 // ===== 实例创建 =====
 
 const eventBus = new AgentEventBus()
-const adapter = new ClaudeAgentAdapter()
-const orchestrator = new AgentOrchestrator(adapter, eventBus)
+const runtimeServices = createElectronRuntimeServices(eventBus)
+const adapter = new RuntimeRoutingAgentAdapter({
+  claude: new ClaudeAgentAdapter(),
+  proma: new ProviderAgnosticAgentAdapter(runtimeServices.mcp),
+  pi: new PiAgentAdapter(),
+  'ai-sdk': new AISDKAgentAdapter(runtimeServices.mcp),
+})
+const goalCoordinator = new GoalCoordinator()
+const orchestrator = new AgentOrchestrator(
+  adapter,
+  eventBus,
+  runtimeServices,
+  (sessionId, checkpoint) => goalCoordinator.submitCheckpoint(sessionId, checkpoint).then(() => undefined),
+  (sessionId) => Boolean(goalCoordinator.getActiveBySession(sessionId)),
+)
+
+goalCoordinator.setContinuationRunner(async ({ goal, prompt }) => {
+  if (!goal.channelId) throw new Error('Goal 缺少渠道信息，无法自动续跑')
+  const win = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed())
+  if (!win) return false
+  await runAgent({
+    sessionId: goal.sessionId,
+    userMessage: prompt,
+    channelId: goal.channelId,
+    modelId: goal.modelId,
+    workspaceId: goal.workspaceId,
+    agentRuntime: goal.runtime,
+  }, win.webContents, true)
+  return true
+})
+void goalCoordinator.recoverDueGoals().catch((error) => {
+  console.error('[Goal] 恢复到期 Goal 失败:', error)
+})
 
 /** 导出 EventBus 供飞书 Bridge 等外部服务订阅事件 */
 export { eventBus as agentEventBus }
+export { goalCoordinator }
+
+export function listAgentGoals(sessionId: string): AgentGoal[] {
+  return goalCoordinator.listBySession(sessionId)
+}
+
+export function updateAgentGoalStatus(input: UpdateAgentGoalStatusInput): AgentGoal {
+  return goalCoordinator.setStatus(input.goalId, input.status)
+}
 
 /**
  * 会话 → webContents 映射
@@ -51,6 +101,34 @@ export { eventBus as agentEventBus }
  * runAgent 开始时注册，结束时清理。
  */
 const sessionWebContents = new Map<string, WebContents>()
+
+/**
+ * 已挂载 destroyed 回收钩子的 webContents 集合。
+ *
+ * 同一个主窗口 webContents 可能被多次注册（飞书 Bridge 每条消息触发一次 runAgentHeadless），
+ * 用 WeakSet 去重避免 once listener 在同一 wc 上累积，触发 MaxListenersExceededWarning。
+ */
+const wcWithCleanupHook = new WeakSet<WebContents>()
+
+/**
+ * 注册 sessionId → webContents 映射，并在 webContents 销毁时自动清理所有相关条目。
+ *
+ * 仅依赖 finally 块清理无法覆盖窗口关闭、渲染进程崩溃、headless 路径主窗口被替换等
+ * webContents 提前销毁的场景——destroyed 事件兜底。
+ */
+function registerWebContents(sessionId: string, wc: WebContents): void {
+  // 同一 sessionId 切换 webContents 时直接覆盖；旧 wc 的 destroyed 钩子仍由 WeakSet 持有，
+  // 触发时会扫描 sessionWebContents 清理所有指向旧 wc 的条目（见下方实现）。
+  sessionWebContents.set(sessionId, wc)
+  if (wcWithCleanupHook.has(wc)) return
+  wcWithCleanupHook.add(wc)
+  wc.once('destroyed', () => {
+    // 单个 wc 可能映射到多个 sessionId（同窗口多 tab），需要清理所有指向它的条目
+    for (const [sid, mappedWc] of sessionWebContents) {
+      if (mappedWc === wc) sessionWebContents.delete(sid)
+    }
+  })
+}
 
 // ===== EventBus IPC 转发中间件 =====
 
@@ -76,15 +154,17 @@ eventBus.use((sessionId, payload, next) => {
 export async function runAgent(
   input: AgentSendInput,
   webContents: WebContents,
+  isGoalContinuation = false,
 ): Promise<void> {
+  const effectiveInput = prepareGoalInput(input, isGoalContinuation)
   // 更新 webContents 映射（允许覆盖 — 由 orchestrator.activeSessions 处理真正的并发保护）
-  sessionWebContents.set(input.sessionId, webContents)
+  registerWebContents(effectiveInput.sessionId, webContents)
   try {
-    await orchestrator.sendMessage(input, {
+    await orchestrator.sendMessage(effectiveInput, {
       onError: (error) => {
         if (!webContents.isDestroyed()) {
           webContents.send(AGENT_IPC_CHANNELS.STREAM_ERROR, {
-            sessionId: input.sessionId,
+            sessionId: effectiveInput.sessionId,
             error,
           })
         }
@@ -131,7 +211,7 @@ export async function runAgent(
 
         if (!webContents.isDestroyed()) {
           webContents.send(AGENT_IPC_CHANNELS.STREAM_COMPLETE, {
-            sessionId: input.sessionId,
+            sessionId: effectiveInput.sessionId,
             messages,
             stoppedByUser: opts?.stoppedByUser ?? false,
             startedAt: opts?.startedAt,
@@ -142,22 +222,23 @@ export async function runAgent(
       onTitleUpdated: (title) => {
         if (!webContents.isDestroyed()) {
           webContents.send(AGENT_IPC_CHANNELS.TITLE_UPDATED, {
-            sessionId: input.sessionId,
+            sessionId: effectiveInput.sessionId,
             title,
           })
         }
       },
     })
+    await goalCoordinator.onTurnFinished(effectiveInput.sessionId)
   } catch (err) {
     console.error('[Agent 服务] runAgent 未处理异常:', err)
     const errorMessage = err instanceof Error ? err.message : '未知错误'
     if (!webContents.isDestroyed()) {
       webContents.send(AGENT_IPC_CHANNELS.STREAM_ERROR, {
-        sessionId: input.sessionId,
+          sessionId: effectiveInput.sessionId,
         error: errorMessage,
       })
       webContents.send(AGENT_IPC_CHANNELS.STREAM_COMPLETE, {
-        sessionId: input.sessionId,
+          sessionId: effectiveInput.sessionId,
         messages: [],
         stoppedByUser: false,
       })
@@ -165,9 +246,42 @@ export async function runAgent(
   } finally {
     // 仅在 orchestrator 已完成此会话时清理映射
     // 避免被拒绝的请求误删仍在运行的会话映射
-    if (!orchestrator.isActive(input.sessionId)) {
-      sessionWebContents.delete(input.sessionId)
+    if (!orchestrator.isActive(effectiveInput.sessionId)) {
+      sessionWebContents.delete(effectiveInput.sessionId)
     }
+  }
+}
+
+function prepareGoalInput(input: AgentSendInput, isGoalContinuation: boolean): AgentSendInput {
+  if (isGoalContinuation) return input
+  const match = input.userMessage.match(/^\s*@goal\b([\s\S]*)$/i)
+  if (!match) {
+    goalCoordinator.pauseForUserInput(input.sessionId)
+    return input
+  }
+  const runtime = normalizeAgentRuntime(input.agentRuntime)
+  if (runtime !==  'proma' && runtime !== 'ai-sdk') {
+    throw new Error('@goal 当前仅支持 MAPro Runtime 或 AI SDK Runtime')
+  }
+  const objective = (match[1] ?? '').trim()
+  if (!objective) throw new Error('@goal 后需要填写要持续推进的目标')
+  const goal = goalCoordinator.create({
+    sessionId: input.sessionId,
+    workspaceId: input.workspaceId,
+    channelId: input.channelId,
+    modelId: input.modelId,
+    runtime,
+    objective,
+  })
+  return {
+    ...input,
+    agentRuntime: runtime,
+    userMessage: [
+      objective,
+      '',
+      `[Goal Runtime 已激活，Goal ID: ${goal.id}]`,
+      '这是一个需要持续跟进的目标。基于实际工具结果推进；在每轮结束前必须调用 GoalCheckpoint。只有有验收证据时才能提交 complete。',
+    ].join('\n'),
   }
 }
 
@@ -189,7 +303,7 @@ export async function runAgentHeadless(
   const win = BrowserWindow.getAllWindows()[0]
   const wc = win && !win.isDestroyed() ? win.webContents : null
   if (wc) {
-    sessionWebContents.set(input.sessionId, wc)
+    registerWebContents(input.sessionId, wc)
   }
 
   try {
@@ -256,6 +370,15 @@ export async function generateAgentTitle(input: AgentGenerateTitleInput): Promis
  */
 export function stopAgent(sessionId: string): void {
   orchestrator.stop(sessionId)
+}
+
+/**
+ * 分叉 Agent 会话
+ *
+ * 委托给 Orchestrator，由其根据是否存在 sdkSessionId 选择 Provider-Agnostic 或 Claude SDK 路径。
+ */
+export async function forkAgentSession(input: ForkSessionInput): Promise<AgentSessionMeta> {
+  return orchestrator.forkAgentSession(input)
 }
 
 /**
@@ -362,7 +485,7 @@ export function saveFilesToAgentSession(input: AgentSaveFilesInput): AgentSavedF
     writeFileSync(targetPath, buffer)
 
     const actualFilename = targetPath.slice(sessionDir.length + 1)
-    results.push({ filename: actualFilename, targetPath })
+    results.push({ filename: actualFilename, targetPath, size: buffer.length })
     console.log(`[Agent 服务] 文件已保存: ${targetPath} (${buffer.length} bytes)`)
   }
 
@@ -408,7 +531,7 @@ export function saveFilesToWorkspaceFiles(input: AgentSaveWorkspaceFilesInput): 
     writeFileSync(targetPath, buffer)
 
     const actualFilename = targetPath.slice(wsFilesDir.length + 1)
-    results.push({ filename: actualFilename, targetPath })
+    results.push({ filename: actualFilename, targetPath, size: buffer.length })
     console.log(`[Agent 服务] 工作区文件已保存: ${targetPath} (${buffer.length} bytes)`)
   }
 

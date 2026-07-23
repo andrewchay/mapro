@@ -44,9 +44,12 @@ import {
   stickyUserMessageEnabledAtom,
   initializeUiPreferences,
 } from './atoms/ui-preferences'
+import {
+  markdownFontSizeAtom,
+  initializeMarkdownFontSize,
+} from './atoms/markdown-font-size'
 import { useGlobalAgentListeners } from './hooks/useGlobalAgentListeners'
 import { useGlobalChatListeners } from './hooks/useGlobalChatListeners'
-import { useGlobalComputerUseListeners } from './hooks/useGlobalComputerUseListeners'
 import { tabsAtom, activeTabIdAtom, ensureScratchPadTab, scratchPadContentAtom, scratchPadLoadedAtom, SCRATCH_PAD_ID } from './atoms/tab-atoms'
 import type { TabItem } from './atoms/tab-atoms'
 import { chatToolsAtom } from './atoms/chat-tool-atoms'
@@ -398,6 +401,21 @@ function UiPreferencesInitializer(): null {
 }
 
 /**
+ * Markdown 字号初始化组件
+ *
+ * 从主进程加载字号档位，写入 :root CSS 变量驱动 Markdown 预览。
+ */
+function MarkdownFontSizeInitializer(): null {
+  const setMarkdownFontSize = useSetAtom(markdownFontSizeAtom)
+
+  useEffect(() => {
+    initializeMarkdownFontSize(setMarkdownFontSize)
+  }, [setMarkdownFontSize])
+
+  return null
+}
+
+/**
  * Chat IPC 监听器初始化组件
  *
  * 全局挂载，永不销毁。确保 Chat 流式事件
@@ -416,16 +434,6 @@ function ChatListenersInitializer(): null {
  */
 function AgentListenersInitializer(): null {
   useGlobalAgentListeners()
-  return null
-}
-
-/**
- * Computer Use IPC 监听器初始化组件
- *
- * 全局挂载，永不销毁。确保视觉浏览器自动化事件不丢失。
- */
-function ComputerUseListenersInitializer(): null {
-  useGlobalComputerUseListeners()
   return null
 }
 
@@ -863,6 +871,7 @@ if (isQuickTaskWindow) {
     ReactDOM.createRoot(document.getElementById('root')!).render(
       <React.StrictMode>
         <ThemeInitializer />
+        <MarkdownFontSizeInitializer />
         <DetachedPreviewApp />
         <Toaster position="top-right" />
       </React.StrictMode>
@@ -877,9 +886,9 @@ if (isQuickTaskWindow) {
       <NotificationsInitializer />
       <DockBadgeInitializer />
       <UiPreferencesInitializer />
+      <MarkdownFontSizeInitializer />
       <ChatListenersInitializer />
       <AgentListenersInitializer />
-      <ComputerUseListenersInitializer />
       <ChatToolInitializer />
       <UpdaterInitializer />
       <FeishuInitializer />

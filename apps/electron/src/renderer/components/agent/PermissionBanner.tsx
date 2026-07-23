@@ -61,7 +61,7 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps): React.Re
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [request?.requestId])
+  }, [request?.requestId, request])
 
   /** 关闭权限请求：明确拒绝并清理 UI */
   const handleDismiss = async (): Promise<void> => {
@@ -98,6 +98,16 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps): React.Re
 
   const iconColor = DANGER_ICON_STYLES[request.dangerLevel]
   const isDangerous = request.dangerLevel === 'dangerous'
+  const requiresPerActionApproval = (
+    request.toolName.startsWith('ComputerUse') && request.toolName !== 'ComputerUseStatus'
+  ) || new Set([
+    'WebBridgeNavigate',
+    'WebBridgeConnectChrome',
+    'WebBridgeClick',
+    'WebBridgeType',
+    'WebBridgeDownload',
+    'WebBridgeUpload',
+  ]).has(request.toolName)
   const IconComponent = isDangerous ? ShieldAlert : Shield
 
   /** 响应权限请求 */
@@ -203,15 +213,17 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps): React.Re
           拒绝
         </Button>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => respond('allow', true)}
-          disabled={responding}
-          className="h-7 px-3 text-xs"
-        >
-          本次会话总是允许
-        </Button>
+        {!requiresPerActionApproval && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => respond('allow', true)}
+            disabled={responding}
+            className="h-7 px-3 text-xs"
+          >
+            本次会话总是允许
+          </Button>
+        )}
 
         <Button
           variant="default"

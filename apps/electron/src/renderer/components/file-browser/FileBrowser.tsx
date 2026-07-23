@@ -46,6 +46,12 @@ import { cn } from '@/lib/utils'
 import { workspaceFilesVersionAtom, fileBrowserAutoRevealAtom, recentlyModifiedPathsAtom, currentAgentSessionIdAtom } from '@/atoms/agent-atoms'
 import type { FileEntry } from '@ma-proma/shared'
 import { FileTypeIcon } from './FileTypeIcon'
+import {
+  computeTreeRowLayout,
+  AncestorGuides,
+  STICKY_ROW_BASE_CLASS,
+  canBeSticky,
+} from './tree-row-layout'
 
 /** 计算目标路径相对 rootPath 的祖先目录集合（不含 rootPath 自身、含目标的所有上级） */
 function computeRevealAncestors(rootPath: string, targetPath: string): Set<string> {
@@ -312,6 +318,7 @@ export function FileBrowser({ rootPath, hideToolbar, embedded, hideEmpty, onAddT
           onDelete={handleRequestDelete}
           onMove={handleMove}
           onRefresh={loadRoot}
+          onClearSelection={() => setSelectedPaths(new Set())}
           onAddToChat={onAddToChat}
           onFilePreview={onFilePreview}
         />
@@ -413,6 +420,7 @@ interface FileTreeItemProps {
   onDelete: (entry: FileEntry) => void
   onMove: (entry: FileEntry) => void
   onRefresh: () => Promise<void>
+  onClearSelection: () => void
   onAddToChat?: (entry: FileEntry) => void
   onFilePreview?: (filePath: string) => void
 }
@@ -437,6 +445,7 @@ function FileTreeItem({
   onDelete,
   onMove,
   onRefresh,
+  onClearSelection,
   onAddToChat,
   onFilePreview,
 }: FileTreeItemProps): React.ReactElement {
@@ -612,22 +621,45 @@ function FileTreeItem({
     }
   }
 
-  const paddingLeft = 8 + depth * 16
+  // 行使用 mx-2 形成左右各 8px 留白，留白处的点击 target 是本 wrapper 而非父级
+  // py-1 容器，所以父级 handleBackgroundClick 的 target===currentTarget 判定不会命中。
+  // 这里就近处理留白点击的清选语义，保持视觉上"点空白即清选"的一致体验。
+  const handleWrapperClick = (e: React.MouseEvent): void => {
+    if (e.target === e.currentTarget) {
+      onClearSelection()
+    }
+  }
+
+  const { paddingLeft, guideLeft, stickyTop, stickyZIndex } = computeTreeRowLayout(depth)
+  const isSticky = entry.isDirectory && expanded && canBeSticky(depth)
   const showMenu = !isRenaming
   const menuSelectedCount = isSelected ? selectedCount : 1
 
   return (
-    <>
+    <div className="relative" onClick={handleWrapperClick}>
       <div
         ref={rowRef}
+        data-sticky-row={isSticky ? 'true' : undefined}
         className={cn(
-          'relative flex items-center gap-1 py-1 pr-2 text-sm cursor-pointer group mx-2 rounded-lg transition-colors',
-          isSelected ? 'bg-accent' : 'hover:bg-accent/50',
+          'relative flex h-8 items-center gap-1 pr-2 text-sm cursor-pointer group transition-colors',
+          isSticky && STICKY_ROW_BASE_CLASS,
+          // sticky 行 hover 用不透明色，避免下方滚动内容透出；普通行保持半透明柔和感
+          isSelected
+            ? 'bg-accent'
+            : isSticky
+              ? 'hover:bg-accent'
+              : 'hover:bg-accent/50',
           flash && 'file-browser-row-flash',
         )}
-        style={{ paddingLeft }}
+        style={{
+          paddingLeft,
+          top: isSticky ? stickyTop : undefined,
+          zIndex: isSticky ? stickyZIndex : undefined,
+        }}
         onClick={handleClick}
       >
+        {/* sticky 行祖先链竖线，逻辑见 tree-row-layout.tsx 的 AncestorGuides */}
+        {isSticky && <AncestorGuides depth={depth} isSelected={isSelected} />}
         {recentlyModifiedSet.has(entry.path) && (
           <span
             aria-label="最近被 Agent 修改"
@@ -652,7 +684,7 @@ function FileTreeItem({
 
         {/* 文件名 / 重命名输入框 */}
         {isRenaming ? (
-          <div className="flex-1 min-w-0">
+          <div className="relative flex-1 min-w-0">
             <input
               ref={renameInputRef}
               value={editName}
@@ -667,7 +699,9 @@ function FileTreeItem({
               maxLength={255}
             />
             {renameError && (
-              <div className="text-[10px] text-destructive mt-0.5">{renameError}</div>
+              <div className="absolute left-0 top-full mt-0.5 text-[10px] leading-4 text-destructive whitespace-nowrap pointer-events-none">
+                {renameError}
+              </div>
             )}
           </div>
         ) : (
@@ -750,40 +784,50 @@ function FileTreeItem({
       </div>
 
       {/* 子项 */}
-      {expanded && children.length === 0 && childrenLoaded && (
-        <div
-          className="text-[11px] text-muted-foreground/50 py-1"
-          style={{ paddingLeft: paddingLeft + 24 }}
-        >
-          空文件夹
+      {expanded && (
+        <div className="relative">
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute bottom-1 top-0 w-px bg-border/70"
+            style={{ left: guideLeft }}
+          />
+          {children.length === 0 && childrenLoaded && (
+            <div
+              className="text-[11px] text-muted-foreground/50 py-1"
+              style={{ paddingLeft: paddingLeft + 24 }}
+            >
+              空文件夹
+            </div>
+          )}
+          {children.map((child) => (
+            <FileTreeItem
+              key={child.path}
+              entry={child}
+              depth={depth + 1}
+              selectedPaths={selectedPaths}
+              selectedCount={selectedCount}
+              renamingPath={renamingPath}
+              moving={moving}
+              refreshVersion={refreshVersion}
+              revealAncestors={revealAncestors}
+              revealTarget={revealTarget}
+              revealTs={revealTs}
+              recentlyModifiedSet={recentlyModifiedSet}
+              onSelect={onSelect}
+              onShowInFolder={onShowInFolder}
+              onStartRename={onStartRename}
+              onCancelRename={onCancelRename}
+              onRename={onRename}
+              onDelete={onDelete}
+              onMove={onMove}
+              onRefresh={handleRefreshAfterDelete}
+              onClearSelection={onClearSelection}
+              onAddToChat={onAddToChat}
+              onFilePreview={onFilePreview}
+            />
+          ))}
         </div>
       )}
-      {expanded && children.map((child) => (
-        <FileTreeItem
-          key={child.path}
-          entry={child}
-          depth={depth + 1}
-          selectedPaths={selectedPaths}
-          selectedCount={selectedCount}
-          renamingPath={renamingPath}
-          moving={moving}
-          refreshVersion={refreshVersion}
-          revealAncestors={revealAncestors}
-          revealTarget={revealTarget}
-          revealTs={revealTs}
-          recentlyModifiedSet={recentlyModifiedSet}
-          onSelect={onSelect}
-          onShowInFolder={onShowInFolder}
-          onStartRename={onStartRename}
-          onCancelRename={onCancelRename}
-          onRename={onRename}
-          onDelete={onDelete}
-          onMove={onMove}
-          onRefresh={handleRefreshAfterDelete}
-          onAddToChat={onAddToChat}
-          onFilePreview={onFilePreview}
-        />
-      ))}
-    </>
+    </div>
   )
 }

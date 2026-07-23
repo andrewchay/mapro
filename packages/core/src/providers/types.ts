@@ -69,6 +69,8 @@ export interface ToolResult {
   content: string
   /** 是否出错 */
   isError?: boolean
+  /** 需要随工具结果传回模型的图片，而非仅供 UI 展示的附件 */
+  imageData?: ImageAttachmentData[]
   /** 工具生成的附件（如生图工具的图片），附加到 assistant 消息展示 */
   generatedAttachments?: FileAttachment[]
 }
@@ -149,6 +151,20 @@ export interface StreamDoneEvent {
   stopReason?: 'end_turn' | 'tool_use' | string
 }
 
+/** 流式用量事件（OpenAI stream_options.include_usage 等协议的最后一条 chunk） */
+export interface StreamUsageEvent {
+  type: 'usage'
+  usage: {
+    input_tokens?: number
+    output_tokens?: number
+    total_tokens?: number
+    cache_read_input_tokens?: number
+    cache_creation_input_tokens?: number
+    prompt_cache_hit_tokens?: number
+    prompt_cache_miss_tokens?: number
+  }
+}
+
 /** 工具调用开始事件 */
 export interface StreamToolCallStartEvent {
   type: 'tool_call_start'
@@ -174,6 +190,7 @@ export type StreamEvent =
   | StreamReasoningBlockStopEvent
   | StreamErrorEvent
   | StreamDoneEvent
+  | StreamUsageEvent
   | StreamToolCallStartEvent
   | StreamToolCallDeltaEvent
 
@@ -196,6 +213,8 @@ export interface ProviderRequest {
 
 /** 流式请求的输入参数 */
 export interface StreamRequestInput {
+  /** 供应商类型（用于适配器做供应商特定决策） */
+  providerType?: ProviderType
   /** 供应商 API Base URL */
   baseUrl: string
   /** 明文 API Key */

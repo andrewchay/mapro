@@ -5,6 +5,8 @@
  * API Key 使用 Electron safeStorage 加密后存储在本地配置文件中。
  */
 
+import type { AgentRuntime } from './agent'
+
 /**
  * 支持的 AI 供应商类型
  */
@@ -55,25 +57,196 @@ export const PROVIDER_LABELS: Record<ProviderType, string> = {
   custom: 'OpenAI 兼容格式',
 }
 
+/** Agent runtime 调用供应商时使用的协议族 */
+export type AgentProviderProtocol = 'anthropic-messages' | 'openai-chat' | 'google-generative'
+
+/** 供应商在 Agent runtime 下的能力声明 */
+export interface AgentProviderRuntimeCapability {
+  /** 供应商默认 Agent API 协议 */
+  protocol: AgentProviderProtocol
+  /** 指定 runtime 下的 API 协议，未声明时使用 protocol */
+  runtimeProtocols?: Partial<Record<AgentRuntime, AgentProviderProtocol>>
+  /** 当前确认可用的 Agent runtime */
+  runtimes: readonly AgentRuntime[]
+  /** 是否确认支持工具调用 */
+  supportsToolCalling: boolean
+  /** 是否支持图片输入 */
+  supportsImages: boolean
+  /** 是否支持流式 usage 统计 */
+  supportsStreamUsage: boolean
+  /** 是否已完成 Agent runtime 合约验证 */
+  verifiedForAgentRuntime: boolean
+}
+
+/** 各供应商在 Agent runtime 下的能力矩阵 */
+export const AGENT_PROVIDER_RUNTIME_CAPABILITIES: Record<ProviderType, AgentProviderRuntimeCapability> = {
+  anthropic: {
+    protocol: 'anthropic-messages',
+    runtimes: ['claude', 'pi', 'ai-sdk'],
+    supportsToolCalling: true,
+    supportsImages: true,
+    supportsStreamUsage: false,
+    verifiedForAgentRuntime: true,
+  },
+  openai: {
+    protocol: 'openai-chat',
+    runtimes: ['proma', 'pi', 'ai-sdk'],
+    supportsToolCalling: true,
+    supportsImages: true,
+    supportsStreamUsage: true,
+    verifiedForAgentRuntime: false,
+  },
+  deepseek: {
+    protocol: 'openai-chat',
+    runtimeProtocols: {
+      claude: 'anthropic-messages',
+      proma: 'openai-chat',
+      pi: 'anthropic-messages',
+      'ai-sdk': 'openai-chat',
+    },
+    runtimes: ['claude', 'proma', 'pi', 'ai-sdk'],
+    supportsToolCalling: true,
+    supportsImages: false,
+    supportsStreamUsage: true,
+    verifiedForAgentRuntime: false,
+  },
+  google: {
+    protocol: 'google-generative',
+    runtimes: ['pi', 'ai-sdk'],
+    supportsToolCalling: true,
+    supportsImages: true,
+    supportsStreamUsage: false,
+    verifiedForAgentRuntime: false,
+  },
+  'kimi-api': {
+    protocol: 'anthropic-messages',
+    runtimeProtocols: {
+      claude: 'anthropic-messages',
+      proma: 'openai-chat',
+      pi: 'anthropic-messages',
+      'ai-sdk': 'openai-chat',
+    },
+    runtimes: ['claude', 'proma', 'pi', 'ai-sdk'],
+    supportsToolCalling: true,
+    supportsImages: true,
+    supportsStreamUsage: false,
+    verifiedForAgentRuntime: true,
+  },
+  'kimi-coding': {
+    protocol: 'anthropic-messages',
+    runtimeProtocols: {
+      claude: 'anthropic-messages',
+      proma: 'openai-chat',
+      pi: 'anthropic-messages',
+      'ai-sdk': 'openai-chat',
+    },
+    runtimes: ['claude', 'proma', 'pi', 'ai-sdk'],
+    supportsToolCalling: true,
+    supportsImages: false,
+    supportsStreamUsage: false,
+    verifiedForAgentRuntime: true,
+  },
+  zhipu: {
+    protocol: 'openai-chat',
+    runtimes: ['proma', 'pi', 'ai-sdk'],
+    supportsToolCalling: true,
+    supportsImages: true,
+    supportsStreamUsage: false,
+    verifiedForAgentRuntime: false,
+  },
+  minimax: {
+    protocol: 'anthropic-messages',
+    runtimes: ['claude', 'pi'],
+    supportsToolCalling: true,
+    supportsImages: true,
+    supportsStreamUsage: false,
+    verifiedForAgentRuntime: true,
+  },
+  doubao: {
+    protocol: 'openai-chat',
+    runtimes: ['proma', 'pi', 'ai-sdk'],
+    supportsToolCalling: true,
+    supportsImages: true,
+    supportsStreamUsage: false,
+    verifiedForAgentRuntime: false,
+  },
+  qwen: {
+    protocol: 'openai-chat',
+    runtimes: ['proma', 'pi', 'ai-sdk'],
+    supportsToolCalling: true,
+    supportsImages: true,
+    supportsStreamUsage: false,
+    verifiedForAgentRuntime: false,
+  },
+  custom: {
+    protocol: 'openai-chat',
+    runtimes: ['proma', 'pi', 'ai-sdk'],
+    supportsToolCalling: true,
+    supportsImages: true,
+    supportsStreamUsage: false,
+    verifiedForAgentRuntime: false,
+  },
+}
+
 /**
- * 支持 Agent 模式的供应商类型
+ * 支持 Claude runtime Agent 模式的供应商类型
  *
  * Agent SDK 通过 Anthropic 兼容协议调用 `/v1/messages` 端点，
  * 因此所有 Anthropic 协议兼容的供应商都可以用于 Agent。
  */
-export const AGENT_COMPATIBLE_PROVIDERS: ReadonlySet<ProviderType> = new Set<ProviderType>([
-  'anthropic',
-  'deepseek',
-  'kimi-api',
-  'kimi-coding',
-  'minimax',
-])
+export const AGENT_COMPATIBLE_PROVIDERS: ReadonlySet<ProviderType> = new Set<ProviderType>(
+  Object.entries(AGENT_PROVIDER_RUNTIME_CAPABILITIES)
+    .filter(([, capability]) => capability.runtimes.includes('claude'))
+    .map(([provider]) => provider as ProviderType),
+)
 
 /**
- * 判断供应商是否兼容 Agent 模式
+ * 判断供应商是否兼容指定 Agent runtime。未传 runtime 时保持旧行为：按 Claude runtime 判断。
  */
-export function isAgentCompatibleProvider(provider: ProviderType): boolean {
-  return AGENT_COMPATIBLE_PROVIDERS.has(provider)
+export function isAgentCompatibleProvider(provider: ProviderType, runtime: AgentRuntime = 'claude'): boolean {
+  return AGENT_PROVIDER_RUNTIME_CAPABILITIES[provider].runtimes.includes(runtime)
+}
+
+/** 获取指定 runtime 当前可用的 provider 列表 */
+export function getAgentCompatibleProviders(runtime: AgentRuntime): ProviderType[] {
+  return Object.entries(AGENT_PROVIDER_RUNTIME_CAPABILITIES)
+    .filter(([, capability]) => capability.runtimes.includes(runtime))
+    .map(([provider]) => provider as ProviderType)
+}
+
+/** 获取 provider 在 Agent runtime 下的协议族 */
+export function getAgentProviderProtocol(provider: ProviderType, runtime?: AgentRuntime): AgentProviderProtocol {
+  const capability = AGENT_PROVIDER_RUNTIME_CAPABILITIES[provider]
+  return runtime ? capability.runtimeProtocols?.[runtime] ?? capability.protocol : capability.protocol
+}
+
+/**
+ * 根据 Agent runtime 解析实际请求使用的 baseUrl。
+ *
+ * DeepSeek 在 Claude runtime 下使用 Anthropic-compatible `/anthropic` 端点；
+ * 在 MAPro runtime 下使用 OpenAI-compatible `/chat/completions`，因此需要把
+ * 历史默认值 `https://api.deepseek.com/anthropic` 转成 `https://api.deepseek.com`。
+ */
+export function resolveAgentRuntimeBaseUrl(provider: ProviderType, runtime: AgentRuntime, baseUrl: string): string {
+  const normalized = baseUrl.trim().replace(/\/+$/, '')
+  if (provider === 'deepseek' && (runtime === 'proma' || runtime === 'ai-sdk')) {
+    return normalized
+      .replace(/\/anthropic\/v\d+\/messages$/, '')
+      .replace(/\/anthropic\/v\d+$/, '')
+      .replace(/\/anthropic$/, '')
+  }
+  if (provider === 'kimi-api' && (runtime === 'proma' || runtime === 'ai-sdk')) {
+    return normalized
+      .replace(/\/messages$/, '')
+      .replace(/\/anthropic\/v\d+$/, '')
+      .replace(/\/anthropic$/, '')
+  }
+  if (provider === 'kimi-coding' && (runtime === 'proma' || runtime === 'ai-sdk')) {
+    return normalized
+      .replace(/\/chat\/completions$/, '')
+      .replace(/\/messages$/, '')
+  }
+  return normalized
 }
 
 /**
