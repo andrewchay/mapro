@@ -17,7 +17,6 @@ const DEFAULT_CONFIG: ChatToolsFileConfig = {
     'agent-mode-recommend': { enabled: true },
     'web-search': { enabled: true },
     'web-scraper': { enabled: true },
-    'computer-use': { enabled: true },
     'nano-banana': { enabled: false },
     'ma-kol-data-mcp': { enabled: true },
     'ma-strategy-iq': { enabled: true },

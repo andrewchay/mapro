@@ -42,20 +42,6 @@ const defaultTools = [
     enabled: true,
     available: true,
   },
-  {
-    meta: {
-      id: 'computer-use',
-      name: '视觉浏览器自动化',
-      description: '',
-      params: [],
-      icon: 'Monitor',
-      category: 'builtin',
-      executorType: 'builtin',
-      systemPromptAppend: '',
-    },
-    enabled: true,
-    available: true,
-  },
 ]
 
 function setupMockAPI(): MockElectronAPI {

@@ -1194,21 +1194,6 @@ export class AgentOrchestrator {
   }
 
   /**
-   * 注入 Computer Use 视觉浏览器自动化 MCP Server
-   */
-  private async injectComputerUseTools(
-    sdk: typeof import('@anthropic-ai/claude-agent-sdk'),
-    mcpServers: Record<string, Record<string, unknown>>,
-  ): Promise<void> {
-    try {
-      const { injectComputerUseMcpServer } = await import('./chat-tools/computer-use-mcp')
-      await injectComputerUseMcpServer(sdk, mcpServers)
-    } catch (err) {
-      console.error(`[Agent 编排] 注入 Computer Use MCP 失败:`, err)
-    }
-  }
-
-  /**
    * 注入 Browser Fetch MCP Server
    *
    * 为 Agent 提供可抓取登录态页面的 browser_fetch 工具，替代 SDK WebFetch。
@@ -1797,7 +1782,6 @@ export class AgentOrchestrator {
       await this.injectMemoryTools(sdk, mcpServers)
       await this.injectNanoBananaTools(sdk, mcpServers, sessionId, agentCwd)
       await this.injectKOLDataTools(sdk, mcpServers)
-      await this.injectComputerUseTools(sdk, mcpServers)
       await this.injectBrowserFetchTools(sdk, mcpServers)
 
       // 合并外部注入的自定义 MCP 服务器（如飞书群聊工具）

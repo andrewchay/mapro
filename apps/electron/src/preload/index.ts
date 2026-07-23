@@ -6,7 +6,7 @@
  */
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, COMPUTER_USE_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, CAMPAIGN_IPC_CHANNELS, KOL_DATA_IPC_CHANNELS, CONTENT_AUDIT_IPC_CHANNELS, CONTENT_TRACKING_IPC_CHANNELS, PHASE_REPORT_IPC_CHANNELS, AB_TEST_IPC_CHANNELS } from '@ma-proma/shared'
+import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, CAMPAIGN_IPC_CHANNELS, KOL_DATA_IPC_CHANNELS, CONTENT_AUDIT_IPC_CHANNELS, CONTENT_TRACKING_IPC_CHANNELS, PHASE_REPORT_IPC_CHANNELS, AB_TEST_IPC_CHANNELS } from '@ma-proma/shared'
 import { USER_PROFILE_IPC_CHANNELS, SETTINGS_IPC_CHANNELS, SCRATCH_PAD_IPC_CHANNELS, APP_ICON_IPC_CHANNELS, DOCK_BADGE_IPC_CHANNELS, STORAGE_IPC_CHANNELS } from '../types'
 import type {
   RuntimeStatus,
@@ -78,8 +78,6 @@ import type {
   ChatToolState,
   ChatToolMeta,
   ScheduledScrapingTask,
-  ComputerUseUIEvent,
-  ComputerUseControlCommand,
   MoveSessionToWorkspaceInput,
   ForkSessionInput,
   RewindSessionInput,
@@ -636,12 +634,6 @@ export interface ElectronAPI {
 
   /** 保存定时爬取任务列表 */
   saveScheduledScrapingTasks: (tasks: ScheduledScrapingTask[]) => Promise<void>
-
-  /** 监听 Computer Use 视觉浏览器自动化事件 */
-  onComputerUseEvent: (callback: (event: ComputerUseUIEvent) => void) => () => void
-
-  /** 向运行中的 Computer Use 任务发送控制命令 */
-  controlComputerUse: (taskId: string, command: ComputerUseControlCommand) => Promise<void>
 
   // ===== AskUserQuestion 交互式问答 =====
 
@@ -1819,16 +1811,6 @@ const electronAPI: ElectronAPI = {
 
   saveScheduledScrapingTasks: (tasks: ScheduledScrapingTask[]) => {
     return ipcRenderer.invoke(CHAT_TOOL_IPC_CHANNELS.SAVE_SCHEDULED_SCRAPING_TASKS, tasks)
-  },
-
-  onComputerUseEvent: (callback: (event: ComputerUseUIEvent) => void) => {
-    const listener = (_: unknown, event: ComputerUseUIEvent) => callback(event)
-    ipcRenderer.on(COMPUTER_USE_IPC_CHANNELS.EVENT, listener)
-    return () => { ipcRenderer.removeListener(COMPUTER_USE_IPC_CHANNELS.EVENT, listener) }
-  },
-
-  controlComputerUse: (taskId: string, command: ComputerUseControlCommand) => {
-    return ipcRenderer.invoke(COMPUTER_USE_IPC_CHANNELS.CONTROL, taskId, command)
   },
 
   // AskUserQuestion 交互式问答
