@@ -18,8 +18,8 @@
 
 | Runtime | 适配器 | 说明 |
 |---------|--------|------|
-| `claude`（默认） | `adapters/claude-agent-adapter.ts` | Claude Agent SDK 路径；MCP 工具注入（memos / nano-banana / KOL Data / browser_fetch）仍需 SDK 对象，故保留 `claude-sdk-loader.ts` |
-| `proma` | `adapters/provider-agnostic-agent-adapter.ts` | MAPro runtime：基于 `@ma-proma/core` ProviderAdapter + streamSSE 的自建工具循环 |
+| `proma`（默认） | `adapters/provider-agnostic-agent-adapter.ts` | MAPro runtime：基于 `@ma-proma/core` ProviderAdapter + streamSSE 的自建工具循环 |
+| `claude` | `adapters/claude-agent-adapter.ts` | Claude Agent SDK 路径；MCP 工具注入（memos / nano-banana / KOL Data / browser_fetch）仍需 SDK 对象，故保留 `claude-sdk-loader.ts` |
 | `ai-sdk` | `adapters/ai-sdk-agent-adapter.ts` | Vercel AI SDK runtime：复用同一套工具循环，模型调用走 `agent-runtime/ai-sdk-runtime-core.ts` + `@ma-proma/core` 的 `providers/ai-sdk-bridge.ts` |
 | `pi` | `adapters/pi-agent-adapter.ts` | Pi runtime：基于 `@earendil-works/pi-coding-agent`（`pi-message-adapter.ts` / `pi-model-registry.ts` / `pi-sdk-loader.ts`），只读工具白名单 |
 

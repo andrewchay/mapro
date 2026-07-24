@@ -509,8 +509,8 @@ Agent 模式支持四种 runtime，由 `AgentRuntime = 'claude' | 'proma' | 'pi'
 
 | Runtime | 适配器 | 说明 |
 |---------|--------|------|
-| `claude`（默认） | `claude-agent-adapter.ts` | Claude Agent SDK 路径，即下方原有架构；MCP 工具注入（memos / nano-banana / KOL Data / browser_fetch）仍需 SDK 对象 |
-| `proma` | `provider-agnostic-agent-adapter.ts` | Provider-Agnostic MAPro runtime：基于 `@ma-proma/core` ProviderAdapter + streamSSE 的自建工具循环（`agent-runtime/`），不再依赖 Claude SDK |
+| `proma`（默认） | `provider-agnostic-agent-adapter.ts` | Provider-Agnostic MAPro runtime：基于 `@ma-proma/core` ProviderAdapter + streamSSE 的自建工具循环（`agent-runtime/`），不再依赖 Claude SDK |
+| `claude` | `claude-agent-adapter.ts` | Claude Agent SDK 路径，即下方原有架构；MCP 工具注入（memos / nano-banana / KOL Data / browser_fetch）仍需 SDK 对象 |
 | `ai-sdk` | `ai-sdk-agent-adapter.ts` | Vercel AI SDK runtime：复用同一套 `agent-runtime/` 工具循环，模型调用走 `ai-sdk-runtime-core.ts` + `@ma-proma/core` 的 `providers/ai-sdk-bridge.ts` |
 | `pi` | `pi-agent-adapter.ts` | Pi runtime：基于 `@earendil-works/pi-coding-agent`，只读工具白名单 |
 
