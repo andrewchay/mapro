@@ -105,7 +105,7 @@ describe('RuntimeRoutingAgentAdapter', () => {
     expect(adapters['ai-sdk'].calls).toHaveLength(0)
   })
 
-  test('缺失或非法 runtime 默认走 Claude', async () => {
+  test('缺失或非法 runtime 默认走 MAPro', async () => {
     const adapters = createAdapters()
     const router = new RuntimeRoutingAgentAdapter(adapters)
 
@@ -113,8 +113,8 @@ describe('RuntimeRoutingAgentAdapter', () => {
       // 消费异步迭代，触发 query 记录。
     }
 
-    expect(adapters.claude.calls).toEqual([{ method: 'query', sessionId: 's2', value: 'claude' }])
-    expect(adapters.proma.calls).toHaveLength(0)
+    expect(adapters.proma.calls).toEqual([{ method: 'query', sessionId: 's2', value: 'proma' }])
+    expect(adapters.claude.calls).toHaveLength(0)
     expect(adapters.pi.calls).toHaveLength(0)
     expect(adapters['ai-sdk'].calls).toHaveLength(0)
   })

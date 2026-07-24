@@ -14,7 +14,7 @@ describe('Agent runtime 类型', () => {
   test('识别 AI SDK runtime 并保留旧值回退行为', () => {
     expect(isAgentRuntime('ai-sdk')).toBe(true)
     expect(getAgentRuntimeLabel('ai-sdk')).toBe('AI SDK')
-    expect(normalizeAgentRuntime('unknown')).toBe('claude')
+    expect(normalizeAgentRuntime('unknown')).toBe('proma')
   })
 
   test('AI SDK runtime 能力声明匹配当前工具体系接入状态', () => {

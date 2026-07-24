@@ -243,10 +243,10 @@ function AgentThinkingPopover({ agentThinking, onToggle }: AgentThinkingPopoverP
 }
 
 const AGENT_RUNTIME_OPTIONS: Array<{ value: AgentRuntime; label: string; description: string; disabled?: boolean }> = [
-  { value: 'claude', label: 'Claude', description: '使用 Claude Agent SDK' },
   { value: 'proma', label: 'MAPro', description: '使用 Provider-Agnostic Runtime' },
-  { value: 'pi', label: 'Pi', description: '使用 Pi Agent SDK（v1 只读工具）' },
   { value: 'ai-sdk', label: 'AI SDK', description: '使用 Vercel AI SDK Runtime' },
+  { value: 'claude', label: 'Claude', description: '使用 Claude Agent SDK' },
+  { value: 'pi', label: 'Pi', description: '使用 Pi Agent SDK（v1 只读工具）' },
 ]
 
 interface AgentRuntimeSelectorProps {

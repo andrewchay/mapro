@@ -606,8 +606,8 @@ function createAgentStreamEventId(): string {
 /** Agent 运行时类型 */
 export type AgentRuntime = 'claude' | 'proma' | 'pi' | 'ai-sdk'
 
-/** 默认 Agent 运行时，旧会话和旧设置统一按 Claude SDK 路径处理 */
-export const DEFAULT_AGENT_RUNTIME: AgentRuntime = 'claude'
+/** 默认 Agent 运行时，新会话和旧数据统一按 MAPro（Provider-Agnostic）Runtime 处理 */
+export const DEFAULT_AGENT_RUNTIME: AgentRuntime = 'proma'
 
 /** Agent runtime 展示名称，避免 UI / 编排层硬编码分支文案 */
 export const AGENT_RUNTIME_LABELS: Record<AgentRuntime, string> = {
