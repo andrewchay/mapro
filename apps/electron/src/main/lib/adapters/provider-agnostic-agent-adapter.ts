@@ -696,6 +696,7 @@ export class ProviderAgnosticAgentAdapter implements AgentProviderAdapter {
           toolCallId: tc.id,
           content: result.content,
           isError: result.isError,
+          imageData: result.imageData,
           generatedAttachments: result.generatedAttachments,
         })
       } catch (error) {

@@ -139,6 +139,11 @@ import {
   executeComputerUseRequestTakeoverTool,
 } from './tool-impls/computer-use-tools.ts'
 import { GOAL_CHECKPOINT_TOOL_NAME, createGoalCheckpointToolDefinition } from './tool-impls/goal-checkpoint-tool.ts'
+import {
+  PLAYWRIGHT_SCRAPE_TOOL_NAME,
+  createPlaywrightScrapeToolDefinition,
+  executePlaywrightScrapeTool,
+} from './tool-impls/playwright-scrape-tool.ts'
 export { ENTER_PLAN_MODE_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME, ASK_USER_QUESTION_TOOL_NAME, AGENT_TOOL_NAME, GOAL_CHECKPOINT_TOOL_NAME }
 export { LIST_MCP_RESOURCES_TOOL_NAME, READ_MCP_RESOURCE_TOOL_NAME }
 
@@ -157,6 +162,7 @@ export function createCoreTools(): RuntimeToolDefinition[] {
     createListMcpResourcesToolDefinition(),
     createReadMcpResourceToolDefinition(),
     createGoalCheckpointToolDefinition(),
+    { ...createPlaywrightScrapeToolDefinition(), execute: executePlaywrightScrapeTool },
     { ...createWebBridgeNavigateToolDefinition(), execute: executeWebBridgeNavigateTool },
     { ...createWebBridgeSnapshotToolDefinition(), execute: executeWebBridgeSnapshotTool },
     { ...createWebBridgeScreenshotToolDefinition(), execute: executeWebBridgeScreenshotTool },
@@ -201,6 +207,7 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   LIST_MCP_RESOURCES_TOOL_NAME,
   READ_MCP_RESOURCE_TOOL_NAME,
   GOAL_CHECKPOINT_TOOL_NAME,
+  PLAYWRIGHT_SCRAPE_TOOL_NAME,
   WEB_BRIDGE_NAVIGATE_TOOL_NAME,
   WEB_BRIDGE_SNAPSHOT_TOOL_NAME,
   WEB_BRIDGE_SCREENSHOT_TOOL_NAME,

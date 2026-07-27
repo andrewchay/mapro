@@ -27,6 +27,14 @@ const DEFAULT_AGENT_SYSTEM_PROMPT = `你是一个高效的编程助手，擅长�
 - 执行 bash 命令时注意工作目录
 - 完成后向用户说明修改内容`
 
+const BROWSER_AUTOMATION_GUIDANCE = `
+
+浏览器自动化选择：
+- 对登录态页面、达人筛选、稳定元素定位、批量提取或需要页面接口的流程，优先使用 PlaywrightScrape。它会复用用户配置的 Chrome/CDP/Profile，不要自行用 Bash 拼接未受管的浏览器脚本。
+- WebBridge 适合简单网页导航、读取和 CSS selector 操作；先读取快照再交互。
+- 只有 WebBridge 无法取得结构化页面元素时，才使用 Computer Use；先截图，再按截图坐标及 coordinate_scale 操作。
+- PlaywrightScrape、WebBridge 写操作和 Computer Use 都需要用户逐次确认；不得绕过登录、验证码、支付、发布或其他敏感确认。`
+
 /**
  * 构建 Agent system prompt
  *
@@ -37,7 +45,7 @@ export function buildAgentSystemPrompt(
   cwd: string,
 ): string {
   const base = baseSystemPrompt?.trim() || DEFAULT_AGENT_SYSTEM_PROMPT
-  return `${base}\n\n当前工作目录：${cwd}\n你可以使用工具来完成任务。需要调用工具时，请使用函数调用格式。`
+  return `${base}${BROWSER_AUTOMATION_GUIDANCE}\n\n当前工作目录：${cwd}\n你可以使用工具来完成任务。需要调用工具时，请使用函数调用格式。`
 }
 
 /**

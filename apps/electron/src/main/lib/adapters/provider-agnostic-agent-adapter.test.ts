@@ -38,6 +38,12 @@ mock.module('../document-parser', () => ({
   extractTextFromAttachment: async (localPath: string) => `文档内容：${localPath}`,
 }))
 
+mock.module('../web-bridge-service', () => ({
+  webBridgeService: {
+    screenshot: async () => ({ mediaType: 'image/png', data: 'AQID' }),
+  },
+}))
+
 // 被测模块需要在 mock 之后导入
 const { ProviderAgnosticAgentAdapter } = await import('./provider-agnostic-agent-adapter')
 
@@ -47,6 +53,7 @@ interface CapturedRequest {
   historyLength: number
   continuationCount: number
   attachmentCount?: number
+  continuationImageData?: unknown
 }
 
 describe('Provider-Agnostic Agent 适配器', () => {
@@ -83,6 +90,9 @@ describe('Provider-Agnostic Agent 适配器', () => {
               userMessage: body.userMessage,
               historyLength: (body.history ?? []).length,
               continuationCount: (body.continuationMessages ?? []).length,
+              continuationImageData: body.continuationMessages?.at(-1)?.role === 'tool'
+                ? body.continuationMessages.at(-1).results?.[0]?.imageData
+                : undefined,
             })
             return {
               url: 'http://localhost/mock',
@@ -175,6 +185,27 @@ describe('Provider-Agnostic Agent 适配器', () => {
     expect(capturedRequests[0]?.continuationCount).toBe(0)
     expect(capturedRequests[1]?.continuationCount).toBe(2) // assistant tool_use + user tool_result
     expect(capturedRequests[2]?.continuationCount).toBe(4) // 两轮 tool_use + tool_result
+  })
+
+  test('given a screenshot tool result when continuing then imageData is sent to the provider', async () => {
+    firstTurnToolCalls = [{ id: 'screenshot_1', name: 'WebBridgeScreenshot', arguments: {} }]
+    const adapter = new ProviderAgnosticAgentAdapter()
+
+    for await (const _message of adapter.query({
+      sessionId: 'screenshot-session',
+      prompt: '查看网页截图后继续',
+      model: 'deepseek-chat',
+      provider: 'deepseek',
+      apiKey: 'mock-key',
+      baseUrl: 'http://localhost/mock',
+      cwd: tempDir,
+      permissionMode: 'bypassPermissions',
+    })) {
+      // 消费完整 Agent 流以触发工具续接。
+    }
+
+    expect(capturedRequests).toHaveLength(3)
+    expect(capturedRequests[1]?.continuationImageData).toEqual([{ mediaType: 'image/png', data: 'AQID' }])
   })
 
   test('非 bypassPermissions 模式下写工具会被拒绝', async () => {

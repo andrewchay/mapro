@@ -123,6 +123,8 @@ export interface RuntimeMessage {
   toolCallId?: string
   /** 是否为错误结果 */
   isError?: boolean
+  /** 工具结果附带的图片，用于当前运行循环继续请求模型。 */
+  imageData?: import('@ma-proma/core').ImageAttachmentData[]
   /** 时间戳 */
   createdAt: number
 }

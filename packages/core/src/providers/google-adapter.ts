@@ -186,6 +186,13 @@ function appendContinuationMessages(
         },
       }))
       contents.push({ role: 'user', parts })
+      const images = contMsg.results.flatMap((result) => result.imageData ?? [])
+      if (images.length > 0) {
+        contents.push({
+          role: 'user',
+          parts: [{ text: '工具截图：' }, ...buildImageParts(images)],
+        })
+      }
     }
   }
 }

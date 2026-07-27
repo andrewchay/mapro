@@ -197,6 +197,14 @@ function appendContinuationMessages(
           content: result.content,
           tool_call_id: result.toolCallId,
         })
+        // Chat Completions 的 tool 消息不支持图片内容块；紧随 tool_result 追加一条
+        // user 图像消息，确保模型能在下一轮看到 Computer Use/Web Bridge 截图。
+        if (result.imageData?.length) {
+          messages.push({
+            role: 'user',
+            content: buildMessageContent('工具截图：', result.imageData),
+          })
+        }
       }
     }
   }

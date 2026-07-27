@@ -11,6 +11,8 @@ describe('Prompt 构建器', () => {
     const prompt = buildAgentSystemPrompt(undefined, '/tmp/workspace')
     expect(prompt).toContain('/tmp/workspace')
     expect(prompt).toContain('你可以使用工具')
+    expect(prompt).toContain('PlaywrightScrape')
+    expect(prompt).toContain('Computer Use')
   })
 
   test('sdkMessagesToChatMessages 转换文本对话', () => {

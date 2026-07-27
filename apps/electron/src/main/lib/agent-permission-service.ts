@@ -134,7 +134,7 @@ export class AgentPermissionService {
 
       // 系统级桌面读取/控制不能由子 Agent 自动批准，也不能沿用“始终允许”。
       // 这类操作可能读取任意屏幕内容或影响前台应用，必须回到用户确认流程。
-      const requiresPerActionApproval = isComputerUseTool(toolName) || isWebBridgeMutation(toolName)
+      const requiresPerActionApproval = isComputerUseTool(toolName) || isWebBridgeMutation(toolName) || isPlaywrightAutomationTool(toolName)
 
       // Worker（子代理）的工具调用自动批准，避免 UI 等待导致超时死锁
       if (options.agentID && !requiresPerActionApproval) {
@@ -186,7 +186,7 @@ export class AgentPermissionService {
     const sessionId = pending.request.sessionId
 
     // "总是允许"选项：加入会话白名单
-    if (alwaysAllow && behavior === 'allow' && !isComputerUseTool(pending.request.toolName) && !isWebBridgeMutation(pending.request.toolName)) {
+    if (alwaysAllow && behavior === 'allow' && !isComputerUseTool(pending.request.toolName) && !isWebBridgeMutation(pending.request.toolName) && !isPlaywrightAutomationTool(pending.request.toolName)) {
       this.addToWhitelist(sessionId, pending.request.toolName, pending.request.toolInput)
     }
 
@@ -404,6 +404,10 @@ function isWebBridgeMutation(toolName: string): boolean {
     'WebBridgeDownload',
     'WebBridgeUpload',
   ]).has(toolName)
+}
+
+function isPlaywrightAutomationTool(toolName: string): boolean {
+  return toolName === 'PlaywrightScrape'
 }
 
 /** 全局权限服务实例 */
