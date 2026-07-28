@@ -202,6 +202,10 @@ export interface AppSettings {
   agentMaxBudgetUsd?: number
   /** Agent 最大轮次（0 或 undefined = SDK 默认） */
   agentMaxTurns?: number
+  /** 追加到 MAPro Agent 内置规则后的用户自定义系统指令 */
+  agentSystemPrompt?: string
+  /** 对数据抓取任务默认优先使用受控 Playwright/CDP */
+  agentPreferPlaywrightCdp?: boolean
   /** 教程推荐横幅是否已关闭 */
   tutorialBannerDismissed?: boolean
   /** 自动归档天数（0 = 禁用，默认 7） */

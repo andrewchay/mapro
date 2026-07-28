@@ -582,6 +582,14 @@ export class AgentOrchestrator {
         () => permissionMode ?? MAPRO_DEFAULT_PERMISSION_MODE,
       )
 
+      const appSettings = getSettings()
+      const agentSystemPrompt = [
+        appSettings.agentSystemPrompt?.trim(),
+        appSettings.agentPreferPlaywrightCdp !== false
+          ? '浏览器数据抓取默认策略：只要用户要求从网页、达人平台或登录态页面筛选、提取、导出数据，必须优先调用 PlaywrightScrape。若网页爬取设置填写了 Chrome CDP 端口，PlaywrightScrape 会自动连接该 Chrome；不要改用 WebFetch、WebBridge 或 Bash 作为第一选择。'
+          : undefined,
+      ].filter((value): value is string => Boolean(value)).join('\n\n')
+
       const queryOptions: ProviderAgnosticAgentQueryOptions = {
         sessionId,
         agentRuntime,
@@ -592,7 +600,7 @@ export class AgentOrchestrator {
         apiKey,
         baseUrl,
         cwd: agentCwd,
-        systemPrompt: undefined,
+        systemPrompt: agentSystemPrompt || undefined,
         historyMessages,
         attachments,
         permissionMode: permissionMode ?? MAPRO_DEFAULT_PERMISSION_MODE,

@@ -14,6 +14,7 @@ import { toast } from 'sonner'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
@@ -149,6 +150,9 @@ export function AgentSettings(): React.ReactElement {
   const [updatingSkill, setUpdatingSkill] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [selectedSkillSlug, setSelectedSkillSlug] = React.useState<string | null>(null)
+  const [agentSystemPrompt, setAgentSystemPrompt] = React.useState('')
+  const [agentPreferPlaywrightCdp, setAgentPreferPlaywrightCdp] = React.useState(true)
+  const [savingRuntimeSettings, setSavingRuntimeSettings] = React.useState(false)
 
   const selectedSkill = skills.find((s) => s.slug === selectedSkillSlug) ?? null
 
@@ -158,14 +162,17 @@ export function AgentSettings(): React.ReactElement {
       return
     }
     try {
-      const [config, skillList, dir] = await Promise.all([
+      const [config, skillList, dir, appSettings] = await Promise.all([
         window.electronAPI.getWorkspaceMcpConfig(workspaceSlug),
         window.electronAPI.getWorkspaceSkills(workspaceSlug),
         window.electronAPI.getWorkspaceSkillsDir(workspaceSlug),
+        window.electronAPI.getSettings(),
       ])
       setMcpConfig(config)
       setSkills(skillList)
       setSkillsDir(dir)
+      setAgentSystemPrompt(appSettings.agentSystemPrompt ?? '')
+      setAgentPreferPlaywrightCdp(appSettings.agentPreferPlaywrightCdp !== false)
     } catch (error) {
       console.error('[Agent 设置] 加载工作区配置失败:', error)
     } finally {
@@ -409,22 +416,40 @@ ${skillList}
     ([name]) => name !== 'memos-cloud',
   )
 
+  const saveRuntimeSettings = async (): Promise<void> => {
+    setSavingRuntimeSettings(true)
+    try {
+      await window.electronAPI.updateSettings({
+        agentSystemPrompt: agentSystemPrompt.trim(),
+        agentPreferPlaywrightCdp,
+      })
+      toast.success('MAPro Agent 运行规则已保存，新消息将立即使用')
+    } catch (error) {
+      console.error('[Agent 设置] 保存运行规则失败:', error)
+      toast.error('保存 Agent 运行规则失败')
+    } finally {
+      setSavingRuntimeSettings(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="relative flex rounded-xl bg-muted p-1">
           <div
             className={cn(
-              'mode-slider absolute top-1 bottom-1 w-[calc(33.333%-3px)] rounded-lg bg-background shadow-sm transition-transform duration-300 ease-in-out',
+              'mode-slider absolute top-1 bottom-1 w-[calc(25%-3px)] rounded-lg bg-background shadow-sm transition-transform duration-300 ease-in-out',
               activeTab === 'skills' && 'translate-x-0',
               activeTab === 'mcp' && 'translate-x-[100%]',
               activeTab === 'tools' && 'translate-x-[200%]',
+              activeTab === 'runtime' && 'translate-x-[300%]',
             )}
           />
-          {[
-            { value: 'skills', label: 'Skills' },
-            { value: 'mcp', label: 'MCP' },
-            { value: 'tools', label: '内置工具' },
+            {[
+              { value: 'skills', label: 'Skills' },
+              { value: 'mcp', label: 'MCP' },
+              { value: 'tools', label: '内置工具' },
+              { value: 'runtime', label: '运行规则' },
           ].map(({ value, label }) => (
             <button
               key={value}
@@ -567,6 +592,42 @@ ${skillList}
         {/* ===== Built-in Tools Tab ===== */}
         <TabsContent value="tools" className="mt-4">
           <BuiltinAgentTools />
+        </TabsContent>
+
+        <TabsContent value="runtime" className="mt-4 space-y-4">
+          <SettingsSection title="MAPro Runtime 系统提示词" description="内置运行规则始终生效；此处内容会作为附加指令，避免覆盖工具、安全和浏览器自动化策略。">
+            <SettingsCard divided={false}>
+              <div className="space-y-2">
+                <label htmlFor="agent-system-prompt" className="text-sm font-medium">自定义系统指令</label>
+                <Textarea
+                  id="agent-system-prompt"
+                  value={agentSystemPrompt}
+                  onChange={(event) => setAgentSystemPrompt(event.target.value)}
+                  placeholder="例如：优先输出 JSON；筛选达人时先确认地区和粉丝量。"
+                  rows={8}
+                />
+                <details className="rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+                  <summary className="cursor-pointer font-medium text-foreground">查看当前内置规则</summary>
+                  <p className="mt-2 leading-5">登录态页面、达人筛选、稳定元素定位、批量提取和页面接口优先使用 PlaywrightScrape；Web Bridge 仅用于简单结构化网页操作；Computer Use 仅在 Web Bridge 无法提供结构化元素时兜底。敏感操作仍需要逐次确认。</p>
+                </details>
+              </div>
+            </SettingsCard>
+          </SettingsSection>
+
+          <SettingsSection title="默认浏览器自动化" description="启用后，MAPro 对网页和达人数据抓取会优先调用 PlaywrightScrape；它将复用“营销工具 > 网页爬取”中的 Chrome CDP、Profile 和 Cookie 设置。">
+            <SettingsCard divided={false}>
+              <SettingsRow label="默认优先 Playwright/CDP" description="当已填写 Chrome CDP 端口时，会自动连接该浏览器；每次自动化执行仍需确认。">
+                <Switch checked={agentPreferPlaywrightCdp} onCheckedChange={setAgentPreferPlaywrightCdp} />
+              </SettingsRow>
+            </SettingsCard>
+          </SettingsSection>
+
+          <div className="flex justify-end">
+            <Button onClick={() => void saveRuntimeSettings()} disabled={savingRuntimeSettings}>
+              <Save size={16} />
+              {savingRuntimeSettings ? '保存中…' : '保存运行规则'}
+            </Button>
+          </div>
         </TabsContent>
       </Tabs>
 

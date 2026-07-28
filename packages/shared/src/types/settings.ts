@@ -51,4 +51,8 @@ export interface AppSettings {
   defaultAgentWorkspaceId?: string
   /** Agent 默认权限模式 */
   defaultAgentPermissionMode?: MAProPermissionMode
+  /** 追加到 MAPro Agent 内置规则后的用户自定义系统指令 */
+  agentSystemPrompt?: string
+  /** 对数据抓取任务默认优先使用受控 Playwright/CDP */
+  agentPreferPlaywrightCdp?: boolean
 }

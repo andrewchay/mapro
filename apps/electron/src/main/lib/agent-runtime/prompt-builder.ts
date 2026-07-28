@@ -44,8 +44,8 @@ export function buildAgentSystemPrompt(
   baseSystemPrompt: string | undefined,
   cwd: string,
 ): string {
-  const base = baseSystemPrompt?.trim() || DEFAULT_AGENT_SYSTEM_PROMPT
-  return `${base}${BROWSER_AUTOMATION_GUIDANCE}\n\n当前工作目录：${cwd}\n你可以使用工具来完成任务。需要调用工具时，请使用函数调用格式。`
+  const customInstructions = baseSystemPrompt?.trim()
+  return `${DEFAULT_AGENT_SYSTEM_PROMPT}${BROWSER_AUTOMATION_GUIDANCE}${customInstructions ? `\n\n用户自定义系统指令：\n${customInstructions}` : ''}\n\n当前工作目录：${cwd}\n你可以使用工具来完成任务。需要调用工具时，请使用函数调用格式。`
 }
 
 /**

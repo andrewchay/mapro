@@ -15,6 +15,14 @@ describe('Prompt 构建器', () => {
     expect(prompt).toContain('Computer Use')
   })
 
+  test('given custom instructions when building an agent prompt then built-in browser rules remain visible', () => {
+    const prompt = buildAgentSystemPrompt('输出必须使用 JSON。', '/tmp/workspace')
+
+    expect(prompt).toContain('你是一个高效的编程助手')
+    expect(prompt).toContain('PlaywrightScrape')
+    expect(prompt).toContain('用户自定义系统指令：\n输出必须使用 JSON。')
+  })
+
   test('sdkMessagesToChatMessages 转换文本对话', () => {
     const messages: SDKMessage[] = [
       {
