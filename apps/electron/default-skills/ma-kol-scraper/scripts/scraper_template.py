@@ -372,7 +372,16 @@ class PgyCollector:
 
     def fetch_kol_detail(self, context, user_id, prev_page=None):
         """
-        在新标签页中打开 KOL 详情页，on_response 捕获 API 数据
+        在新标签页中打开 KOL 详情页，on_response 捕获基础 API 数据
+
+        采集内容：
+        1. blogger API（达人基础信息）
+        2. fans_profile API（粉丝画像）
+        3. notes_rate API（日常笔记/合作笔记 × 仅自然流量/全流量）
+        4. notes_detail API（笔记案例 tab 首页数据）
+
+        不包含翻页+抽屉提取（由 extract_coop_notes 单独完成）。
+        
         prev_page: 上一个详情页(page对象)，打开新页面前关闭
         """
         if prev_page is not None:
@@ -541,7 +550,143 @@ class PgyCollector:
             except Exception:
                 pass
 
-            # ===== 5. 翻页 + 抽屉曝光提取 =====
+            # ===== API 兜底（基础数据未捕获时主动 fetch） =====
+            if not any(k.startswith("notes_rate_") for k in captured):
+                print(f"      [兜底] 主动fetch notes_rate...")
+                for business, label in ((0, "daily"), (1, "coop")):
+                    for adv_sw, suffix in ((0, "organic"), (1, "all")):
+                        key = f"notes_rate_{label}_{suffix}"
+                        if key not in captured:
+                            try:
+                                url = (f"https://pgy.xiaohongshu.com/api/solar/kol/data_v3/notes_rate"
+                                       f"?userId={user_id}&business={business}&advertiseSwitch={adv_sw}&pageSize=50&pageNum=1")
+                                data = detail_page.evaluate(js_fetch_json(url))
+                                if data and data.get("code") == 0:
+                                    captured[key] = data
+                            except Exception:
+                                pass
+
+            if not captured.get("notes_detail"):
+                print(f"      [兜底] 主动fetch notes_detail...")
+                for business in (1, 0):
+                    try:
+                        url = (f"https://pgy.xiaohongshu.com/api/solar/kol/data_v2/notes_detail"
+                               f"?userId={user_id}&business={business}&pageNum=1&pageSize=20")
+                        data = detail_page.evaluate(js_fetch_json(url))
+                        if data and data.get("code") == 0:
+                            notes = safe_get(data, "data", "list", default=[]) or []
+                            if notes:
+                                captured.setdefault("notes_detail", []).append(data)
+                    except Exception:
+                        pass
+
+        except Exception as e:
+            print(f"      [ERROR] 详情页处理异常: {e}")
+
+        finally:
+            detail_page.remove_listener("response", on_resp)
+            if prev_page is not detail_page:  # 不要重复关闭
+                try:
+                    detail_page.close()
+                except Exception:
+                    pass
+
+        return captured, detail_page
+
+    def extract_coop_notes(self, context, user_id, prev_page=None):
+        """
+        在 KOL 详情页的笔记案例 tab 中执行翻页 + 抽屉提取合作笔记最低数据。
+
+        只在 fetch_kol_detail（基础采集）+ 轻量检查通过后调用。
+        导航到详情页 → 笔记案例 tab → 合作笔记 segment → 翻页 + 逐条抽屉提取。
+
+        prev_page: 上一个详情页(page对象)，打开新页面前关闭
+        """
+        if prev_page is not None:
+            try:
+                prev_page.close()
+            except Exception:
+                pass
+
+        captured = {"notes_detail": []}
+        detail_page = context.new_page()
+
+        def on_resp_notes(resp):
+            url = resp.url
+            try:
+                if resp.status != 200:
+                    return
+                if "/api/solar/kol/data_v2/notes_detail" in url and f"userId={user_id}" in url:
+                    data = resp.json()
+                    notes = safe_get(data, "data", "list", default=[]) or []
+                    if notes:
+                        captured["notes_detail"].append(data)
+                        print(f"      [API捕获] notes_detail 第{len(captured['notes_detail'])}页 {len(notes)}条")
+            except Exception:
+                pass
+
+        detail_page.on("response", on_resp_notes)
+
+        try:
+            # 1. 导航至详情页（快速加载，只需笔记案例 tab）
+            detail_url = f"https://pgy.xiaohongshu.com/solar/pre-trade/blogger-detail/{user_id}"
+            detail_page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
+            time.sleep(3)
+
+            # 关闭弹窗
+            try:
+                detail_page.evaluate(
+                    "() => { const el=document.querySelector('.d-modal-close'); if(el) el.click(); }"
+                )
+                time.sleep(1)
+            except Exception:
+                pass
+
+            # 2. 点击「笔记案例」tab
+            try:
+                detail_page.evaluate("window.scrollTo(0, 0)")
+                time.sleep(0.3)
+                detail_page.evaluate("""() => {
+                    const tabs = document.querySelectorAll('.d-tabs-header-label, .d-tab-header-space *');
+                    const t = Array.from(tabs).find(el => el.textContent.trim() === '笔记案例');
+                    if (t) t.click();
+                }""")
+                time.sleep(3)
+            except Exception:
+                pass
+
+            try:
+                detail_page.wait_for_response(
+                    lambda r: "/api/solar/kol/data_v2/notes_detail" in r.url
+                              and f"userId={user_id}" in r.url and r.status == 200,
+                    timeout=15000
+                )
+            except Exception:
+                pass
+            time.sleep(2)
+
+            # 3. 筛选「合作笔记」segment
+            try:
+                detail_page.evaluate("""() => {
+                    const segs = document.querySelectorAll('.d-segment-item');
+                    const allCoop = Array.from(segs).filter(el => el.textContent.trim() === '合作笔记');
+                    const coop = allCoop.length >= 2 ? allCoop[1] : allCoop[0];
+                    if (coop) { coop.click(); return true; }
+                    return false;
+                }""")
+                try:
+                    detail_page.wait_for_response(
+                        lambda r: "/api/solar/kol/data_v2/notes_detail" in r.url
+                                  and f"userId={user_id}" in r.url and r.status == 200,
+                        timeout=15000
+                    )
+                except Exception:
+                    pass
+                time.sleep(2)
+            except Exception:
+                pass
+
+            # 4. 翻页 + 抽屉提取
             pull_cutoff = datetime.datetime.now() - datetime.timedelta(days=30 * self.coop_note_months)
             seen_ids = set()
             note_exposure = captured.setdefault("note_exposure", {})
@@ -672,48 +817,17 @@ class PgyCollector:
                         )
                         time.sleep(0.5)
 
-            # API 兜底
-            if not any(k.startswith("notes_rate_") for k in captured):
-                print(f"      [兜底] 主动fetch notes_rate...")
-                for business, label in ((0, "daily"), (1, "coop")):
-                    for adv_sw, suffix in ((0, "organic"), (1, "all")):
-                        key = f"notes_rate_{label}_{suffix}"
-                        if key not in captured:
-                            try:
-                                url = (f"https://pgy.xiaohongshu.com/api/solar/kol/data_v3/notes_rate"
-                                       f"?userId={user_id}&business={business}&advertiseSwitch={adv_sw}&pageSize=50&pageNum=1")
-                                data = detail_page.evaluate(js_fetch_json(url))
-                                if data and data.get("code") == 0:
-                                    captured[key] = data
-                            except Exception:
-                                pass
-
-            if not captured.get("notes_detail"):
-                print(f"      [兜底] 主动fetch notes_detail...")
-                for business in (1, 0):
-                    try:
-                        url = (f"https://pgy.xiaohongshu.com/api/solar/kol/data_v2/notes_detail"
-                               f"?userId={user_id}&business={business}&pageNum=1&pageSize=20")
-                        data = detail_page.evaluate(js_fetch_json(url))
-                        if data and data.get("code") == 0:
-                            notes = safe_get(data, "data", "list", default=[]) or []
-                            if notes:
-                                captured.setdefault("notes_detail", []).append(data)
-                    except Exception:
-                        pass
-
         except Exception as e:
-            print(f"      [ERROR] 详情页处理异常: {e}")
+            print(f"      [ERROR] 深度采集异常: {e}")
 
         finally:
-            detail_page.remove_listener("response", on_resp)
-            if prev_page is not detail_page:  # 不要重复关闭
-                try:
-                    detail_page.close()
-                except Exception:
-                    pass
+            detail_page.remove_listener("response", on_resp_notes)
+            try:
+                detail_page.close()
+            except Exception:
+                pass
 
-        return captured, detail_page
+        return captured
 
     # ==================== 构建数据行 ====================
 
@@ -935,14 +1049,14 @@ class PgyCollector:
                     debug["filtered_out"].append({"name": name, "reason": "tags"})
                     continue
 
-                print(f"  进入详情页采集...")
+                print(f"  进入详情页采集（基础信息）...")
 
-                # 详情页采集（带重试）
+                # 第一阶段：只采基础信息（blogger + 粉丝画像 + 日常笔记数值），跳过翻页+抽屉
                 captured = None
                 for attempt in range(2):
                     try:
                         captured, prev_detail_page = self.fetch_kol_detail(
-                            context, user_id, prev_page=prev_detail_page
+                            context, user_id, prev_page=prev_detail_page, skip_detail_notes=True
                         )
                         break
                     except Exception as e:
@@ -968,7 +1082,7 @@ class PgyCollector:
                     debug["errors"].append({"name": name, "stage": "blogger_empty"})
                     continue
 
-                # 详情页二次过滤
+                # 详情页二次过滤（轻量检查）
                 if not self.kol_matches_location(blogger):
                     debug["filtered_out"].append({"name": name, "reason": "detail_location"})
                     continue
@@ -982,20 +1096,20 @@ class PgyCollector:
                     debug["filtered_out"].append({"name": name, "reason": "detail_tags"})
                     continue
 
-                # 活跃度
+                # 活跃度检查（提前）
                 notes_rate_for_active = captured.get("notes_rate_daily_organic") or captured.get("notes_rate_daily_all") or {}
                 if not self.is_active_recently(notes_rate_for_active, blogger):
                     print(f"  -> 过滤: 近{self.active_within_days}天未更新")
                     debug["filtered_out"].append({"name": name, "reason": "inactive"})
                     continue
 
-                # 水号检测
+                # 水号检测（提前）
                 if self.is_water_account(notes_rate_for_active):
                     print(f"  -> 过滤: 水号")
                     debug["filtered_out"].append({"name": name, "reason": "water_account"})
                     continue
 
-                # 粉丝城市
+                # 粉丝城市检查（提前）
                 fans_profile = captured.get("fans_profile") or {}
                 ok_city, top5_cities = self.fan_profile_matches(fans_profile)
                 if not ok_city:
@@ -1003,11 +1117,36 @@ class PgyCollector:
                     debug["filtered_out"].append({"name": name, "reason": "fan_city"})
                     continue
 
+                # 第二阶段：重操作——翻页 + 抽屉提取合作笔记最低数据
+                print(f"  -> 基础检查通过，进入详情页深度采集（翻页+抽屉提取合作笔记曝光）...")
+                for attempt in range(2):
+                    try:
+                        captured_deep = self.extract_coop_notes(
+                            context, user_id, prev_page=prev_detail_page
+                        )
+                        # 合并深度采集的数据
+                        if captured_deep.get("notes_detail"):
+                            captured["notes_detail"] = captured_deep["notes_detail"]
+                        if captured_deep.get("note_exposure"):
+                            captured["note_exposure"] = captured_deep["note_exposure"]
+                        prev_detail_page = None  # extract_coop_notes 已关闭页面
+                        break
+                    except Exception as e:
+                        print(f"  [ERROR] 深度采集第{attempt+1}次: {e}")
+                        if attempt == 0:
+                            prev_detail_page = None
+                            time.sleep(2)
+
                 # 构建行
                 row = self.build_row(kol, blogger, captured, top5_cities)
                 results.append(row)
                 debug["filtered_in"].append({"name": row["达人名称"], "userId": user_id})
                 print(f"  ✅ MATCH: {row['达人名称']} (累计 {len(results)} 条)")
+
+                # 每收集到 10 个 KOL 写入一次 CSV（防中断丢数据）
+                if len(results) % 10 == 0:
+                    print(f"\n  [中间写入] 已收集 {len(results)} 个 KOL，写入 CSV...")
+                    self.save_csv(results, output_file)
 
                 time.sleep(0.5)
 
@@ -1018,7 +1157,7 @@ class PgyCollector:
                     except Exception:
                         break
 
-        # ===== 3. 写入 CSV =====
+        # ===== 3. 最终写入 CSV =====
         print("\n========== 写入结果 ==========")
         self.save_csv(results, output_file)
 
