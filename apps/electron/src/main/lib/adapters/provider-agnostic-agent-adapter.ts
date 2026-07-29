@@ -465,7 +465,7 @@ export class ProviderAgnosticAgentAdapter implements AgentProviderAdapter {
       return { allowed: true }
     }
 
-    // Safe 模式本地兜底：仅放行只读工具与只读 Bash，默认拒绝写操作
+    // Safe 模式：只读工具本地放行，写操作委托给 canUseTool 回调（弹出用户审批）
     if (ctx.permissionMode === 'safe') {
       const safeAllowedTools = new Set([
         'Read',
@@ -499,6 +499,12 @@ export class ProviderAgnosticAgentAdapter implements AgentProviderAdapter {
         if (isBashCommandReadOnly(command)) {
           return { allowed: true }
         }
+      }
+
+      // 委托给 canUseTool 回调（有回调时弹窗让用户审批，与 Claude runtime safe→auto 行为一致）
+      if (ctx.canUseTool) {
+        const signal = ctx.abortSignal ?? new AbortController().signal
+        return ctx.canUseTool(toolName, input, signal)
       }
 
       return { allowed: false, message: '安全模式下不允许执行写操作，请切换到自动审批或完全自动模式' }
