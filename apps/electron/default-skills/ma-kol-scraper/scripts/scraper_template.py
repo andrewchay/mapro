@@ -748,32 +748,48 @@ class PgyCollector:
 
                 print(f"      [抽屉] 第{pg}页有{len(page_coop)}条合作笔记")
 
-                for coop_note in page_coop:
-                    nid = coop_note.get("noteId")
+                for ci in range(len(page_coop)):
+                    note = page_coop[ci]
+                    nid = note.get("noteId")
                     if nid and nid in note_exposure:
                         continue
 
-                    # 在 new_notes（当前页全部笔记）中找到该合作笔记的真实索引
-                    real_idx = next((j for j, nn in enumerate(new_notes) if nn.get("noteId") == nid), -1)
-                    if real_idx < 0:
-                        continue
-
-                    ntitle = (coop_note.get("title") or "").strip()[:20]
-                    print(f"        [点击] 索引#{real_idx} '{ntitle}'...")
+                    ntitle = (note.get("title") or "").strip()[:20]
 
                     clicked = detail_page.evaluate(
-                        """({idx}) => {
+                        """({title_fragment}) => {
                             const cards = document.querySelectorAll('.note-card-wrapper, [class*=note-card]');
-                            if (idx >= cards.length) return false;
-                            const card = cards[idx];
-                            const mask = card.querySelector('.note-card__mask, [class*=mask]');
-                            if (mask) { mask.scrollIntoView({block: 'center'}); mask.click(); return true; }
-                            card.scrollIntoView({block: 'center'}); card.click(); return true;
+                            let found = null;
+                            for (const card of cards) {
+                                if (card.hasAttribute('data-scraped')) continue;
+                                const titleEl = card.querySelector('.note-card__title, [class*=title]');
+                                const cardTitle = (titleEl || card).textContent.trim();
+                                if (cardTitle.includes(title_fragment) || title_fragment.includes(cardTitle.slice(0, 10))) {
+                                    const mask = card.querySelector('.note-card__mask, [class*=mask]');
+                                    if (mask) { mask.scrollIntoView({block: 'center'}); mask.click(); }
+                                    else { card.scrollIntoView({block: 'center'}); card.click(); }
+                                    card.setAttribute('data-scraped', '1');
+                                    return cardTitle.slice(0, 20);
+                                }
+                            }
+                            // fallback: click first unscraped card
+                            for (const card of cards) {
+                                if (!card.hasAttribute('data-scraped')) {
+                                    const mask = card.querySelector('.note-card__mask, [class*=mask]');
+                                    if (mask) { mask.scrollIntoView({block: 'center'}); mask.click(); }
+                                    else { card.scrollIntoView({block: 'center'}); card.click(); }
+                                    card.setAttribute('data-scraped', '1');
+                                    return (card.querySelector('.note-card__title, [class*=title]') || card).textContent.trim().slice(0, 20);
+                                }
+                            }
+                            return null;
                         }""",
-                        {"idx": real_idx},
+                        {"title_fragment": ntitle},
                     )
                     if not clicked:
+                        print(f"        [跳过] 未找到 '{ntitle}' 对应的卡片")
                         continue
+                    print(f"        [点击] 第{ci+1}条 '{clicked}'...")
                     time.sleep(2.5)
 
                     drawer_data = detail_page.evaluate("""() => {
@@ -1060,7 +1076,7 @@ class PgyCollector:
                 for attempt in range(2):
                     try:
                         captured, prev_detail_page = self.fetch_kol_detail(
-                            context, user_id, prev_page=prev_detail_page
+                            context, user_id, prev_page=prev_detail_page, skip_detail_notes=True
                         )
                         break
                     except Exception as e:
