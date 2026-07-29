@@ -1,7 +1,7 @@
 ---
 name: "ma-kol-scraper"
 description: "从蒲公英平台按条件批量采集 KOL 数据并输出 CSV。基于用户的产品定位和筛选需求，通过 CDP 连接 Chrome，探索可用参数，生成定制 Python 采集脚本后自动运行输出 CSV。当用户提到采集/爬虫/蒲公英/KOL 数据/批量导出达人或类似表述时触发。"
-version: "1.0.5"
+version: "1.0.6"
 ---
 
 # 蒲公英 KOL 采集脚本生成器
@@ -76,7 +76,7 @@ version: "1.0.5"
 导航至 `blogger-detail/{user_id}` → 等待 blogger API 响应 → 关闭弹窗（`.d-modal-close`）→ 点击「数据概览」tab 并 scroll 到数据表现区域 → 切换流量类型为「仅自然流量」（点下拉选单中的"仅自然流量"）→ 依次点击「日常笔记」/「合作笔记」按钮触发 notes_rate → 点击「笔记案例」tab → 筛选「合作笔记」segment → 得到 blogger + fans_profile + notes_rate + notes_detail 首页数据。
 
 **阶段一之后的轻量检查（按顺序）：**
-① 详情页二次过滤（地域/报价/粉丝/标签）→ ② 活跃度检查（近 30 天有更新）→ ③ 水号检测（阅读/点赞比 11.43~30.0）→ ④ 粉丝城市检查（前五城市含目标城市）。**任何一项不通过 → continue 跳过，不执行阶段二。**
+① 详情页二次过滤（地域/报价/粉丝/标签）→ ② 活跃度检查（近 10 天有更新，通过 `is_active_recently` 判断 daily notes_rate 的发布篇数）→ ③ 水号检测（阅读/点赞比 11.43~30.0，通过 `is_water_account` 判断）→ ④ 粉丝城市检查（前五城市含目标城市）。**任何一项不通过 → continue 跳过，不执行阶段二。**
 
 **阶段二（翻页 + 抽屉提取，`extract_coop_notes` 独立方法）：**
 只在前置检查全部通过后调用。导航到详情页 → 直接跳转「笔记案例 → 合作笔记」→ 翻页循环（`pageNum=1` 开始，最大 N 页）→ 逐页点击页脚页码按钮（`.d-pagination-page`）→ 过滤超过 `coop_note_months` 个月的合作笔记 → 逐条点击卡片（`.note-card-wrapper`）打开抽屉 → 从 `.d-drawer-content` 的 `innerText` 中解析曝光量、阅读量、点赞量等 → 关闭抽屉（`Escape` 键兜底 `.d-drawer-guard`）。
@@ -88,7 +88,7 @@ version: "1.0.5"
    - 每个 KOL 采集完关闭标签页
    - 阶段一/二各自外层重试 2 次
    - 失败不中断整体流程
-   - **每收集到 10 个匹配 KOL 写入一次 CSV**，防止长时间采集中断丢数据
+   - **每收集到一个匹配 KOL 就写入 CSV**，防止长时间采集中断丢数据
 
 **脚本写入路径**：`{WORKSPACE_FILES}/scrape_{product}_{cities}.py`
 

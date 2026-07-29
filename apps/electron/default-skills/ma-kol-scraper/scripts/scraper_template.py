@@ -1143,10 +1143,9 @@ class PgyCollector:
                 debug["filtered_in"].append({"name": row["达人名称"], "userId": user_id})
                 print(f"  ✅ MATCH: {row['达人名称']} (累计 {len(results)} 条)")
 
-                # 每收集到 10 个 KOL 写入一次 CSV（防中断丢数据）
-                if len(results) % 10 == 0:
-                    print(f"\n  [中间写入] 已收集 {len(results)} 个 KOL，写入 CSV...")
-                    self.save_csv(results, output_file)
+                # 每收集到一个 KOL 就写入 CSV（防中断丢数据）
+                print(f"  [写入] 写入 CSV...")
+                self.save_csv(results, output_file)
 
                 time.sleep(0.5)
 
