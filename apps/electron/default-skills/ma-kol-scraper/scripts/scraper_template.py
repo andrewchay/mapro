@@ -748,14 +748,18 @@ class PgyCollector:
 
                 print(f"      [抽屉] 第{pg}页有{len(page_coop)}条合作笔记")
 
-                for ci in range(len(page_coop)):
-                    note = page_coop[ci]
-                    nid = note.get("noteId")
+                for coop_note in page_coop:
+                    nid = coop_note.get("noteId")
                     if nid and nid in note_exposure:
                         continue
 
-                    ntitle = (note.get("title") or "").strip()[:20]
-                    print(f"        [点击] 第{ci+1}条 '{ntitle}'...")
+                    # 在 new_notes（当前页全部笔记）中找到该合作笔记的真实索引
+                    real_idx = next((j for j, nn in enumerate(new_notes) if nn.get("noteId") == nid), -1)
+                    if real_idx < 0:
+                        continue
+
+                    ntitle = (coop_note.get("title") or "").strip()[:20]
+                    print(f"        [点击] 索引#{real_idx} '{ntitle}'...")
 
                     clicked = detail_page.evaluate(
                         """({idx}) => {
@@ -766,7 +770,7 @@ class PgyCollector:
                             if (mask) { mask.scrollIntoView({block: 'center'}); mask.click(); return true; }
                             card.scrollIntoView({block: 'center'}); card.click(); return true;
                         }""",
-                        {"idx": ci},
+                        {"idx": real_idx},
                     )
                     if not clicked:
                         continue
@@ -1056,7 +1060,7 @@ class PgyCollector:
                 for attempt in range(2):
                     try:
                         captured, prev_detail_page = self.fetch_kol_detail(
-                            context, user_id, prev_page=prev_detail_page, skip_detail_notes=True
+                            context, user_id, prev_page=prev_detail_page
                         )
                         break
                     except Exception as e:
