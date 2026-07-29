@@ -1,7 +1,7 @@
 ---
 name: "ma-kol-scraper"
 description: "从蒲公英平台按条件批量采集 KOL 数据并输出 CSV。基于用户的产品定位和筛选需求，通过 CDP 连接 Chrome，探索可用参数，生成定制 Python 采集脚本后自动运行输出 CSV。当用户提到采集/爬虫/蒲公英/KOL 数据/批量导出达人或类似表述时触发。"
-version: "1.0.6"
+version: "1.0.7"
 ---
 
 # 蒲公英 KOL 采集脚本生成器
