@@ -6,15 +6,14 @@
 生成定制化脚本时参考此模板的模式和实现细节。
 
 基于 collect_pgy_v4.py / collect_kol_data.py / collect_v3.py 的成熟模式。
-所有产出文件写入 WORKSPACE_FILES 目录（工作区文件目录），
-不受会话工作目录变更影响。
-"""
+所有产出文件写入当前会话的独立目录（SESSION_DIR），
+不受会话工作目录变更影响。"""
 import csv, datetime, json, os, sys, time, uuid, argparse, traceback
 import playwright.sync_api
 
-# 工作区文件目录（所有产出写入此处，不依赖当前工作目录）
-WORKSPACE_FILES = "<workspace-files-dir>"
-os.makedirs(WORKSPACE_FILES, exist_ok=True)
+# 会话文件目录（所有产出写入当前会话独立目录）
+SESSION_DIR = "<session-dir>"
+os.makedirs(SESSION_DIR, exist_ok=True)
 
 # ==================== 表头 ====================
 HEADERS = [
@@ -954,14 +953,14 @@ class PgyCollector:
     # ==================== CSV 写入 ====================
 
     def save_csv(self, results, output_file):
-        """写入 CSV（带 BOM + 去重），写入 WORKSPACE_FILES 目录"""
+        """写入 CSV（带 BOM + 去重），写入当前会话目录"""
         if not results:
             print("  无结果，跳过写入")
             return
 
-        # 输出到 WORKSPACE_FILES 目录
+        # 输出到 SESSION_DIR 目录
         if not os.path.isabs(output_file):
-            output_file = os.path.join(WORKSPACE_FILES, output_file)
+            output_file = os.path.join(SESSION_DIR, output_file)
 
         existing_names = set()
         if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
@@ -1180,7 +1179,7 @@ class PgyCollector:
         print("\n========== 写入结果 ==========")
         self.save_csv(results, output_file)
 
-        output_path = os.path.join(WORKSPACE_FILES, output_file)
+        output_path = os.path.join(SESSION_DIR, output_file)
         print(f"\n✅ 完成！匹配 {len(results)} 个 KOL")
         print(f"   输出文件: {output_path}")
         return results
@@ -1191,18 +1190,18 @@ class PgyCollector:
 def main():
     parser = argparse.ArgumentParser(description="蒲公英 KOL 采集器")
     parser.add_argument("--config", default="kol_config.json", help="配置文件路径")
-    parser.add_argument("--output", default=None, help="输出 CSV 文件名（写入 WORKSPACE_FILES 目录）")
+    parser.add_argument("--output", default=None, help="输出 CSV 文件名（写入当前会话目录）")
     args = parser.parse_args()
 
-    config_path = args.config if os.path.isabs(args.config) else os.path.join(WORKSPACE_FILES, args.config)
+    config_path = args.config if os.path.isabs(args.config) else os.path.join(SESSION_DIR, args.config)
     with open(config_path, encoding="utf-8") as f:
         cfg = json.load(f)
 
     output_file = args.output or cfg.get("output_file", "KOL采集结果.csv")
 
-    # 所有产出写入 WORKSPACE_FILES
-    output_path = os.path.join(WORKSPACE_FILES, output_file)
-    os.makedirs(WORKSPACE_FILES, exist_ok=True)
+    # 所有产出写入当前会话目录
+    output_path = os.path.join(SESSION_DIR, output_file)
+    os.makedirs(SESSION_DIR, exist_ok=True)
 
     collector = PgyCollector(cfg)
     collector.run(output_file)
