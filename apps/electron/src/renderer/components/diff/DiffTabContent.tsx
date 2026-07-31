@@ -25,6 +25,7 @@ const DOCX_EXTS = new Set(['.docx'])
 const OFFICE_PREVIEW_EXTS = new Set(['.xlsx', '.pptx'])
 const LEGACY_OFFICE_EXTS = new Set(['.doc', '.xls', '.ppt'])
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico'])
+const HTML_EXTS = new Set(['.html', '.htm'])
 
 /**
  * 简易 LRU 缓存：保留最近访问的 N 个 entries。
@@ -44,6 +45,7 @@ type CacheEntry = {
   docxHtml?: string
   officeHtml?: string
   officeText?: string
+  htmlSrc?: string
 }
 const CACHE_MAX = 50
 const contentCache = new Map<string, CacheEntry>()
@@ -202,6 +204,9 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
   const pdfIframeRef = React.useRef<HTMLIFrameElement>(null)
   const [imagePath, setImagePath] = React.useState('')
   const [imageDataUrl, setImageDataUrl] = React.useState('')
+  const [htmlSrc, setHtmlSrc] = React.useState('')
+  /** true = HTML 源码视图，false（默认）= iframe 渲染视图 */
+  const [htmlSourceMode, setHtmlSourceMode] = React.useState(false)
   // 默认 25%：预览面板空间有限，先展示缩略全貌，用户可手动放大查看细节
   const [imageZoom, setImageZoom] = React.useState(0.25)
   const [imageNaturalSize, setImageNaturalSize] = React.useState({ w: 0, h: 0 })
@@ -224,6 +229,7 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
   const isOfficePreview = previewOnly && OFFICE_PREVIEW_EXTS.has(ext)
   const isLegacyOffice = previewOnly && LEGACY_OFFICE_EXTS.has(ext)
   const isImage = previewOnly && IMAGE_EXTS.has(ext)
+  const isHtml = previewOnly && HTML_EXTS.has(ext)
 
   // ===== 选中文本引用（Quoted Selection）=====
 
@@ -432,6 +438,8 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
     setPdfZoom(100)
     setImagePath('')
     setImageDataUrl('')
+    setHtmlSrc('')
+    setHtmlSourceMode(false)
     setImageZoom(0.25)
     setImageNaturalSize({ w: 0, h: 0 })
     setLoading(!isLegacyOffice)
@@ -495,6 +503,7 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
       setPdfZoom(100)
       setImagePath(cached.imagePath ?? '')
       setImageDataUrl(cached.imageDataUrl ?? '')
+      setHtmlSrc(cached.htmlSrc ?? '')
       setImageZoom(0.25)
       setImageNaturalSize({ w: 0, h: 0 })
       setLoading(false)
@@ -510,6 +519,7 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
       setPdfZoom(100)
       setImagePath('')
       setImageDataUrl('')
+      setHtmlSrc('')
       setImageZoom(0.25)
       setImageNaturalSize({ w: 0, h: 0 })
       lastNewContentRef.current = ''
@@ -543,6 +553,21 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
                 setImageDataUrl('')
                 cacheSet(cacheKey, { oldContent: '', newContent: '', imagePath: '', imageDataUrl: '' })
               }
+              return
+            }
+            if (isHtml) {
+              // 渲染视图用 mapro-file:// URL（相对资源可加载），源码视图用文本内容
+              const [resolved, fileResult] = await Promise.all([
+                window.electronAPI.resolveFilePath(filePath, fileAccess),
+                window.electronAPI.resolveAndReadFile(filePath, fileAccess),
+              ])
+              if (cancelled) return
+              const src = resolved?.url ?? ''
+              content = fileResult?.content ?? ''
+              setHtmlSrc(src)
+              lastNewContentRef.current = content
+              setNewContent(content)
+              cacheSet(cacheKey, { oldContent: '', newContent: content, htmlSrc: src })
               return
             }
             if (isDocx) {
@@ -597,7 +622,7 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
     load()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filePath, dirPath, gitRoot, previewOnly, previewContentVersion, fileAccess, isPdf, isDocx, isOfficePreview, isLegacyOffice, isImage, sessionId, ext, getContentCacheKey])
+  }, [filePath, dirPath, gitRoot, previewOnly, previewContentVersion, fileAccess, isPdf, isDocx, isOfficePreview, isLegacyOffice, isImage, isHtml, sessionId, ext, getContentCacheKey])
 
   // refreshVersion 触发的静默刷新：仅 diff 模式、内容有变化时才更新 state
   const prevRefreshRef = React.useRef(-1)
@@ -663,12 +688,14 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
       message = `无法加载 ${ext === '.pptx' ? 'PPTX' : 'Excel'} 预览`
     } else if (isImage && !imageDataUrl) {
       message = '图片文件过大，无法在此预览'
+    } else if (isHtml && !htmlSrc && !newContent) {
+      message = '无法加载 HTML 预览'
     }
     if (message) {
       toastedPreviewFailRef.current = key
       toast.warning(message)
     }
-  }, [previewOnly, loading, filePath, ext, isLegacyOffice, isPdf, pdfSrc, isDocx, docxHtml, isOfficePreview, officeHtml, isImage, imageDataUrl])
+  }, [previewOnly, loading, filePath, ext, isLegacyOffice, isPdf, pdfSrc, isDocx, docxHtml, isOfficePreview, officeHtml, isImage, imageDataUrl, isHtml, htmlSrc, newContent])
 
   // scrollPosition persistent: module-level Map keyed by sessionId:filePath
   // content changes (refreshVersion bump) → delete stored position;
@@ -780,6 +807,22 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
     })
   }, [sessionId, setRefreshVersionMap])
 
+  /** 文本源码预览：PierreFile 高亮，超大文件截断为纯文本 */
+  const renderTextSourcePreview = (): React.ReactElement => (
+    newContent.length > MAX_PREVIEW_CHARS ? (
+      <pre className="p-3 text-[13px] leading-relaxed text-foreground/80 font-mono whitespace-pre-wrap [overflow-wrap:anywhere]">
+        {newContent.slice(0, MAX_PREVIEW_CHARS)}
+        <span className="text-muted-foreground block mt-2">
+          （文件过大，仅显示前 {MAX_PREVIEW_CHARS.toLocaleString()} 字符）
+        </span>
+      </pre>
+    ) : (
+      <div className="h-full">
+        <PierreFile file={pierreFile} options={pierreOptions} />
+      </div>
+    )
+  )
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 px-3 py-1.5 flex-shrink-0">
@@ -848,8 +891,19 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
           )
         )}
 
+        {previewOnly && isHtml && htmlSrc && (
+          <button
+            type="button"
+            onClick={() => setHtmlSourceMode((v) => !v)}
+            className="ml-auto p-1 rounded hover:bg-foreground/[0.06] text-foreground/40 hover:text-foreground/60 shrink-0"
+            title={htmlSourceMode ? '切换到渲染视图' : '切换到源码视图'}
+          >
+            {htmlSourceMode ? <Eye className="size-3.5" /> : <Code2 className="size-3.5" />}
+          </button>
+        )}
+
         <button type="button" onClick={handleCopy}
-          className={cn("p-1 rounded hover:bg-foreground/[0.06] text-foreground/40 hover:text-foreground/60 shrink-0", previewOnly && !isMarkdown && "ml-auto")}
+          className={cn("p-1 rounded hover:bg-foreground/[0.06] text-foreground/40 hover:text-foreground/60 shrink-0", previewOnly && !isMarkdown && !(isHtml && htmlSrc) && "ml-auto")}
           title="复制文件内容">
           {copied ? <Check className="size-3.5 text-green-500" /> : <Copy className="size-3.5" />}
         </button>
@@ -962,7 +1016,22 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
                 dangerouslySetInnerHTML={{ __html: officeHtml }}
               />
             ) : null
-          ) : isLegacyOffice ? null : isMarkdown ? (
+          ) : isLegacyOffice ? null : isHtml ? (
+            !htmlSourceMode && htmlSrc ? (
+              <iframe
+                src={htmlSrc}
+                sandbox="allow-scripts"
+                className="w-full h-full border-0 bg-white"
+                title={filePath.split('/').pop() || 'HTML'}
+              />
+            ) : newContent ? (
+              renderTextSourcePreview()
+            ) : (
+              <pre className="p-3 text-[13px] leading-relaxed text-foreground/80 font-mono whitespace-pre-wrap [overflow-wrap:anywhere]">
+                <span className="text-muted-foreground">（文件为空）</span>
+              </pre>
+            )
+          ) : isMarkdown ? (
             markdownEditing && markdownSourceMode ? (
               <textarea
                 value={markdownDraft}
@@ -995,18 +1064,7 @@ export function DiffTabContent({ filePath, dirPath, sessionId, gitRoot, previewO
               />
             )
           ) : newContent ? (
-            newContent.length > MAX_PREVIEW_CHARS ? (
-              <pre className="p-3 text-[13px] leading-relaxed text-foreground/80 font-mono whitespace-pre-wrap [overflow-wrap:anywhere]">
-                {newContent.slice(0, MAX_PREVIEW_CHARS)}
-                <span className="text-muted-foreground block mt-2">
-                  （文件过大，仅显示前 {MAX_PREVIEW_CHARS.toLocaleString()} 字符）
-                </span>
-              </pre>
-            ) : (
-              <div className="h-full">
-                <PierreFile file={pierreFile} options={pierreOptions} />
-              </div>
-            )
+            renderTextSourcePreview()
           ) : (
             <pre className="p-3 text-[13px] leading-relaxed text-foreground/80 font-mono whitespace-pre-wrap [overflow-wrap:anywhere]">
               <span className="text-muted-foreground">（文件为空）</span>

@@ -4,7 +4,7 @@
  * 支持 Markdown 渲染（默认）和原始文本切换，避免纯文本白屏。
  */
 import * as React from 'react'
-import { X, FileText, Copy, Check, Eye, Code, ExternalLink } from 'lucide-react'
+import { X, FileText, Copy, Check, Eye, Code, ExternalLink, Maximize2 } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -15,9 +15,13 @@ interface FilePreviewDialogProps {
   filePath: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** 当前 Agent 会话 ID（可选），用于独立预览窗口的路径权限校验 */
+  sessionId?: string
+  /** 候选基础目录（可选），用于独立预览窗口的相对路径解析 */
+  basePaths?: string[]
 }
 
-export function FilePreviewDialog({ filePath, open, onOpenChange }: FilePreviewDialogProps): React.ReactElement {
+export function FilePreviewDialog({ filePath, open, onOpenChange, sessionId, basePaths }: FilePreviewDialogProps): React.ReactElement {
   const [content, setContent] = React.useState('')
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState('')
@@ -64,6 +68,31 @@ export function FilePreviewDialog({ filePath, open, onOpenChange }: FilePreviewD
     window.electronAPI.openFile(filePath).catch(console.error)
   }
 
+  /** 在独立窗口打开预览：可同时查看多个文档 */
+  const handleOpenDetached = () => {
+    if (!filePath) return
+    const slash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'))
+    window.electronAPI
+      .openDetachedPreview({
+        // 无会话上下文（如 Campaign 产物列表）时使用占位 sessionId，
+        // 主进程路径校验仍会放行 agent-workspaces 内的文件
+        sessionId: sessionId ?? 'detached-preview',
+        filePath,
+        dirPath: slash > 0 ? filePath.slice(0, slash) : filePath,
+        previewOnly: true,
+        readOnly: true,
+        basePaths,
+        title: fileName,
+      })
+      .then((id) => {
+        if (id) onOpenChange(false)
+      })
+      .catch((err) => {
+        console.error('[FilePreviewDialog] 打开独立预览窗口失败:', err)
+        toast.error('打开独立预览窗口失败')
+      })
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col p-0 gap-0">
@@ -98,6 +127,16 @@ export function FilePreviewDialog({ filePath, open, onOpenChange }: FilePreviewD
                 <span className="ml-1">{copied ? '已复制' : '复制'}</span>
               </Button>
             )}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2 text-xs"
+              onClick={handleOpenDetached}
+              title="在独立窗口打开，可同时查看多个文档"
+            >
+              <Maximize2 size={13} />
+              <span className="ml-1">独立窗口</span>
+            </Button>
             <Button
               size="sm"
               variant="ghost"

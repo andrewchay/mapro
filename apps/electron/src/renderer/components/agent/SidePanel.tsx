@@ -604,6 +604,8 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
             setPreviewOpen(open)
             if (!open) setPreviewFilePath(null)
           }}
+          sessionId={sessionId}
+          basePaths={basePathsRef.current}
         />
     </div>
   )
