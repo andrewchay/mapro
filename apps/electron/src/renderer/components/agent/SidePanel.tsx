@@ -97,6 +97,31 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
     }
   }, [sessionId, setPreviewFileMap, setPreviewOpenMap])
 
+  /** 双击文件：直接打开独立预览窗口，多个文档可并排查看 */
+  const handleOpenDetachedPreview = React.useCallback((filePath: string) => {
+    const bp = basePathsRef.current
+    const slash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'))
+    window.electronAPI
+      .openDetachedPreview({
+        sessionId,
+        filePath,
+        dirPath: slash > 0 ? filePath.slice(0, slash) : (sessionPath || filePath),
+        previewOnly: true,
+        basePaths: bp.length > 0 ? bp : undefined,
+        title: filePath.split('/').pop()?.split('\\').pop() ?? filePath,
+      })
+      .then((id) => {
+        if (id) {
+          // 独立窗口已打开，关闭内联弹窗避免重复展示
+          setPreviewOpen(false)
+          setPreviewFilePath(null)
+        }
+      })
+      .catch((err) => {
+        console.error('[SidePanel] 打开独立预览窗口失败:', err)
+      })
+  }, [sessionId, sessionPath])
+
   const handleDiffFileClick = React.useCallback((filePath: string, _isUntracked: boolean, gitRoot?: string) => {
     setPreviewFileMap((prev) => {
       const m = new Map(prev)
@@ -474,6 +499,7 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
                             onDetach={handleDetachFile}
                             onAddToChat={handleAddToChat}
                             onFilePreview={handleFilePreview}
+                            onOpenDetachedPreview={handleOpenDetachedPreview}
                             allowedPaths={basePathsRef.current}
                             sessionId={sessionId}
                           />
@@ -486,6 +512,7 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
                             refreshVersion={filesVersion}
                             onAddToChat={handleAddToChat}
                             onFilePreview={handleFilePreview}
+                            onOpenDetachedPreview={handleOpenDetachedPreview}
                             allowedPaths={basePathsRef.current}
                             sessionId={sessionId}
                           />
@@ -495,7 +522,7 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
                           {hasSessionAttachedItems && (
                             <div className="text-[11px] font-medium text-muted-foreground mb-1 px-3 pt-2">工作文件（存储于该工作区目录）</div>
                           )}
-                          <FileBrowser rootPath={sessionPath} hideToolbar embedded hideEmpty={hasSessionAttachedItems} onAddToChat={handleAddToChat} onFilePreview={handleFilePreview} />
+                          <FileBrowser rootPath={sessionPath} hideToolbar embedded hideEmpty={hasSessionAttachedItems} onAddToChat={handleAddToChat} onFilePreview={handleFilePreview} onOpenDetachedPreview={handleOpenDetachedPreview} />
                         </>
                         {/* 会话文件拖拽上传区域 */}
                         <FileDropZone
@@ -556,6 +583,7 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
                           onDetach={handleDetachWorkspaceFile}
                           onAddToChat={handleAddToChat}
                           onFilePreview={handleFilePreview}
+                          onOpenDetachedPreview={handleOpenDetachedPreview}
                           allowedPaths={basePathsRef.current}
                           sessionId={sessionId}
                         />
@@ -568,6 +596,7 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
                           refreshVersion={filesVersion}
                           onAddToChat={handleAddToChat}
                           onFilePreview={handleFilePreview}
+                          onOpenDetachedPreview={handleOpenDetachedPreview}
                           allowedPaths={basePathsRef.current}
                           sessionId={sessionId}
                         />
@@ -578,7 +607,7 @@ export function SidePanel({ sessionId, sessionPath, activeTab, onTabChange, widt
                           {hasWorkspaceAttachedItems && (
                             <div className="text-[11px] font-medium text-muted-foreground mb-1 px-3 pt-2">工作文件（存储于该工作区目录）</div>
                           )}
-                          <FileBrowser rootPath={workspaceFilesPath} hideToolbar embedded hideEmpty={hasWorkspaceAttachedItems} onAddToChat={handleAddToChat} onFilePreview={handleFilePreview} />
+                          <FileBrowser rootPath={workspaceFilesPath} hideToolbar embedded hideEmpty={hasWorkspaceAttachedItems} onAddToChat={handleAddToChat} onFilePreview={handleFilePreview} onOpenDetachedPreview={handleOpenDetachedPreview} />
                         </>
                       )}
                       {/* 工作区文件拖拽上传区域 */}
@@ -618,11 +647,13 @@ interface AttachedFilesSectionProps {
   onDetach: (filePath: string) => void
   onAddToChat?: (entry: FileEntry) => void
   onFilePreview?: (filePath: string) => void
+  /** 双击文件时打开独立预览窗口 */
+  onOpenDetachedPreview?: (filePath: string) => void
   allowedPaths?: string[]
   sessionId: string
 }
 
-function AttachedFilesSection({ attachedFiles, onDetach, onAddToChat, onFilePreview, allowedPaths, sessionId }: AttachedFilesSectionProps): React.ReactElement {
+function AttachedFilesSection({ attachedFiles, onDetach, onAddToChat, onFilePreview, onOpenDetachedPreview, allowedPaths, sessionId }: AttachedFilesSectionProps): React.ReactElement {
   return (
     <div className="pt-2.5 pb-1 flex-shrink-0">
       <div className="text-[11px] font-medium text-muted-foreground mb-1 px-3">附加文件（Agent 可以按原路径读取）</div>
@@ -634,6 +665,10 @@ function AttachedFilesSection({ attachedFiles, onDetach, onAddToChat, onFilePrev
             key={filePath}
             className="flex items-center gap-1 py-1 pl-2 pr-2 text-sm cursor-pointer hover:bg-accent/50 group mx-2 rounded-lg"
             onClick={() => onFilePreview?.(filePath)}
+            onDoubleClick={(e) => {
+              e.stopPropagation()
+              onOpenDetachedPreview?.(filePath)
+            }}
           >
             <span className="w-3.5 flex-shrink-0" />
             <FileTypeIcon name={name} isDirectory={false} />
@@ -706,13 +741,15 @@ interface AttachedDirsSectionProps {
   refreshVersion: number
   onAddToChat?: (entry: FileEntry) => void
   onFilePreview?: (filePath: string) => void
+  /** 双击文件时打开独立预览窗口 */
+  onOpenDetachedPreview?: (filePath: string) => void
   /** 所有允许访问的路径（传给 IPC 做路径校验） */
   allowedPaths?: string[]
   sessionId: string
 }
 
 /** 附加目录区域：统一管理所有子项的选中状态 */
-function AttachedDirsSection({ attachedDirs, onDetach, refreshVersion, onAddToChat, onFilePreview, allowedPaths, sessionId }: AttachedDirsSectionProps): React.ReactElement {
+function AttachedDirsSection({ attachedDirs, onDetach, refreshVersion, onAddToChat, onFilePreview, onOpenDetachedPreview, allowedPaths, sessionId }: AttachedDirsSectionProps): React.ReactElement {
   const [selectedPaths, setSelectedPaths] = React.useState<Set<string>>(new Set())
 
   const handleSelect = React.useCallback((path: string, ctrlKey: boolean) => {
@@ -745,6 +782,7 @@ function AttachedDirsSection({ attachedDirs, onDetach, refreshVersion, onAddToCh
           refreshVersion={refreshVersion}
           onAddToChat={onAddToChat}
           onFilePreview={onFilePreview}
+          onOpenDetachedPreview={onOpenDetachedPreview}
           allowedPaths={allowedPaths}
           sessionId={sessionId}
         />
@@ -763,11 +801,13 @@ interface AttachedDirTreeProps {
   refreshVersion: number
   onAddToChat?: (entry: FileEntry) => void
   onFilePreview?: (filePath: string) => void
+  /** 双击文件时打开独立预览窗口 */
+  onOpenDetachedPreview?: (filePath: string) => void
   allowedPaths?: string[]
   sessionId: string
 }
 
-function AttachedDirTree({ dirPath, onDetach, selectedPaths, onSelect, refreshVersion, onAddToChat, onFilePreview, allowedPaths, sessionId }: AttachedDirTreeProps): React.ReactElement {
+function AttachedDirTree({ dirPath, onDetach, selectedPaths, onSelect, refreshVersion, onAddToChat, onFilePreview, onOpenDetachedPreview, allowedPaths, sessionId }: AttachedDirTreeProps): React.ReactElement {
   const [expanded, setExpanded] = React.useState(false)
   const [children, setChildren] = React.useState<FileEntry[]>([])
   const [loaded, setLoaded] = React.useState(false)
@@ -849,7 +889,7 @@ function AttachedDirTree({ dirPath, onDetach, selectedPaths, onSelect, refreshVe
             </div>
           )}
           {children.map((child) => (
-            <AttachedDirItem key={child.path} entry={child} depth={1} selectedPaths={selectedPaths} onSelect={onSelect} refreshVersion={refreshVersion} onAddToChat={onAddToChat} onFilePreview={onFilePreview} allowedPaths={allowedPaths} sessionId={sessionId} />
+            <AttachedDirItem key={child.path} entry={child} depth={1} selectedPaths={selectedPaths} onSelect={onSelect} refreshVersion={refreshVersion} onAddToChat={onAddToChat} onFilePreview={onFilePreview} onOpenDetachedPreview={onOpenDetachedPreview} allowedPaths={allowedPaths} sessionId={sessionId} />
           ))}
         </div>
       )}
@@ -865,11 +905,13 @@ interface AttachedDirItemProps {
   refreshVersion: number
   onAddToChat?: (entry: FileEntry) => void
   onFilePreview?: (filePath: string) => void
+  /** 双击文件时打开独立预览窗口 */
+  onOpenDetachedPreview?: (filePath: string) => void
   allowedPaths?: string[]
   sessionId: string
 }
 
-function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion, onAddToChat, onFilePreview, allowedPaths, sessionId }: AttachedDirItemProps): React.ReactElement {
+function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion, onAddToChat, onFilePreview, onOpenDetachedPreview, allowedPaths, sessionId }: AttachedDirItemProps): React.ReactElement {
   const [expanded, setExpanded] = React.useState(false)
   const [children, setChildren] = React.useState<FileEntry[]>([])
   const [loaded, setLoaded] = React.useState(false)
@@ -915,6 +957,14 @@ function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion
     } else {
       onFilePreview?.(currentPath)
     }
+  }
+
+  /** 双击文件时直接打开独立预览窗口（目录由两次单击自然抵消展开） */
+  const handleDoubleClick = (e: React.MouseEvent): void => {
+    if (isRenaming) return
+    if (e.ctrlKey || e.metaKey || e.altKey) return
+    if (entry.isDirectory) return
+    onOpenDetachedPreview?.(currentPath)
   }
 
   // 开始重命名
@@ -990,6 +1040,7 @@ function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion
           zIndex: isSticky ? stickyZIndex : undefined,
         }}
         onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
       >
         {/* sticky 行祖先链竖线，逻辑见 tree-row-layout.tsx 的 AncestorGuides。
             选中态下 bg-accent 不透明背景会盖住原 border 色，组件内部已切到 accent-foreground。 */}
@@ -1111,7 +1162,7 @@ function AttachedDirItem({ entry, depth, selectedPaths, onSelect, refreshVersion
             </div>
           )}
           {children.map((child) => (
-            <AttachedDirItem key={child.path} entry={child} depth={depth + 1} selectedPaths={selectedPaths} onSelect={onSelect} refreshVersion={refreshVersion} onAddToChat={onAddToChat} onFilePreview={onFilePreview} allowedPaths={allowedPaths} sessionId={sessionId} />
+            <AttachedDirItem key={child.path} entry={child} depth={depth + 1} selectedPaths={selectedPaths} onSelect={onSelect} refreshVersion={refreshVersion} onAddToChat={onAddToChat} onFilePreview={onFilePreview} onOpenDetachedPreview={onOpenDetachedPreview} allowedPaths={allowedPaths} sessionId={sessionId} />
           ))}
         </div>
       )}
