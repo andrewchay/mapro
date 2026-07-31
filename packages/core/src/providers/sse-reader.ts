@@ -26,6 +26,45 @@ export interface StreamSSEOptions {
   signal?: AbortSignal
   /** 自定义 fetch 函数（代理等场景下由调用方注入） */
   fetchFn?: typeof globalThis.fetch
+  /**
+   * 连接阶段超时（毫秒），默认 30000
+   *
+   * fetch 发出后到拿到响应头的最长等待。部分上游会长时间不返回响应头，
+   * 无此超时轮次会永久挂起。
+   */
+  connectTimeoutMs?: number
+  /**
+   * 流读空闲超时（毫秒），默认 90000；<= 0 表示禁用
+   *
+   * 两次收到数据 chunk 之间的最长间隔。上游 socket 保持打开但不再发数据的
+   * "静默挂起"场景下，超时主动断开并抛出含 ETIMEDOUT 的错误（可被
+   * error-patterns.ts 的 TRANSIENT_NETWORK_PATTERN 识别为瞬时错误，触发 withRetry 重试），
+   * 避免轮次永久卡死、并发守卫失效导致后续消息"收到不执行"。
+   */
+  stallTimeoutMs?: number
+}
+
+/** 默认连接超时：30 秒 */
+const DEFAULT_CONNECT_TIMEOUT_MS = 30_000
+/** 默认流读空闲超时：90 秒（容忍 reasoning 模型的长思考间隔） */
+const DEFAULT_STALL_TIMEOUT_MS = 90_000
+
+/** 合并多个 AbortSignal（优先原生 AbortSignal.any，缺失时手动转发） */
+function combineAbortSignals(signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
+  const active = signals.filter((s): s is AbortSignal => !!s)
+  if (active.length === 0) return undefined
+  if (active.length === 1) return active[0]
+  const anyFn = (AbortSignal as { any?: (list: AbortSignal[]) => AbortSignal }).any
+  if (typeof anyFn === 'function') return anyFn(active)
+  const controller = new AbortController()
+  for (const s of active) {
+    if (s.aborted) {
+      controller.abort(s.reason)
+      break
+    }
+    s.addEventListener('abort', () => controller.abort(s.reason), { once: true })
+  }
+  return controller.signal
 }
 
 /** streamSSE 的返回结果 */
@@ -62,15 +101,40 @@ export interface StreamSSEResult {
  * 7. 返回完整内容
  */
 export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSEResult> {
-  const { request, adapter, onEvent, signal, fetchFn = fetch } = options
+  const {
+    request,
+    adapter,
+    onEvent,
+    signal,
+    fetchFn = fetch,
+    connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS,
+    stallTimeoutMs = DEFAULT_STALL_TIMEOUT_MS,
+  } = options
 
   // 1. 发起请求（支持通过 fetchFn 注入代理）
-  const response = await fetchFn(request.url, {
+  // 连接阶段加超时：超时后主动 abort 并抛出 ETIMEDOUT 错误（可被识别为瞬时错误触发重试）。
+  // 注意不能把 AbortSignal.timeout 直接传给 fetch——它会在整个流生命周期内生效，
+  // 会把正常的长时间流式响应也掐断；因此只在等待响应头的阶段 race，拿到响应后清除定时器。
+  const connectController = new AbortController()
+  const combinedSignal = combineAbortSignals([signal, connectController.signal])
+  let connectTimer: ReturnType<typeof setTimeout> | undefined
+  const fetchPromise = fetchFn(request.url, {
     method: 'POST',
     headers: request.headers,
     body: request.body,
-    signal,
+    signal: combinedSignal,
   })
+  const response = await (connectTimeoutMs > 0
+    ? Promise.race([
+        fetchPromise,
+        new Promise<never>((_, reject) => {
+          connectTimer = setTimeout(() => {
+            connectController.abort()
+            reject(new Error(`ETIMEDOUT: SSE 连接超时（${Math.round(connectTimeoutMs / 1000)} 秒未收到响应头）`))
+          }, connectTimeoutMs)
+        }),
+      ]).finally(() => clearTimeout(connectTimer))
+    : fetchPromise)
 
   // 2. 错误检查
   if (!response.ok) {
@@ -101,9 +165,35 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
   // 用量统计追踪
   let lastUsage: StreamUsageEvent['usage'] | undefined
 
+  // 流读空闲超时：两次数据 chunk 间隔超过阈值即判定上游静默挂起，抛瞬时错误供上层重试。
+  // 每收到一个 chunk 都会重新计时（reader.read() 每次调用重新包裹）。
+  type ReadResult = Awaited<ReturnType<typeof reader.read>>
+  const readWithStallTimeout = (): Promise<ReadResult> => {
+    if (stallTimeoutMs <= 0) return reader.read()
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(
+          new Error(
+            `ETIMEDOUT: SSE 流空闲超时（${Math.round(stallTimeoutMs / 1000)} 秒无数据），主动断开以便重试`,
+          ),
+        )
+      }, stallTimeoutMs)
+      reader.read().then(
+        (result) => {
+          clearTimeout(timer)
+          resolve(result)
+        },
+        (error) => {
+          clearTimeout(timer)
+          reject(error)
+        },
+      )
+    })
+  }
+
   try {
     while (true) {
-      const { done, value } = await reader.read()
+      const { done, value } = await readWithStallTimeout()
       if (done) break
 
       buffer += decoder.decode(value, { stream: true })
