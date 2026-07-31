@@ -1531,6 +1531,8 @@ export interface PermissionRequest {
   sdkTitle?: string
   /** SDK 提供的详细描述，如 "Claude wants to write 200 lines to /path/to/file.ts" */
   sdkDescription?: string
+  /** Web Bridge 请求的上下文 URL（目标地址或当前页面地址），用于 UI 展示与站点信任 */
+  contextUrl?: string
 }
 
 /** 权限响应（渲染进程 → 主进程） */

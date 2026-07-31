@@ -31,6 +31,26 @@ function formatToolName(toolName: string): string {
   return toolName
 }
 
+/** Web Bridge 改变导航、页面或外部状态的操作（与主进程 isWebBridgeMutation 保持一致） */
+const WEB_BRIDGE_MUTATION_TOOLS = new Set([
+  'WebBridgeNavigate',
+  'WebBridgeConnectChrome',
+  'WebBridgeClick',
+  'WebBridgeType',
+  'WebBridgeDownload',
+  'WebBridgeUpload',
+])
+
+/** 从 URL 中提取 hostname，非法 URL 返回 null */
+function extractHost(url: string | undefined): string | null {
+  if (!url) return null
+  try {
+    return new URL(url).hostname || null
+  } catch {
+    return null
+  }
+}
+
 /** PermissionBanner 属性接口 */
 interface PermissionBannerProps {
   sessionId: string
@@ -98,16 +118,14 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps): React.Re
 
   const iconColor = DANGER_ICON_STYLES[request.dangerLevel]
   const isDangerous = request.dangerLevel === 'dangerous'
+  const isWebBridgeMutation = WEB_BRIDGE_MUTATION_TOOLS.has(request.toolName)
+  const webBridgeHost = isWebBridgeMutation ? extractHost(request.contextUrl) : null
+  // ComputerUse（除 Status）与 WebBridgeUpload 永远逐次确认；
+  // Web Bridge 写操作在能解析出站点域名时允许"信任此站点"，否则回退逐次确认
   const requiresPerActionApproval = (
     request.toolName.startsWith('ComputerUse') && request.toolName !== 'ComputerUseStatus'
-  ) || new Set([
-    'WebBridgeNavigate',
-    'WebBridgeConnectChrome',
-    'WebBridgeClick',
-    'WebBridgeType',
-    'WebBridgeDownload',
-    'WebBridgeUpload',
-  ]).has(request.toolName)
+  ) || request.toolName === 'WebBridgeUpload'
+  || (isWebBridgeMutation && !webBridgeHost)
   const IconComponent = isDangerous ? ShieldAlert : Shield
 
   /** 响应权限请求 */
@@ -221,7 +239,7 @@ export function PermissionBanner({ sessionId }: PermissionBannerProps): React.Re
             disabled={responding}
             className="h-7 px-3 text-xs"
           >
-            本次会话总是允许
+            {webBridgeHost ? `本会话信任 ${webBridgeHost}` : '本次会话总是允许'}
           </Button>
         )}
 

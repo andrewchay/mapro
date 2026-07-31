@@ -58,6 +58,7 @@ import { buildSystemPrompt, buildDynamicContext, buildBuiltinAgents } from './ag
 import type { SubAgentInput } from './agent-runtime/types'
 import { permissionService } from './agent-permission-service'
 import type { PermissionResult, CanUseToolOptions } from './agent-permission-service'
+import { webBridgeService } from './web-bridge-service'
 import { askUserService } from './agent-ask-user-service'
 import { exitPlanService, type ExitPlanPermissionResult } from './agent-exit-plan-service'
 import { getMemoryConfig } from './memory-service'
@@ -580,6 +581,7 @@ export class AgentOrchestrator {
           runtimeServices.events.emit(sessionId, { kind: 'mapro_event', event: { type: 'ask_user_request', request } } as AgentStreamPayload)
         },
         () => permissionMode ?? MAPRO_DEFAULT_PERMISSION_MODE,
+        (sid) => webBridgeService.getCurrentUrl(sid),
       )
 
       const appSettings = getSettings()
@@ -1872,6 +1874,7 @@ export class AgentOrchestrator {
           this.eventBus.emit(sessionId, { kind: 'mapro_event', event: { type: 'ask_user_request', request } })
         },
         getPermissionMode,
+        (sid) => webBridgeService.getCurrentUrl(sid),
       )
 
       // Plan 模式下允许的只读工具（不包含 Write/Edit/Bash 等写操作）

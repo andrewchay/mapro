@@ -210,6 +210,20 @@ class WebBridgeService {
     return sessionIds.length
   }
 
+  /**
+   * 同步获取会话当前页面 URL，供权限服务做站点信任判断。
+   * 受管窗口模式读 webContents 实时地址；CDP 模式回退到最近一次快照的 URL。
+   */
+  getCurrentUrl(sessionId: string): string | undefined {
+    const session = this.sessions.get(sessionId)
+    if (!session) return undefined
+    if (session.window && !session.window.isDestroyed()) {
+      const url = session.window.webContents.getURL()
+      if (url) return url
+    }
+    return session.lastSnapshot?.url || undefined
+  }
+
   getStatus(sessionId: string): { active: boolean; mode?: 'managed' | 'chrome-cdp'; url?: string; accessibilityAvailable: boolean } {
     const current = this.sessions.get(sessionId)
     if (!current) return { active: false, accessibilityAvailable: false }

@@ -23,6 +23,7 @@ import {
   isDangerousCommand,
   hasDangerousStructure,
 } from '@ma-proma/shared'
+import { appendWebBridgeAudit } from './web-bridge-audit-service'
 
 /** SDK PermissionBehavior */
 type PermissionBehavior = 'allow' | 'deny'
@@ -97,6 +98,8 @@ interface SessionWhitelist {
   allowedTools: Set<string>
   /** 总是允许的 Bash 基础命令（如 'git push', 'npm install'） */
   allowedBashCommands: Set<string>
+  /** 会话内信任的 Web Bridge 站点域名（如 'xiaohongshu.com'），命中后该域名下的导航/点击/输入/下载自动放行 */
+  trustedWebBridgeHosts: Set<string>
 }
 
 /**
@@ -123,6 +126,7 @@ export class AgentPermissionService {
     askUserHandler?: (sessionId: string, input: Record<string, unknown>, signal: AbortSignal, sendToRenderer: (request: AskUserRequest) => void) => Promise<PermissionResult>,
     sendAskUserToRenderer?: (request: AskUserRequest) => void,
     mode?: MAProPermissionMode | (() => MAProPermissionMode),
+    webBridgeUrlResolver?: (sessionId: string) => string | undefined,
   ): (toolName: string, input: Record<string, unknown>, options: CanUseToolOptions) => Promise<PermissionResult> {
     return async (toolName, input, options) => {
       // AskUserQuestion 拦截：委托给交互式问答服务
@@ -132,9 +136,20 @@ export class AgentPermissionService {
 
       const allow = (): PermissionResult => ({ behavior: 'allow' as const, updatedInput: input })
 
+      // Web Bridge 站点上下文：优先取工具入参中的 URL（导航/下载），否则取当前页面地址
+      const isWebBridge = isWebBridgeMutation(toolName)
+      const contextUrl = isWebBridge ? resolveWebBridgeContextUrl(toolName, input, sessionId, webBridgeUrlResolver) : undefined
+
       // 系统级桌面读取/控制不能由子 Agent 自动批准，也不能沿用“始终允许”。
       // 这类操作可能读取任意屏幕内容或影响前台应用，必须回到用户确认流程。
-      const requiresPerActionApproval = isComputerUseTool(toolName) || isWebBridgeMutation(toolName) || isPlaywrightAutomationTool(toolName)
+      // Web Bridge 写操作默认逐次确认，但用户显式信任当前站点（域名）后，该站点下的
+      // 导航/点击/输入/下载在本会话内自动放行；WebBridgeUpload 永远逐次确认。
+      const webBridgeTrusted = isWebBridge
+        && toolName !== 'WebBridgeUpload'
+        && this.isWebBridgeHostTrusted(sessionId, extractUrlHost(contextUrl))
+      const requiresPerActionApproval = isComputerUseTool(toolName)
+        || isPlaywrightAutomationTool(toolName)
+        || (isWebBridge && !webBridgeTrusted)
 
       // Worker（子代理）的工具调用自动批准，避免 UI 等待导致超时死锁
       if (options.agentID && !requiresPerActionApproval) {
@@ -148,6 +163,9 @@ export class AgentPermissionService {
         return { behavior: 'deny', message: '安全模式下不允许执行写操作，请切换到自动审批或完全自动模式' }
       }
 
+      // Web Bridge 站点信任：同域名写操作在本会话内自动放行（safe 模式已在上方拦截）
+      if (webBridgeTrusted) return allow()
+
       // 会话白名单检查（用户之前选择了"始终允许"）
       if (!requiresPerActionApproval && this.isWhitelisted(sessionId, toolName, input)) return allow()
 
@@ -157,7 +175,7 @@ export class AgentPermissionService {
       if (this.isReadOnlyTool(toolName, input)) return allow()
 
       // 需要询问用户：构建请求并发送到 UI
-      const request = this.buildPermissionRequest(sessionId, toolName, input, options)
+      const request = this.buildPermissionRequest(sessionId, toolName, input, options, contextUrl)
       sendToRenderer(request)
 
       return new Promise<PermissionResult>((resolve) => {
@@ -186,8 +204,16 @@ export class AgentPermissionService {
     const sessionId = pending.request.sessionId
 
     // "总是允许"选项：加入会话白名单
-    if (alwaysAllow && behavior === 'allow' && !isComputerUseTool(pending.request.toolName) && !isWebBridgeMutation(pending.request.toolName) && !isPlaywrightAutomationTool(pending.request.toolName)) {
-      this.addToWhitelist(sessionId, pending.request.toolName, pending.request.toolInput)
+    if (alwaysAllow && behavior === 'allow') {
+      const toolName = pending.request.toolName
+      if (isWebBridgeMutation(toolName)) {
+        // Web Bridge：信任粒度为"当前站点域名"，而不是整个工具；上传操作不开放信任
+        if (toolName !== 'WebBridgeUpload') {
+          this.addTrustedWebBridgeHost(sessionId, extractUrlHost(pending.request.contextUrl))
+        }
+      } else if (!isComputerUseTool(toolName) && !isPlaywrightAutomationTool(toolName)) {
+        this.addToWhitelist(sessionId, toolName, pending.request.toolInput)
+      }
     }
 
     pending.resolve(
@@ -281,6 +307,25 @@ export class AgentPermissionService {
   }
 
   /**
+   * 判断 Web Bridge 站点域名是否已被本会话信任
+   */
+  private isWebBridgeHostTrusted(sessionId: string, host: string | undefined): boolean {
+    if (!host) return false
+    return this.sessionWhitelists.get(sessionId)?.trustedWebBridgeHosts.has(host) ?? false
+  }
+
+  /**
+   * 将 Web Bridge 站点域名加入会话信任集，并写入本地审计（只记域名，脱敏）
+   */
+  private addTrustedWebBridgeHost(sessionId: string, host: string | undefined): void {
+    if (!host) return
+    const whitelist = this.getOrCreateWhitelist(sessionId)
+    if (whitelist.trustedWebBridgeHosts.has(host)) return
+    whitelist.trustedWebBridgeHosts.add(host)
+    void appendWebBridgeAudit(sessionId, 'trust_site', { host }).catch(() => {})
+  }
+
+  /**
    * 获取或创建会话白名单
    */
   private getOrCreateWhitelist(sessionId: string): SessionWhitelist {
@@ -290,6 +335,7 @@ export class AgentPermissionService {
     const whitelist: SessionWhitelist = {
       allowedTools: new Set(),
       allowedBashCommands: new Set(),
+      trustedWebBridgeHosts: new Set(),
     }
     this.sessionWhitelists.set(sessionId, whitelist)
     return whitelist
@@ -317,6 +363,7 @@ export class AgentPermissionService {
     toolName: string,
     input: Record<string, unknown>,
     options: CanUseToolOptions,
+    contextUrl?: string,
   ): PermissionRequest {
     const command = toolName === 'Bash' && typeof input.command === 'string'
       ? input.command
@@ -336,6 +383,7 @@ export class AgentPermissionService {
       sdkDisplayName: options.displayName,
       sdkTitle: options.title,
       sdkDescription: options.description,
+      contextUrl,
     }
   }
 
@@ -394,7 +442,10 @@ function isComputerUseTool(toolName: string): boolean {
   return toolName.startsWith('ComputerUse') && toolName !== 'ComputerUseStatus'
 }
 
-/** Web Bridge 改变导航、页面或外部状态的操作必须逐次确认，不能加入会话白名单。 */
+/**
+ * Web Bridge 改变导航、页面或外部状态的操作默认逐次确认；
+ * 用户信任当前站点域名后，该域名下的操作在本会话内自动放行（WebBridgeUpload 除外）。
+ */
 function isWebBridgeMutation(toolName: string): boolean {
   return new Set([
     'WebBridgeNavigate',
@@ -408,6 +459,32 @@ function isWebBridgeMutation(toolName: string): boolean {
 
 function isPlaywrightAutomationTool(toolName: string): boolean {
   return toolName === 'PlaywrightScrape'
+}
+
+/**
+ * 解析 Web Bridge 请求的站点上下文 URL：
+ * 优先取工具入参中的目标地址（Navigate 的 url、Download 的 url），
+ * 否则通过 resolver 取当前页面地址（Click/Type/Upload 作用于当前页面）。
+ */
+function resolveWebBridgeContextUrl(
+  toolName: string,
+  input: Record<string, unknown>,
+  sessionId: string,
+  resolver?: (sessionId: string) => string | undefined,
+): string | undefined {
+  if (typeof input.url === 'string' && input.url) return input.url
+  return resolver?.(sessionId)
+}
+
+/** 从 URL 中提取 hostname，非法 URL 返回 undefined（不信任、回退逐次确认） */
+function extractUrlHost(url: string | undefined): string | undefined {
+  if (!url) return undefined
+  try {
+    const host = new URL(url).hostname
+    return host || undefined
+  } catch {
+    return undefined
+  }
 }
 
 /** 全局权限服务实例 */
