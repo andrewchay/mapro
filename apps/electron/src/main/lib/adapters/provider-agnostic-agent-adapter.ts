@@ -24,6 +24,7 @@ import type {
   McpServerEntry,
   MAProPermissionMode,
 } from '@ma-proma/shared'
+import { randomUUID } from 'node:crypto'
 import type {
   ProviderAdapter,
   ToolCall,
@@ -278,6 +279,19 @@ export class ProviderAgnosticAgentAdapter implements AgentProviderAdapter {
         currentReasoning = result.reasoning
         currentThinkingBlocks = result.thinkingBlocks
         currentToolCalls = result.toolCalls
+
+        // 兜底：模型模仿历史序列化格式，把工具调用写成 <tool_use ...>...</tool_use> 文本时，
+        // 结构化 toolCalls 为空。从文本中提取真实工具名对应的调用并执行，同时把标签从展示文本剔除。
+        let effectiveStopReason = result.stopReason
+        if (currentToolCalls.length === 0 && currentContent.includes('<tool_use')) {
+          const extracted = extractXmlToolCalls(currentContent, (name) => toolMap.has(name))
+          if (extracted.toolCalls.length > 0) {
+            console.warn(`[Agent Runtime] 从文本中提取 ${extracted.toolCalls.length} 个 XML 工具调用（模型未使用结构化 tool call）`)
+            currentContent = extracted.cleanText
+            currentToolCalls = extracted.toolCalls
+            effectiveStopReason = 'tool_use'
+          }
+        }
         // 优先使用流式回调中的 usage，其次使用 streamSSE 汇总返回值
         const finalRoundUsage = roundUsage ?? result.usage
 
@@ -311,7 +325,7 @@ export class ProviderAgnosticAgentAdapter implements AgentProviderAdapter {
           message: {
             content: assistantContentBlocks,
             model,
-            stop_reason: result.stopReason,
+            stop_reason: effectiveStopReason,
           },
           parent_tool_use_id: null,
           session_id: sessionId,
@@ -327,7 +341,7 @@ export class ProviderAgnosticAgentAdapter implements AgentProviderAdapter {
         })
 
         // 无工具调用或停止原因不是 tool_use，结束循环
-        if (!currentToolCalls.length || result.stopReason !== 'tool_use') {
+        if (!currentToolCalls.length || effectiveStopReason !== 'tool_use') {
           break
         }
 
@@ -756,6 +770,71 @@ function isWakeTrigger(value: unknown): value is AgentGoalCheckpoint['wakeTrigge
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+/** XML 工具调用提取结果 */
+export interface XmlToolCallExtraction {
+  /** 剔除 <tool_use> 标签后的展示文本 */
+  cleanText: string
+  /** 提取出的工具调用（仅保留真实注册的工具名） */
+  toolCalls: ToolCall[]
+}
+
+const XML_TOOL_USE_PATTERN = /<tool_use\s+([^>]*)>([\s\S]*?)<\/tool_use>/g
+const XML_ATTR_PATTERN = /(\w+)="([^"]*)"/g
+
+/**
+ * 从模型输出文本中提取 <tool_use id="..." name="...">{JSON}</tool_use> 形式的工具调用。
+ *
+ * 背景：prompt-builder 把历史中的 tool_use 块序列化为该 XML 格式回放给模型，
+ * 部分模型（如 DeepSeek）会模仿该格式在正文里"伪调用"工具而不是使用结构化 tool call。
+ * 仅在 name 命中真实注册工具时才提取，避免把正文中的示例文本误判为调用。
+ * 空 body 视为空参数（{}），非法 JSON 的块不提取、保留原文。
+ */
+export function extractXmlToolCalls(text: string, isValidToolName: (name: string) => boolean): XmlToolCallExtraction {
+  const toolCalls: ToolCall[] = []
+  const consumedSpans: Array<[number, number]> = []
+
+  for (const match of text.matchAll(XML_TOOL_USE_PATTERN)) {
+    const attrs: Record<string, string> = {}
+    for (const attr of match[1]!.matchAll(XML_ATTR_PATTERN)) {
+      attrs[attr[1]!] = attr[2]!
+    }
+    const name = attrs.name
+    if (!name || !isValidToolName(name)) continue
+
+    const body = (match[2] ?? '').trim()
+    let args: Record<string, unknown> = {}
+    if (body) {
+      try {
+        const parsed: unknown = JSON.parse(body)
+        if (!isRecord(parsed)) continue
+        args = parsed
+      } catch {
+        continue // 非法 JSON：不提取，保留原文
+      }
+    }
+
+    toolCalls.push({
+      id: attrs.id || `xml_tc_${randomUUID()}`,
+      name,
+      arguments: args,
+    })
+    consumedSpans.push([match.index!, match.index! + match[0].length])
+  }
+
+  if (toolCalls.length === 0) return { cleanText: text, toolCalls }
+
+  // 剔除已消费的 XML 片段，合并剩余文本
+  let cleanText = ''
+  let cursor = 0
+  for (const [start, end] of consumedSpans) {
+    cleanText += text.slice(cursor, start)
+    cursor = end
+  }
+  cleanText += text.slice(cursor)
+
+  return { cleanText: cleanText.trim(), toolCalls }
 }
 
 /**

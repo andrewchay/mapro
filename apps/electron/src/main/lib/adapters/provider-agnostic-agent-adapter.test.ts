@@ -10,7 +10,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ProviderAdapter, ProviderRequest, StreamSSEResult, ToolCall } from '@ma-proma/core'
-import type { SDKMessage, SDKResultMessage } from '@ma-proma/shared'
+import type { SDKAssistantMessage, SDKMessage, SDKResultMessage } from '@ma-proma/shared'
 
 // 被测模块依赖 attachment-service/document-parser，它们会加载 electron，
 // 因此在测试环境中先 mock electron。
@@ -45,7 +45,7 @@ mock.module('../web-bridge-service', () => ({
 }))
 
 // 被测模块需要在 mock 之后导入
-const { ProviderAgnosticAgentAdapter } = await import('./provider-agnostic-agent-adapter')
+const { ProviderAgnosticAgentAdapter, extractXmlToolCalls } = await import('./provider-agnostic-agent-adapter')
 
 /** 从 mock 请求体中提取的轻量视图 */
 interface CapturedRequest {
@@ -62,6 +62,7 @@ describe('Provider-Agnostic Agent 适配器', () => {
   let capturedRequests: CapturedRequest[] = []
   let requestedAdapterProviders: string[] = []
   let firstTurnToolCalls: ToolCall[] | undefined
+  let firstTurnXmlText: string | undefined
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'proma-paa-adapter-test-'))
@@ -69,6 +70,7 @@ describe('Provider-Agnostic Agent 适配器', () => {
     capturedRequests = []
     requestedAdapterProviders = []
     firstTurnToolCalls = undefined
+    firstTurnXmlText = undefined
 
     // mock @ma-proma/core，用回合制逻辑替代真实 SSE 请求
     mock.module('@ma-proma/core', () => ({
@@ -107,6 +109,10 @@ describe('Provider-Agnostic Agent 适配器', () => {
       },
       streamSSE: async (): Promise<StreamSSEResult> => {
         streamCallCount++
+        if (streamCallCount === 1 && firstTurnXmlText) {
+          // 模型把工具调用写成 XML 文本（无结构化 toolCalls）
+          return makeStreamResult(firstTurnXmlText)
+        }
         if (streamCallCount === 1 && firstTurnToolCalls) {
           return makeStreamResult('提交 Goal 检查点', firstTurnToolCalls)
         }
@@ -739,6 +745,84 @@ describe('Provider-Agnostic Agent 适配器', () => {
     }
 
     expect(summary).toBe('等待用户输入')
+  })
+
+  test('given 模型把工具调用写成 XML 文本 when 无结构化 toolCalls then 提取执行并继续循环', async () => {
+    writeFileSync(join(tempDir, 'note.txt'), 'old content', 'utf-8')
+    firstTurnXmlText = `好的，让我读取文件内容。
+<tool_use id="call_00_xml" name="Read">{"file_path": "note.txt"}</tool_use>`
+
+    const adapter = new ProviderAgnosticAgentAdapter()
+    const messages: SDKMessage[] = []
+
+    for await (const msg of adapter.query({
+      sessionId: 'xml-fallback-session',
+      prompt: '读取 note.txt',
+      model: 'deepseek-chat',
+      provider: 'deepseek',
+      apiKey: 'mock-key',
+      baseUrl: 'http://localhost/mock',
+      cwd: tempDir,
+      permissionMode: 'bypassPermissions',
+    })) {
+      messages.push(msg)
+    }
+
+    // XML 工具调用被提取并执行：第一轮后继续第二轮（默认 mock 第二轮返回 Edit，第三轮结束）
+    expect(streamCallCount).toBe(3)
+
+    // assistant 消息的展示文本不含 <tool_use> 标签
+    const firstAssistant = messages.find((m) => m.type === 'assistant')
+    const textBlock = (firstAssistant as SDKAssistantMessage)?.message.content.find(
+      (b) => (b as { type: string }).type === 'text',
+    ) as { text: string } | undefined
+    expect(textBlock?.text).toContain('让我读取文件内容')
+    expect(textBlock?.text).not.toContain('<tool_use')
+
+    // 提取的 tool_use 块保留了模型给的 id，tool_result 能正确配对
+    const toolUseBlock = (firstAssistant as SDKAssistantMessage)?.message.content.find(
+      (b) => (b as { type: string }).type === 'tool_use',
+    ) as { id: string; name: string; input: Record<string, unknown> } | undefined
+    expect(toolUseBlock?.id).toBe('call_00_xml')
+    expect(toolUseBlock?.name).toBe('Read')
+    expect(toolUseBlock?.input).toEqual({ file_path: 'note.txt' })
+
+    const resultMsg = messages.find((m): m is SDKResultMessage => m.type === 'result')
+    expect(resultMsg?.subtype).toBe('success')
+  })
+})
+
+describe('extractXmlToolCalls', () => {
+  const validTools = new Set(['Read', 'WebBridgeSnapshot'])
+  const isValid = (name: string): boolean => validTools.has(name)
+
+  test('given 空 body 的 tool_use 标签 when 工具名已注册 then 以空参数提取', () => {
+    const text = '好的，让我刷新页面确认登录状态。\n<tool_use id="call_00_bF8A73" name="WebBridgeSnapshot">\n\n</tool_use>'
+    const { cleanText, toolCalls } = extractXmlToolCalls(text, isValid)
+
+    expect(toolCalls).toHaveLength(1)
+    expect(toolCalls[0]).toEqual({ id: 'call_00_bF8A73', name: 'WebBridgeSnapshot', arguments: {} })
+    expect(cleanText).toBe('好的，让我刷新页面确认登录状态。')
+  })
+
+  test('given 未注册的工具名 when 提取 then 保留原文不执行', () => {
+    const text = '示例：<tool_use id="x" name="NotARealTool">{"a":1}</tool_use>'
+    const { cleanText, toolCalls } = extractXmlToolCalls(text, isValid)
+
+    expect(toolCalls).toHaveLength(0)
+    expect(cleanText).toBe(text)
+  })
+
+  test('given 非法 JSON body when 提取 then 保留原文不执行', () => {
+    const text = '<tool_use id="x" name="Read">{broken json</tool_use>'
+    const { toolCalls } = extractXmlToolCalls(text, isValid)
+    expect(toolCalls).toHaveLength(0)
+  })
+
+  test('given 无 id 的 tool_use 标签 when 提取 then 生成兜底 id', () => {
+    const { toolCalls } = extractXmlToolCalls('<tool_use name="Read">{"file_path":"a.txt"}</tool_use>', isValid)
+    expect(toolCalls).toHaveLength(1)
+    expect(toolCalls[0]!.id).toMatch(/^xml_tc_/)
   })
 })
 
