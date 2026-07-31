@@ -18,6 +18,7 @@ MAPro 是一个本地优先的 AI 桌面应用，把多模型 Chat、通用 Agen
 - **Agent 模式**：支持四种 runtime 的通用 Agent——`claude`（基于 `@anthropic-ai/claude-agent-sdk`）、`proma` 与 `ai-sdk`（自建 Provider-Agnostic 工具循环，基于 `@ma-proma/core` Provider Adapter / Vercel AI SDK）、`pi`（只读工具白名单）。支持工作区隔离（含本地项目工作区 `rootPath`）、权限模式、文件操作、长任务流式输出、计划确认和用户追问。
 - **@goal 目标**：在 Agent 输入框以 `@goal <目标>` 创建长程目标（proma / ai-sdk runtime），Goal Runtime 负责状态机推进、检查点校验与重启恢复。
 - **Web Bridge 与 Computer Use**：Web Bridge 提供受管浏览器（每会话可见窗口或连接用户 Chrome CDP），适合交互式浏览器自动化；macOS 上另有 OS 级 Computer Use（CGEvent 输入 + 截图 + TCC 授权），可操控桌面应用。两者均有本地操作审计与安全限制。
+  - **站点级会话信任**：Web Bridge 的导航 / 点击 / 输入 / 下载默认逐次确认；在权限横幅点"本会话信任 {域名}"后，同站点操作在当前会话内自动放行（跨域名仍需确认，信任随会话结束清空，授权行为写入本地审计）。`WebBridgeUpload` 与 Computer Use 写操作始终逐次确认，安全模式下站点信任不生效。
 - **Campaign 项目管理（Web & 桌面端）**：KOL 投放项目、13 步标准工作流、产物校验、KOL 候选池、达人 Brief 生成、AI 内容审核、内容数据追踪与投流分析。
 - **SubAgent / Tasks**：复杂任务可以通过 Claude Agent SDK 的 Agent 工具拆分为子 Agent / Task，并在消息流中展示调用过程和结果。
 - **Skills & MCP**：每个工作区可以独立配置 Skills、MCP Server 和工作区文件，适合沉淀可复用能力。
