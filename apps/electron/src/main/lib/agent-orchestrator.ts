@@ -545,8 +545,22 @@ export class AgentOrchestrator {
     const { sessionId, agentRuntime =  'proma', channelId, workspaceId, userMessage, modelId, provider, adapterProvider, apiKey, baseUrl, callbacks, startedAt, permissionMode, attachments } = options
     let userMessageUuid = ''
 
+    // 轮次级看门狗：防止上游“活着但永不完成”（持续心跳/慢思考/长时间不发有效数据）导致轮次无限挂起、
+    // 并发守卫永不释放、后续消息全部“收到不执行”。超时后中止会话并给出明确超时提示。
+    // 声明在 try 外，供 try/catch/finally 共享。
+    const MAX_TURN_MS = 10 * 60 * 1000
+    let watchdogFired = false
+    let watchdog: ReturnType<typeof setTimeout> | undefined
+
     try {
       const runtimeServices = this.runtimeServices
+
+      watchdog = setTimeout(() => {
+        watchdogFired = true
+        console.warn(`[Agent Runtime] 会话 ${sessionId} 轮次超过 ${Math.round(MAX_TURN_MS / 60000)} 分钟，看门狗中止`)
+        this.adapter.abort(sessionId)
+      }, MAX_TURN_MS)
+
       const runtimeWorkspace = runtimeServices.workspaces.resolveWorkspaceContext({ workspaceId, sessionId })
       const agentCwd = runtimeWorkspace.cwd
       const workspaceSlug = runtimeWorkspace.workspaceSlug ?? ''
@@ -701,7 +715,12 @@ export class AgentOrchestrator {
       }
 
       callbacks.onComplete(accumulatedMessages as unknown as AgentMessage[], { startedAt })
-    } catch (error) {
+    } catch (rawError) {
+      let error = rawError
+      // 看门狗超时：把 “aborted” 替换为明确的超时错误，走常规错误路径（截断未完成用户消息 + typed_error 提示）
+      if (watchdogFired) {
+        error = new Error(`LLM 响应超时（超过 ${Math.round(MAX_TURN_MS / 60000)} 分钟未完成），已自动停止。可重试，或尝试切换渠道/模型。`)
+      }
       const message = error instanceof Error ? error.message : String(error)
       console.error('[Agent Runtime] MAPro runtime 运行失败:', error)
 
@@ -732,6 +751,8 @@ export class AgentOrchestrator {
         } as AgentStreamPayload)
       }
       throw error
+    } finally {
+      if (watchdog) clearTimeout(watchdog)
     }
   }
 

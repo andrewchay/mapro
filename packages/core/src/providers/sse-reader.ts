@@ -165,26 +165,37 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
   // 用量统计追踪
   let lastUsage: StreamUsageEvent['usage'] | undefined
 
-  // 流读空闲超时：两次数据 chunk 间隔超过阈值即判定上游静默挂起，抛瞬时错误供上层重试。
-  // 每收到一个 chunk 都会重新计时（reader.read() 每次调用重新包裹）。
+  // 流读空闲超时：距上一次收到【有效 SSE data 行】超过阈值即判定上游静默挂起，抛瞬时错误供上层重试。
+  // 注意不能以「原始 chunk」计时——DeepSeek 等上游可能持续发心跳/注释行（": ping"/空行）或极慢的思考增量，
+  // 这些会不断重置「距上次 chunk」的计时器，导致轮次无限挂起（消息“收到不执行”）。
+  // 因此只认真正的 data: 事件，心跳类内容不重置 deadline。
   type ReadResult = Awaited<ReturnType<typeof reader.read>>
+  // 有效数据到达时间戳（毫秒）；初始为响应体就绪时刻
+  let lastMeaningfulAt = Date.now()
   const readWithStallTimeout = (): Promise<ReadResult> => {
     if (stallTimeoutMs <= 0) return reader.read()
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(
-          new Error(
-            `ETIMEDOUT: SSE 流空闲超时（${Math.round(stallTimeoutMs / 1000)} 秒无数据），主动断开以便重试`,
-          ),
-        )
-      }, stallTimeoutMs)
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const checkDeadline = (): void => {
+        const elapsed = Date.now() - lastMeaningfulAt
+        if (elapsed >= stallTimeoutMs) {
+          reject(
+            new Error(
+              `ETIMEDOUT: SSE 流空闲超时（${Math.round(stallTimeoutMs / 1000)} 秒无有效数据），主动断开以便重试`,
+            ),
+          )
+          return
+        }
+        timer = setTimeout(checkDeadline, Math.min(stallTimeoutMs - elapsed, 1000))
+      }
+      checkDeadline()
       reader.read().then(
         (result) => {
-          clearTimeout(timer)
+          if (timer) clearTimeout(timer)
           resolve(result)
         },
         (error) => {
-          clearTimeout(timer)
+          if (timer) clearTimeout(timer)
           reject(error)
         },
       )
@@ -212,6 +223,9 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
           continue
         }
         if (data === '[DONE]' || !data) continue
+
+        // 有效 data 事件到达，更新空闲 deadline（心跳/注释行不会走到这里）
+        lastMeaningfulAt = Date.now()
 
         // 4. 委托给 adapter 解析供应商特定 JSON
         const events = adapter.parseSSELine(data)

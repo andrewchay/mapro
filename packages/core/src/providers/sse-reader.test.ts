@@ -121,6 +121,71 @@ test('stallTimeoutMs <= 0 时禁用空闲超时', async () => {
   expect(result.content).toBe('ok')
 })
 
+test('心跳/注释行不重置空闲超时（防止 keepalive 无限挂起）', async () => {
+  // 上游持续发 ": ping" 注释行（每 30ms），但从不发有效 data 事件；
+  // 旧实现按“距上次 chunk”计时会被无限重置；新实现只认有效 data，应仍超时。
+  const { stream, controller } = controllableStream()
+  const encoder = new TextEncoder()
+  const pingTimer = setInterval(() => {
+    try {
+      controller.enqueue(encoder.encode(': ping\n\n'))
+    } catch {
+      /* 流已关闭 */
+    }
+  }, 30)
+  const fetchFn = (() => Promise.resolve(new Response(stream, { status: 200 }))) as unknown as typeof fetch
+
+  const start = Date.now()
+  const error = await streamSSE({
+    request: TEST_REQUEST,
+    adapter: mockAdapter,
+    onEvent: noopOnEvent,
+    fetchFn,
+    stallTimeoutMs: 100,
+  }).catch((e: unknown) => e)
+  clearInterval(pingTimer)
+
+  const elapsed = Date.now() - start
+  expect(error).toBeInstanceOf(Error)
+  expect((error as Error).message).toContain('ETIMEDOUT')
+  expect((error as Error).message).toContain('空闲超时')
+  // 尽管 ping 每 30ms 到达，仍应在有效数据空闲 100ms 左右触发
+  expect(elapsed).toBeGreaterThanOrEqual(90)
+  expect(elapsed).toBeLessThan(5_000)
+})
+
+test('持续有效数据会重置空闲超时（不误报）', async () => {
+  // 上游每 30ms 发一条真实 data，持续 250ms 后正常 [DONE] 收尾；
+  // 空闲超时 100ms 不应触发（每次有效数据都重置 deadline）。
+  const { stream, controller } = controllableStream()
+  const encoder = new TextEncoder()
+  let i = 0
+  const dataTimer = setInterval(() => {
+    i += 1
+    try {
+      controller.enqueue(encoder.encode(`data: {"delta":"${i}"}\n\n`))
+      if (i >= 6) {
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+        controller.close()
+      }
+    } catch {
+      /* 流已关闭 */
+    }
+  }, 30)
+  const fetchFn = (() => Promise.resolve(new Response(stream, { status: 200 }))) as unknown as typeof fetch
+
+  const result = await streamSSE({
+    request: TEST_REQUEST,
+    adapter: mockAdapter,
+    onEvent: noopOnEvent,
+    fetchFn,
+    stallTimeoutMs: 100,
+  })
+  clearInterval(dataTimer)
+
+  expect(result.content).toBe('123456')
+})
+
 // ===== 连接超时 =====
 
 test('连接阶段挂起时在 connectTimeoutMs 后抛出 ETIMEDOUT 错误', async () => {
