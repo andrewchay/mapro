@@ -75,6 +75,10 @@ export interface ProviderAgnosticAgentQueryOptions extends AgentQueryInput {
   historyMessages?: import('@ma-proma/shared').SDKMessage[]
   /** 最大 LLM 请求重试次数 */
   maxRetries?: number
+  /** SSE 连接阶段超时（毫秒），默认 45000；0 表示禁用 */
+  connectTimeoutMs?: number
+  /** SSE 流读空闲超时（毫秒），默认 60000；<=0 表示禁用。Agent 路径思考默认关闭，60s 无有效数据即判定卡死 */
+  stallTimeoutMs?: number
   /** 工作区 MCP 服务器配置 */
   mcpServers?: Record<string, McpServerEntry>
   /** 工作区 slug，用于 MCP OAuth token 隔离 */
@@ -133,6 +137,8 @@ export class ProviderAgnosticAgentAdapter implements AgentProviderAdapter {
       onAskUser,
       runSubAgent,
       onGoalCheckpoint,
+      connectTimeoutMs,
+      stallTimeoutMs,
     } = input
 
     if (!provider || !apiKey || !baseUrl || !cwd) {
@@ -214,7 +220,7 @@ export class ProviderAgnosticAgentAdapter implements AgentProviderAdapter {
       // 否则 Anthropic 适配器会产生“user tool_result -> assistant tool_use”的乱序/重复结构。
       let continuationMessages: ContinuationMessage[] = []
       let round = 0
-      const maxRetries = input.maxRetries ?? 2
+      const maxRetries = input.maxRetries ?? 3
 
       while (round < maxTurns) {
         round++
@@ -263,6 +269,8 @@ export class ProviderAgnosticAgentAdapter implements AgentProviderAdapter {
               signal: controller.signal,
               fetchFn,
               onEvent: handleStreamEvent,
+              connectTimeoutMs: connectTimeoutMs ?? 45_000,
+              stallTimeoutMs: stallTimeoutMs ?? 60_000,
             }),
           {
             maxRetries,
