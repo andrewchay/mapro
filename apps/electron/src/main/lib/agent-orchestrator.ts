@@ -43,7 +43,7 @@ import { ProviderAgnosticAgentAdapter, type ProviderAgnosticAgentQueryOptions } 
 import type { PiAgentQueryOptions } from './adapters/pi-agent-adapter'
 import { isTransientNetworkError } from './error-patterns'
 import type { AgentEventBus } from './agent-event-bus'
-import { decryptApiKey, getChannelById } from './channel-manager'
+import { decryptApiKey, getChannelById, listChannels } from './channel-manager'
 import { getAdapter, fetchTitle, normalizeAnthropicBaseUrlForSdk } from '@ma-proma/core'
 import { normalizeAgentRuntimeError } from '@ma-proma/shared/utils'
 import { getFetchFn } from './proxy-fetch'
@@ -494,6 +494,9 @@ function collectAttachedDirectories(params: {
 
 // ===== AgentOrchestrator =====
 
+/** 渠道连续失败多少次后触发自动降级切换（保险） */
+const AUTO_FAILOVER_THRESHOLD = 2
+
 export class AgentOrchestrator {
   private adapter: AgentProviderAdapter
   private eventBus: AgentEventBus
@@ -508,6 +511,9 @@ export class AgentOrchestrator {
 
   /** 运行中会话的当前权限模式（支持运行时动态切换） */
   private sessionPermissionModes = new Map<string, MAProPermissionMode>()
+
+  /** 会话级渠道连续失败计数（自动降级用）：sessionId -> { channelId, fails } */
+  private failoverCounters = new Map<string, { channelId: string; fails: number }>()
 
   constructor(
     adapter: AgentProviderAdapter,
@@ -714,6 +720,7 @@ export class AgentOrchestrator {
         runtimeServices.sessions.appendMessages(sessionId, accumulatedMessages)
       }
 
+      this.recordChannelOutcome(sessionId, channelId, true)
       callbacks.onComplete(accumulatedMessages as unknown as AgentMessage[], { startedAt })
     } catch (rawError) {
       let error = rawError
@@ -728,6 +735,9 @@ export class AgentOrchestrator {
       if (message.includes('中止') || message.includes('aborted')) {
         throw error
       }
+
+      // 真实 LLM/渠道失败：累计连续失败，供下一轮自动降级使用
+      this.recordChannelOutcome(sessionId, channelId, false)
 
       if (userMessageUuid) {
         try {
@@ -1484,7 +1494,7 @@ export class AgentOrchestrator {
     }
 
     // 2. 获取渠道信息并解密 API Key
-    const channel = getChannelById(channelId)
+    let channel = getChannelById(channelId)
     if (!channel) {
       reportPreflightError({
         code: 'channel_not_found',
@@ -1517,6 +1527,8 @@ export class AgentOrchestrator {
     // 2.1 生成运行代次（槽位注册在下方 try 块首行，仍在第一个 await 之前，
     // 可防止 buildSdkEnv 等 await 期间并发调用绕过守卫写入重复消息；
     // 由 finally 通过 generation 匹配安全清理，准备阶段抛错也不会残留槽位）
+    // 自动降级生效后实际使用的渠道 ID（默认与原渠道一致）
+    let effectiveChannelId = channelId
     const runGeneration = Date.now()
     // 优先使用渲染进程传来的 startedAt（确保 STREAM_COMPLETE 竞态保护比较的是同一个值），
     // 否则用本地 runGeneration 作为回退（headless 模式等无渲染进程场景）
@@ -1563,6 +1575,47 @@ export class AgentOrchestrator {
       ?? MAPRO_DEFAULT_PERMISSION_MODE
     this.sessionPermissionModes.set(sessionId, initialPermissionMode)
     console.log(`[Agent 编排] 权限模式: ${initialPermissionMode}${permissionModeOverride ? '（外部覆盖）' : ''}`)
+
+    // 2.3 自动降级（保险）：非 Claude runtime 下，当前渠道连续失败达到阈值时，自动切换到下一个可用兼容渠道。
+    // 注意：切换只影响本轮 LLM 调用；会话的 channelId 元数据保持用户原选择，切换时会追加一条可见提示。
+    if (effectiveAgentRuntime !== 'claude' && channel && this.shouldFailover(sessionId, channelId)) {
+      const fallback = listChannels().find(
+        (c) => c.enabled && c.id !== channelId && isAgentCompatibleProvider(c.provider, effectiveAgentRuntime),
+      )
+      if (fallback) {
+        let fallbackKey: string | undefined
+        try {
+          fallbackKey = decryptApiKey(fallback.id)
+        } catch {
+          fallbackKey = undefined
+        }
+        if (fallbackKey) {
+          const fromName = channel.name
+          channel = fallback
+          effectiveChannelId = fallback.id
+          apiKey = fallbackKey
+          this.failoverCounters.set(sessionId, { channelId: fallback.id, fails: 0 })
+          try {
+            appendSDKMessages(sessionId, [
+              {
+                type: 'assistant',
+                message: {
+                  content: [
+                    {
+                      type: 'text',
+                      text: `⚠️ ${fromName} 连续 ${AUTO_FAILOVER_THRESHOLD} 次失败，已自动切换到 ${fallback.name}。`,
+                    },
+                  ],
+                },
+                parent_tool_use_id: null,
+              } as unknown as SDKMessage,
+            ])
+          } catch { /* 提示写入失败不影响主体 */ }
+          console.warn(`[Agent 编排] 自动降级：会话 ${sessionId} 从 ${fromName} 切换到 ${fallback.name}`)
+        }
+      }
+    }
+
 
     if (initialPermissionMode === 'plan') {
       this.eventBus.emit(sessionId, { kind: 'mapro_event', event: { type: 'enter_plan_mode', sessionId } })
@@ -1627,7 +1680,7 @@ export class AgentOrchestrator {
       if (effectiveAgentRuntime === 'pi') {
         await this.runPiAgent({
           sessionId,
-          channelId,
+          channelId: effectiveChannelId,
           workspaceId,
           userMessage: contextualMessage,
           modelId,
@@ -1647,7 +1700,7 @@ export class AgentOrchestrator {
       await this.runProviderAgnosticAgent({
         sessionId,
         agentRuntime: effectiveAgentRuntime,
-        channelId,
+        channelId: effectiveChannelId,
         workspaceId,
         userMessage: contextualMessage,
         modelId,
@@ -2698,6 +2751,25 @@ export class AgentOrchestrator {
       await new Promise((r) => setTimeout(r, Math.min(STEP_MS, delayMs - waited)))
       waited += STEP_MS
     }
+  }
+
+  /** 渠道连续失败达到阈值时判定需要自动降级 */
+  private shouldFailover(sessionId: string, channelId: string): boolean {
+    const cur = this.failoverCounters.get(sessionId)
+    return !!cur && cur.channelId === channelId && cur.fails >= AUTO_FAILOVER_THRESHOLD
+  }
+
+  /** 记录一轮渠道成败（成功=清零连续失败；失败=累加） */
+  private recordChannelOutcome(sessionId: string, channelId: string, succeeded: boolean): void {
+    const cur = this.failoverCounters.get(sessionId)
+    if (succeeded) {
+      if (cur && cur.channelId === channelId) this.failoverCounters.delete(sessionId)
+      return
+    }
+    this.failoverCounters.set(sessionId, {
+      channelId,
+      fails: (cur && cur.channelId === channelId ? cur.fails : 0) + 1,
+    })
   }
 
   /**
