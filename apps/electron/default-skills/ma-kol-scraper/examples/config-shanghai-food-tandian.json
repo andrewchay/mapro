@@ -19,5 +19,10 @@
   "coop_note_months": 3,
   "coop_note_pages_max": 10,
   "active_within_days": 15,
+  "sample_note_count": 5,
+  "relevance_keywords": ["美食", "食品", "饮料"],
+  "grab_note_text": true,
+  "grab_comments": true,
+  "notes_samples_file": "/Users/chaihao/.mapro/agent-workspaces/campaign-1781536535628-fkyikx0/workspace-files/上海美食探店KOL_1w-5w_samples.json",
   "output_file": "/Users/chaihao/.mapro/agent-workspaces/campaign-1781536535628-fkyikx0/workspace-files/上海美食探店KOL_1w-5w.csv"
 }

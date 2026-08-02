@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """小红书蒲公英 KOL 通用采集器（参数化，由 ma-kol-scraper skill 驱动）
 
-版本：v2.0.2（2026-08-01）
+版本：v2.0.3（2026-08-02）
+  - v2.0.3：修复最低曝光/最低点赞/CPM/CPE 计算——抽屉 ex() 支持同行/换行两种布局 + 万/千单位；互动字段 API 优先、抽屉兜底；0 点赞不再被跳过
   - v2.0.2：末尾合并写入防丢数据；网络中断(net::ERR_*)纳入自动重连；userId 独立列+csv 模块解析断点
   - v2.0.1：location 省市区 token 匹配；搜索阶段同时检查 featureTags；CDP 断线自动重连；断点续采
 
@@ -66,7 +67,14 @@ HEADERS = [
     "合作笔记最低点赞", "合作笔记最低点赞阅读", "合作笔记最低点赞收藏",
     "合作笔记最低点赞评论", "合作笔记最低点赞时间",
     "内容标签", "擅长标签",
-    "预估CPM", "预估CPE", "userId", "数据来源",
+    "预估CPM", "预估CPE",
+    # ---- v2.1 新增：相关帖子抽样与内容信号 ----
+    "相关帖子抽样数", "相关帖子标题", "相关帖子正文片段",
+    "相关帖子POI/团购信号", "相关帖子评论数",
+    "相关帖子曝光合计", "相关帖子阅读合计", "相关帖子点赞合计", "相关帖子评论合计",
+    # ---- v2.2 新增：评论明细（grab_comments=true 时） ----
+    "评论样本用户", "评论样本文本",
+    "userId", "数据来源",
 ]
 
 # ========== 辅助函数 ==========
@@ -175,6 +183,14 @@ class KolCollector:
         self.coop_note_pages_max = cfg.get("coop_note_pages_max", 10)
         self.active_within_days = cfg.get("active_within_days", 15)
         self.output_file = cfg.get("output_file", "")
+        # ---- v2.1 新增配置：相关帖子抽样与内容信号 ----
+        self.sample_note_count = cfg.get("sample_note_count", 5)      # 每个 KOL 抽取相关帖子数量
+        self.relevance_keywords = cfg.get("relevance_keywords", [])   # 相关性关键词（如水果→食品/饮料）
+        self.grab_note_text = cfg.get("grab_note_text", True)         # 是否抓抽屉内笔记正文文本
+        self.grab_comments = cfg.get("grab_comments", True)          # 是否抓评论样本（默认开启，成本约每篇+1-2s；设为 false 可提速）
+        self.notes_samples_file = cfg.get("notes_samples_file", "")  # 抽样笔记 JSON 输出路径（可选）
+        # ---- v2.0.3 新增：强制重采指定 userId（修复历史数据时只重跑异常达人） ----
+        self.force_redownload_ids = set(cfg.get("force_redownload_ids", []) or [])
 
     # ----- 过滤方法 -----
 
@@ -307,16 +323,48 @@ class KolCollector:
         coop = self._coop_notes_within_months(all_notes)
         if not coop:
             return None
-        valid = [n for n in coop if (n.get("impNum") or n.get("imp") or 0) > 0]
+        def _imp(v):
+            v = self._note_metric(v, "imp")
+            return v if v is not None else float("inf")
+        valid = [n for n in coop if (_imp(n) or 0) > 0]
         if valid:
-            return min(valid, key=lambda x: x.get("impNum") or x.get("imp") or float("inf"))
+            return min(valid, key=_imp)
         return None
 
     def get_min_like_coop_note(self, all_notes):
         coop = self._coop_notes_within_months(all_notes)
         if not coop:
             return None
-        return min(coop, key=lambda x: x.get("likeNum") or x.get("like") or float("inf"))
+        def _like(v):
+            v = self._note_metric(v, "like")
+            return v if v is not None else float("inf")
+        return min(coop, key=_like)
+
+    @staticmethod
+    def _note_metric(note, kind):
+        """从笔记对象中按多种候选字段名提取互动指标（API 优先，兼容不同命名）。
+        kind: imp / read / like / collect / comment
+        返回 int/float 或 None（未找到）。"""
+        if not note or not isinstance(note, dict):
+            return None
+        cand = {
+            "imp": ["impNum", "imp", "impCount", "exposure", "exposureNum", "viewCount", "view"],
+            "read": ["readNum", "read", "readCount", "reads"],
+            "like": ["likeNum", "like", "likeCount", "likes", "praiseNum"],
+            "collect": ["collectNum", "collect", "collectCount", "favorites", "favoriteNum", "collects"],
+            "comment": ["commentNum", "comment", "commentCount", "comments"],
+        }.get(kind, [])
+        for k in cand:
+            v = note.get(k)
+            if v is not None and v != "":
+                try:
+                    return int(v)
+                except (TypeError, ValueError):
+                    try:
+                        return int(float(v))
+                    except (TypeError, ValueError):
+                        pass
+        return None
 
     # ----- 搜索 API -----
 
@@ -687,13 +735,28 @@ class KolCollector:
                         }
                         if (!c) return null;
                         const lines = c.innerText.split('\\n').map(l=>l.trim()).filter(l=>l);
+                        const parseNum = (s, unit) => {
+                            const raw = parseFloat((s||'').replace(/,/g,''));
+                            if (isNaN(raw)) return null;
+                            if (unit === '万' || unit === 'w') return Math.round(raw * 10000);
+                            if (unit === '千' || unit === 'k') return Math.round(raw * 1000);
+                            return Math.round(raw);
+                        };
                         const ex = (label) => {
                             for(let i=0;i<lines.length;i++){
                                 if(lines[i]===label || lines[i].startsWith(label)){
+                                    // 布局 A：同行式「曝光量 1,475」/「曝光量：1,475」——直接从当前行提取数字
+                                    const same = lines[i].match(/([\d,.]+)\s*(万|千|w|k)?\s*$/);
+                                    if (same) {
+                                        const n = parseNum(same[1], same[2]);
+                                        if (n !== null) return n;
+                                    }
+                                    // 布局 B：换行式「曝光量\n1,475」/「曝光量\n1.5万」——取下一行数字
                                     const next = lines[i+1];
                                     if (next) {
-                                        const n = parseInt(next.replace(/,/g,''));
-                                        if (!isNaN(n)) return n;
+                                        const m = next.match(/([\d,.]+)\s*(万|千|w|k)?/);
+                                        const n = m ? parseNum(m[1], m[2]) : null;
+                                        if (n !== null) return n;
                                     }
                                 }
                             }
@@ -701,6 +764,7 @@ class KolCollector:
                         };
                         return {
                             title: lines[0]||'',
+                            text: lines.slice(0, 40).join(' | ').slice(0, 2000),
                             exposure: ex('曝光量') || ex('曝光'),
                             reads: ex('阅读量') || ex('阅读'),
                             likes: ex('点赞量') || ex('点赞'),
@@ -715,6 +779,51 @@ class KolCollector:
                                        ("favorites", "collectNum"), ("comments", "commentNum")):
                             if drawer_data.get(k2):
                                 note_exposure[f"{nid}_{kk}"] = drawer_data[k2]
+
+                    # v2.1：保存抽屉内文本信号（标题+正文片段+可能的POI/团购/人均信息）
+                    if drawer_data:
+                        captured.setdefault("note_texts", {})[nid] = {
+                            "title": drawer_data.get("title") or "",
+                            "text": drawer_data.get("text") or "",
+                        }
+
+                    # v2.2：抓取评论明细（grab_comments=true 时）——抽屉内评论区 DOM + 评论者昵称
+                    if self.grab_comments and nid:
+                        try:
+                            time.sleep(1.2)
+                            cmts = detail_page.evaluate("""() => {
+                                const pick = (el) => {
+                                    if (!el) return null;
+                                    const t = el.textContent.trim();
+                                    return t ? t.slice(0, 300) : null;
+                                };
+                                // 抽屉内寻找评论列表容器（评论 item 通常含头像+昵称+文本）
+                                let c = document.querySelector('.d-drawer-content, [class*=drawer-content], [class*=drawerContent]');
+                                if (!c) return [];
+                                const blocks = c.querySelectorAll('[class*=comment-item], [class*=commentItem], [class*=comment__item]');
+                                const out = [];
+                                if (blocks.length) {
+                                    blocks.forEach(b => {
+                                        const nick = pick(b.querySelector('[class*=comment-item__name], [class*=commentItem__name], [class*=comment-name], [class*=commentName]'));
+                                        const txt = pick(b.querySelector('[class*=comment-item__content], [class*=commentItem__content], [class*=comment-content], [class*=commentContent]'));
+                                        if (txt || nick) out.push({user: nick || '', text: txt || ''});
+                                    });
+                                } else {
+                                    // 兜底：按行解析“昵称 文本”模式（页面结构不稳时尽量抓）
+                                    const lines = (c.innerText || '').split('\\n').map(l=>l.trim()).filter(l=>l);
+                                    for (let i = 0; i < lines.length && out.length < 20; i++) {
+                                        if (lines[i] && lines[i].length > 2 && !['曝光量','阅读量','点赞量','收藏量','评论量','全部评论','评论'].includes(lines[i])) {
+                                            out.push({user: lines[i], text: lines[i+1] || ''});
+                                            i++;
+                                        }
+                                    }
+                                }
+                                return out.slice(0, 20);
+                            }""")
+                            if cmts:
+                                captured.setdefault("comment_samples", {})[nid] = cmts
+                        except Exception:
+                            pass
 
                     # 关闭抽屉
                     try:
@@ -776,6 +885,76 @@ class KolCollector:
 
     # ----- 构建 CSV 行 -----
 
+    def extract_relevance_samples(self, captured):
+        """v2.1：从详情页数据中抽取与 target_tags/relevance_keywords 相关的帖子样本。
+        返回 list[dict]：{noteId, title, text, impNum, readNum, likeNum, commentNum, isAdvertise, date}
+        优先按相关性关键词过滤；无关键词时退回取合作笔记样本。"""
+        all_notes = []
+        for item in captured.get("notes_detail") or []:
+            all_notes.extend(safe_get(item, "data", "list", default=[]) or [])
+
+        note_exposure = captured.get("note_exposure") or {}
+        note_texts = captured.get("note_texts") or {}
+        comment_samples = captured.get("comment_samples") or {}  # v2.2
+        for note in all_notes:
+            nid = note.get("noteId")
+            if nid and nid in note_exposure:
+                # API 字段优先，抽屉仅补充缺失（避免错位污染）
+                api_has = {k: self._note_metric(note, k) for k in ("imp", "read", "like", "collect", "comment")}
+                if api_has["imp"] is None:
+                    note["impNum"] = note_exposure[nid]
+                if api_has["read"] is None:
+                    note["readNum"] = note_exposure.get(f"{nid}_reads")
+                if api_has["like"] is None:
+                    note["likeNum"] = note_exposure.get(f"{nid}_likes")
+                if api_has["collect"] is None:
+                    note["collectNum"] = note_exposure.get(f"{nid}_favorites")
+                if api_has["comment"] is None:
+                    note["commentNum"] = note_exposure.get(f"{nid}_comments")
+            if nid and nid in note_texts:
+                note["_title"] = note_texts[nid].get("title", "")
+                note["_text"] = note_texts[nid].get("text", "")
+            if nid and nid in comment_samples:
+                note["_comments"] = comment_samples[nid]
+
+        # 过滤出与合作相关帖子（优先 isAdvertise，含 _text/_title 的样本）
+        candidates = [n for n in all_notes if n.get("isAdvertise")]
+        if not candidates:
+            candidates = [n for n in all_notes if n.get("_text") or n.get("_title")]
+        if not candidates:
+            return []
+
+        # 按相关性关键词过滤（如水果 → 食品/饮料相关）
+        keywords = list(self.target_tags) + [k for k in self.relevance_keywords if k]
+        scored = []
+        for n in candidates:
+            hay = " ".join(str(n.get(k, "")) for k in ("_title", "_text", "title", "tags", "contentTags") if n.get(k))
+            score = 0
+            for kw in keywords:
+                if kw and kw in hay:
+                    score += 1
+            scored.append((score, n))
+        # 关键词命中优先，其次保留原顺序（有正文样本优先）
+        scored.sort(key=lambda x: (-x[0], 0 if (x[1].get("_text") or x[1].get("_title")) else 1))
+        out = []
+        for score, n in scored[: self.sample_note_count]:
+            out.append({
+                "noteId": n.get("noteId"),
+                "title": n.get("_title") or n.get("title") or "",
+                "text": (n.get("_text") or "")[:1500],
+                "impNum": self._note_metric(n, "imp") or 0,
+                "readNum": self._note_metric(n, "read") or 0,
+                "likeNum": self._note_metric(n, "like") or 0,
+                "commentNum": self._note_metric(n, "comment") or 0,
+                "isAdvertise": bool(n.get("isAdvertise")),
+                "date": n.get("date") or n.get("publishTime") or "",
+                "comments": n.get("_comments") or [],  # v2.2：评论明细（grab_comments=true 时）
+                "matched_keywords": [kw for kw in keywords if kw and kw in (
+                    " ".join(str(n.get(k, "")) for k in ("_title", "_text", "title", "tags", "contentTags") if n.get(k))
+                )],
+            })
+        return out
+
     def build_row(self, kol, blogger, captured, top5_cities, fans_profile):
         notes_rate_daily = captured.get("notes_rate_daily_organic") or captured.get("notes_rate_daily_all") or {}
         notes_rate_coop = captured.get("notes_rate_coop_organic") or captured.get("notes_rate_coop_all") or {}
@@ -802,44 +981,56 @@ class KolCollector:
         if effective_price is None:
             effective_price = pic_price or vid_price
 
-        # 注入抽屉数据
+        # 注入互动数据：优先 API 自带字段，抽屉数据仅补充缺失项
+        # （API 返回的 notes_detail 通常自带曝光/阅读/点赞；抽屉 DOM 提取容易因布局变化错位，
+        #   只有 API 缺失时才用抽屉值兜底，避免「阅读 > 曝光」这类字段错位污染最低曝光/最低点赞）
         note_exposure = captured.get("note_exposure") or {}
         for note in all_detail_notes:
             nid = note.get("noteId")
-            if nid and nid in note_exposure:
+            if not nid or nid not in note_exposure:
+                continue
+            api_has = {k: self._note_metric(note, k) for k in ("imp", "read", "like", "collect", "comment")}
+            if api_has["imp"] is None:
                 note["impNum"] = note_exposure[nid]
-                for sfx, key in [("_reads", "readNum"), ("_likes", "likeNum"),
-                                 ("_favorites", "collectNum"), ("_comments", "commentNum")]:
-                    if f"{nid}{sfx}" in note_exposure:
-                        note[key] = note_exposure[f"{nid}{sfx}"]
+            if api_has["read"] is None:
+                note["readNum"] = note_exposure.get(f"{nid}_reads")
+            if api_has["like"] is None:
+                note["likeNum"] = note_exposure.get(f"{nid}_likes")
+            if api_has["collect"] is None:
+                note["collectNum"] = note_exposure.get(f"{nid}_favorites")
+            if api_has["comment"] is None:
+                note["commentNum"] = note_exposure.get(f"{nid}_comments")
 
         min_imp_note = self.get_min_imp_coop_note(all_detail_notes)
         min_like_note = self.get_min_like_coop_note(all_detail_notes)
 
-        # 计算 CPM / CPE
+        # 计算 CPM / CPE（优先用合作笔记最低曝光/最低点赞笔记的真实值；缺失时回退中位数）
         cpm = None
         cpe = None
         if effective_price:
             if min_imp_note:
-                imp = min_imp_note.get("impNum") or min_imp_note.get("imp") or 0
-                if imp:
+                imp = self._note_metric(min_imp_note, "imp") or 0
+                if imp > 0:
                     cpm = effective_price / imp * 1000
             if cpm is None:
                 coop_imp_median = safe_get(notes_rate_coop, "data", "impMedian", default=None)
                 if coop_imp_median and coop_imp_median > 0:
                     cpm = effective_price / coop_imp_median * 1000
             if min_like_note:
-                like = min_like_note.get("likeNum") or min_like_note.get("like") or 0
-                if like:
+                like = self._note_metric(min_like_note, "like")
+                if like is not None and like > 0:
                     cpe = effective_price / like
 
         def nr_median(nr, key):
             return safe_get(nr, "data", key, default=None)
 
-        def note_field(note, key, fallback_keys=None):
+        def note_field(note, kind, fallback_keys=None):
             if not note:
                 return None
-            for k in ([key] + (fallback_keys or [])):
+            v = self._note_metric(note, kind)
+            if v is not None:
+                return v
+            for k in (fallback_keys or []):
                 if k in note and note[k] is not None:
                     return note[k]
             return None
@@ -865,6 +1056,26 @@ class KolCollector:
         else:
             feature_tag_str = str(feature_tag_list) if feature_tag_list else ""
 
+        # ---- v2.1：相关帖子抽样（供风格/价格带/评论画像/CPM·CPE 校验使用） ----
+        samples = self.extract_relevance_samples(captured)
+        sample_titles = " | ".join(s["title"] for s in samples if s.get("title"))[:800]
+        sample_text = " || ".join(s["text"] for s in samples if s.get("text"))[:3000]
+        # POI/团购/人均 信号识别（文本关键词，供价格带校验粗筛）
+        poi_signals = []
+        for s in samples:
+            for kw in ("人均", "客单", "元/", "价格", "团购", "套餐", "地址", "门店", "¥", "￥"):
+                if s.get("text") and kw in s["text"]:
+                    poi_signals.append(kw)
+                    break
+        # v2.2：评论明细聚合信号（grab_comments=true 时才有）
+        all_comments = [c for s in samples for c in (s.get("comments") or [])]
+        comment_users = " | ".join(dict.fromkeys(c.get("user", "") for c in all_comments if c.get("user")))[:600]
+        comment_texts = " || ".join(c.get("text", "") for c in all_comments if c.get("text"))[:2000]
+        sample_imp = sum(int(s.get("impNum") or 0) for s in samples)
+        sample_read = sum(int(s.get("readNum") or 0) for s in samples)
+        sample_like = sum(int(s.get("likeNum") or 0) for s in samples)
+        sample_comment = sum(int(s.get("commentNum") or 0) for s in samples)
+
         return {
             "达人名称": blogger.get("name") or kol.get("name") or "",
             "小红书号": blogger.get("xiaohongshuId") or kol.get("xiaohongshuId") or kol.get("userId") or "",
@@ -885,21 +1096,33 @@ class KolCollector:
             "合作笔记曝光中位数": nr_median(notes_rate_coop, "impMedian"),
             "合作笔记阅读中位数": nr_median(notes_rate_coop, "readMedian"),
             "合作笔记点赞中位数": nr_median(notes_rate_coop, "likeMedian"),
-            "合作笔记最低曝光": note_field(min_imp_note, "impNum", ["imp"]),
-            "合作笔记最低曝光阅读": note_field(min_imp_note, "readNum", ["read"]),
-            "合作笔记最低曝光点赞": note_field(min_imp_note, "likeNum", ["like"]),
-            "合作笔记最低曝光收藏": note_field(min_imp_note, "collectNum", ["collect"]),
-            "合作笔记最低曝光评论": note_field(min_imp_note, "commentNum", ["comment"]),
+            "合作笔记最低曝光": note_field(min_imp_note, "imp"),
+            "合作笔记最低曝光阅读": note_field(min_imp_note, "read"),
+            "合作笔记最低曝光点赞": note_field(min_imp_note, "like"),
+            "合作笔记最低曝光收藏": note_field(min_imp_note, "collect"),
+            "合作笔记最低曝光评论": note_field(min_imp_note, "comment"),
             "合作笔记最低曝光时间": min_imp_note.get("date") if min_imp_note else None,
-            "合作笔记最低点赞": note_field(min_like_note, "likeNum", ["like"]),
-            "合作笔记最低点赞阅读": note_field(min_like_note, "readNum", ["read"]),
-            "合作笔记最低点赞收藏": note_field(min_like_note, "collectNum", ["collect"]),
-            "合作笔记最低点赞评论": note_field(min_like_note, "commentNum", ["comment"]),
+            "合作笔记最低点赞": note_field(min_like_note, "like"),
+            "合作笔记最低点赞阅读": note_field(min_like_note, "read"),
+            "合作笔记最低点赞收藏": note_field(min_like_note, "collect"),
+            "合作笔记最低点赞评论": note_field(min_like_note, "comment"),
             "合作笔记最低点赞时间": min_like_note.get("date") if min_like_note else None,
             "内容标签": content_tag_str,
             "擅长标签": feature_tag_str,
             "预估CPM": round(cpm, 2) if cpm is not None else None,
             "预估CPE": round(cpe, 2) if cpe is not None else None,
+            # ---- v2.1 新增列 ----
+            "相关帖子抽样数": len(samples),
+            "相关帖子标题": sample_titles,
+            "相关帖子正文片段": sample_text,
+            "相关帖子POI/团购信号": ";".join(sorted(set(poi_signals))) if poi_signals else "",
+            "相关帖子评论数": sample_comment,
+            "相关帖子曝光合计": sample_imp,
+            "相关帖子阅读合计": sample_read,
+            "相关帖子点赞合计": sample_like,
+            "相关帖子评论合计": sample_comment,
+            "评论样本用户": comment_users,
+            "评论样本文本": comment_texts,
             "数据来源": "蒲公英",
         }
 
@@ -1000,6 +1223,7 @@ class KolCollector:
     def run(self, output_file, debug_file=None):
         results = []
         debug = {"errors": [], "filtered_in": [], "filtered_out": []}
+        notes_samples = {"kols": []}  # v2.1：相关帖子抽样笔记（供校验引擎使用）
 
         cdp_url = f"http://127.0.0.1:{self.cdp_port}"
 
@@ -1057,7 +1281,23 @@ class KolCollector:
             done_ids = self._load_done_user_ids(output_file)
             if done_ids:
                 print(f"  检测到已有产出 {len(done_ids)} 条，跳过这些 userId（断点续采）")
-            candidates = [k for k in candidates if k.get("userId") not in done_ids]
+            if self.force_redownload_ids:
+                # v2.0.3：强制重采的 userId 不受断点去重影响
+                # 1) 保留命中强制列表的搜索候选；2) 其余普通候选按断点去重
+                forced_hit = [k for k in candidates if k.get("userId") in self.force_redownload_ids]
+                normal = [k for k in candidates if k.get("userId") not in self.force_redownload_ids and k.get("userId") not in done_ids]
+                # 3) 搜索未命中的强制 userId：从已有 CSV 行构造最小对象（fetch_kol_detail 只依赖 userId）
+                missing_forced = self.force_redownload_ids - {k.get("userId") for k in forced_hit}
+                if missing_forced:
+                    existing = self._load_existing_rows(output_file)
+                    uid_to_name = { (r.get("userId") or r.get("小红书号") or ""): (r.get("达人名称") or "") for r in existing }
+                    for uid in missing_forced:
+                        forced_hit.append({"userId": uid, "name": uid_to_name.get(uid, uid)})
+                    print(f"  强制重采中有 {len(missing_forced)} 个未在本次搜索命中，已从已有 CSV 补齐")
+                candidates = forced_hit + normal
+                print(f"  强制重采 {len(forced_hit)} 个（{', '.join(str(k.get('userId')) for k in forced_hit[:8])}{'...' if len(forced_hit)>8 else ''}）")
+            else:
+                candidates = [k for k in candidates if k.get("userId") not in done_ids]
             print(f"断点去重后待采集 {len(candidates)} 个")
 
             for idx, kol in enumerate(candidates, start=1):
@@ -1137,6 +1377,19 @@ class KolCollector:
                 debug["filtered_in"].append({"name": row["达人名称"], "userId": user_id})
                 print(f"  -> MATCH: {row['达人名称']} (累计 {len(results)} 条)")
 
+                # v2.1：收集相关帖子抽样笔记（供校验引擎使用）
+                if self.notes_samples_file:
+                    samples = self.extract_relevance_samples(captured)
+                    if samples:
+                        notes_samples.setdefault("kols", []).append({
+                            "userId": user_id,
+                            "name": row["达人名称"],
+                            "platform": "小红书",
+                            "target_tags": list(self.target_tags),
+                            "relevance_keywords": list(self.relevance_keywords),
+                            "samples": samples,
+                        })
+
                 # 每收集到一个匹配 KOL 就写入 CSV，防止长时间采集中断丢数据
                 self.save_csv(results, output_file)
 
@@ -1154,6 +1407,17 @@ class KolCollector:
 
             if not results:
                 print("无匹配结果，跳过写入")
+                # v2.1：即使无匹配也尝试写出已采到的抽样笔记（便于排查）
+                if self.notes_samples_file and notes_samples.get("kols"):
+                    notes_samples["generated_at"] = datetime.datetime.now().isoformat()
+                    notes_samples["count"] = len(notes_samples.get("kols", []))
+                    ns_path = self.notes_samples_file
+                    if not os.path.isabs(ns_path):
+                        ns_path = os.path.join(os.path.dirname(os.path.abspath(output_file)), ns_path)
+                    os.makedirs(os.path.dirname(os.path.abspath(ns_path)), exist_ok=True)
+                    with open(ns_path, "w", encoding="utf-8") as f:
+                        json.dump(notes_samples, f, ensure_ascii=False, indent=2)
+                    print(f"抽样笔记已写入: {ns_path}（{notes_samples['count']} 个 KOL）")
                 return results
 
             # 去重（本次结果内，按 userId/小红书号/名称 归一）
@@ -1191,6 +1455,18 @@ class KolCollector:
                 debug["output_file"] = output_file
                 with open(debug_file, "w", encoding="utf-8") as f:
                     json.dump(debug, f, ensure_ascii=False, indent=2)
+
+            # v2.1：写入抽样笔记 JSON（供校验引擎消费）
+            if self.notes_samples_file:
+                notes_samples["generated_at"] = datetime.datetime.now().isoformat()
+                notes_samples["count"] = len(notes_samples.get("kols", []))
+                ns_path = self.notes_samples_file
+                if not os.path.isabs(ns_path):
+                    ns_path = os.path.join(os.path.dirname(os.path.abspath(output_file)), ns_path)
+                os.makedirs(os.path.dirname(os.path.abspath(ns_path)), exist_ok=True)
+                with open(ns_path, "w", encoding="utf-8") as f:
+                    json.dump(notes_samples, f, ensure_ascii=False, indent=2)
+                print(f"抽样笔记已写入: {ns_path}（{notes_samples['count']} 个 KOL）")
 
             print(f"\n完成！共采集 {len(unique_results)} 个 KOL")
             return results

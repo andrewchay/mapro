@@ -1,0 +1,332 @@
+{
+  "generated_at": "2026-08-01T18:57:46",
+  "rules_version": "1.0",
+  "count": 5,
+  "scorecards": [
+    {
+      "达人名称": "水果探店达人A",
+      "userId": "mock_a0001",
+      "platform": "小红书",
+      "category": "美食探店",
+      "city": "上海",
+      "overall_score": 92.0,
+      "conclusion": "通过",
+      "dimensions": {
+        "style_tone": {
+          "score": 88,
+          "evidence": "启发式打分：命中正向关键词 7 个 / 负向关键词 0 个；（未配置 LLM，建议开启 --llm 提升准确率）",
+          "detail": {
+            "llm": false,
+            "good_hits": 7,
+            "bad_hits": 0
+          }
+        },
+        "price_band": {
+          "score": 100,
+          "evidence": "客单价 90 元 ∈ [90, 500]",
+          "detail": {
+            "llm": false,
+            "hits": [
+              88.0,
+              88.0,
+              90.0,
+              90.0
+            ],
+            "price": 90.0,
+            "price_confidence": 0.7,
+            "matched": true
+          }
+        },
+        "comment_profile": {
+          "score": 75.0,
+          "evidence": "粉丝地域含目标城市 ['上海', '杭州', '北京']；女性粉丝占比 72% 符合目标；抽样相关帖子评论合计 120 条（评论区画像需评论明细数据进一步聚合）",
+          "detail": {
+            "female_ratio": 0.72,
+            "city_str": "上海;杭州;北京",
+            "comment_total": 120,
+            "needs_comment_detail": true
+          }
+        },
+        "engagement_cpm_cpe": {
+          "score": 100.0,
+          "evidence": "CPM 32 元（优秀 ≤300）；CPE 1.25 元（优秀 ≤5）",
+          "detail": {
+            "sample_count": 5,
+            "sample_imp": 95000,
+            "sample_read": 21000,
+            "sample_like": 2400,
+            "sample_comment": 120,
+            "cpm": 31.58,
+            "cpe": 1.25
+          }
+        }
+      },
+      "weights": {
+        "style_tone": 0.25,
+        "price_band": 0.3,
+        "comment_profile": 0.2,
+        "engagement_cpm_cpe": 0.25
+      },
+      "rule_version": "1.0",
+      "generated_at": "2026-08-01T18:57:46"
+    },
+    {
+      "达人名称": "咖啡探店达人B",
+      "userId": "mock_b0002",
+      "platform": "小红书",
+      "category": "美食探店",
+      "city": "上海",
+      "overall_score": 70.0,
+      "conclusion": "待复核",
+      "dimensions": {
+        "style_tone": {
+          "score": 72,
+          "evidence": "启发式打分：命中正向关键词 3 个 / 负向关键词 0 个；（未配置 LLM，建议开启 --llm 提升准确率）",
+          "detail": {
+            "llm": false,
+            "good_hits": 3,
+            "bad_hits": 0
+          }
+        },
+        "price_band": {
+          "score": 40,
+          "evidence": "客单价 40 元 < 下限 90 元（消费力可能不足）",
+          "detail": {
+            "llm": false,
+            "hits": [
+              38.0,
+              40.0
+            ],
+            "price": 40.0,
+            "price_confidence": 0.6,
+            "matched": false
+          }
+        },
+        "comment_profile": {
+          "score": 75.0,
+          "evidence": "粉丝地域含目标城市 ['上海', '杭州']；女性粉丝占比 65% 符合目标；抽样相关帖子评论合计 60 条（评论区画像需评论明细数据进一步聚合）",
+          "detail": {
+            "female_ratio": 0.65,
+            "city_str": "杭州;上海;南京",
+            "comment_total": 60,
+            "needs_comment_detail": true
+          }
+        },
+        "engagement_cpm_cpe": {
+          "score": 100.0,
+          "evidence": "CPM 38 元（优秀 ≤300）；CPE 2.22 元（优秀 ≤5）",
+          "detail": {
+            "sample_count": 4,
+            "sample_imp": 52000,
+            "sample_read": 11000,
+            "sample_like": 900,
+            "sample_comment": 60,
+            "cpm": 38.46,
+            "cpe": 2.22
+          }
+        }
+      },
+      "weights": {
+        "style_tone": 0.25,
+        "price_band": 0.3,
+        "comment_profile": 0.2,
+        "engagement_cpm_cpe": 0.25
+      },
+      "rule_version": "1.0",
+      "generated_at": "2026-08-01T18:57:46"
+    },
+    {
+      "达人名称": "水果探店达人C",
+      "userId": "mock_c0003",
+      "platform": "小红书",
+      "category": "美食探店",
+      "city": "上海",
+      "overall_score": 63.2,
+      "conclusion": "待复核",
+      "dimensions": {
+        "style_tone": {
+          "score": 68,
+          "evidence": "启发式打分：命中正向关键词 2 个 / 负向关键词 0 个；（未配置 LLM，建议开启 --llm 提升准确率）",
+          "detail": {
+            "llm": false,
+            "good_hits": 2,
+            "bad_hits": 0
+          }
+        },
+        "price_band": {
+          "score": 50,
+          "evidence": "无价格数据",
+          "detail": {
+            "llm": false,
+            "hits": [],
+            "price": null,
+            "price_confidence": 0,
+            "matched": null
+          }
+        },
+        "comment_profile": {
+          "score": 50.0,
+          "evidence": "粉丝地域 温州;宁波;绍兴 与目标城市 ['上海', '杭州', '北京'] 匹配度一般；抽样相关帖子评论合计 15 条（评论区画像需评论明细数据进一步聚合）",
+          "detail": {
+            "female_ratio": 0.45,
+            "city_str": "温州;宁波;绍兴",
+            "comment_total": 15,
+            "needs_comment_detail": true
+          }
+        },
+        "engagement_cpm_cpe": {
+          "score": 85.0,
+          "evidence": "CPM 111 元（优秀 ≤300）；CPE 6.67 元（可接受 ≤15）",
+          "detail": {
+            "sample_count": 3,
+            "sample_imp": 9000,
+            "sample_read": 2100,
+            "sample_like": 150,
+            "sample_comment": 15,
+            "cpm": 111.11,
+            "cpe": 6.67
+          }
+        }
+      },
+      "weights": {
+        "style_tone": 0.25,
+        "price_band": 0.3,
+        "comment_profile": 0.2,
+        "engagement_cpm_cpe": 0.25
+      },
+      "rule_version": "1.0",
+      "generated_at": "2026-08-01T18:57:46"
+    },
+    {
+      "达人名称": "甜品探店达人D",
+      "userId": "mock_d0004",
+      "platform": "小红书",
+      "category": "美食探店",
+      "city": "上海",
+      "overall_score": 86.0,
+      "conclusion": "通过",
+      "dimensions": {
+        "style_tone": {
+          "score": 64,
+          "evidence": "启发式打分：命中正向关键词 1 个 / 负向关键词 0 个；（未配置 LLM，建议开启 --llm 提升准确率）",
+          "detail": {
+            "llm": false,
+            "good_hits": 1,
+            "bad_hits": 0
+          }
+        },
+        "price_band": {
+          "score": 100,
+          "evidence": "客单价 198 元 ∈ [90, 500]",
+          "detail": {
+            "llm": false,
+            "hits": [
+              120.0,
+              120.0,
+              198.0,
+              198.0
+            ],
+            "price": 198.0,
+            "price_confidence": 0.7,
+            "matched": true
+          }
+        },
+        "comment_profile": {
+          "score": 75.0,
+          "evidence": "粉丝地域含目标城市 ['上海']；女性粉丝占比 90% 符合目标；抽样相关帖子评论合计 150 条（评论区画像需评论明细数据进一步聚合）",
+          "detail": {
+            "female_ratio": 0.9,
+            "city_str": "上海;苏州;无锡",
+            "comment_total": 150,
+            "needs_comment_detail": true
+          }
+        },
+        "engagement_cpm_cpe": {
+          "score": 100.0,
+          "evidence": "CPM 42 元（优秀 ≤300）；CPE 1.56 元（优秀 ≤5）",
+          "detail": {
+            "sample_count": 6,
+            "sample_imp": 120000,
+            "sample_read": 26000,
+            "sample_like": 3200,
+            "sample_comment": 150,
+            "cpm": 41.67,
+            "cpe": 1.56
+          }
+        }
+      },
+      "weights": {
+        "style_tone": 0.25,
+        "price_band": 0.3,
+        "comment_profile": 0.2,
+        "engagement_cpm_cpe": 0.25
+      },
+      "rule_version": "1.0",
+      "generated_at": "2026-08-01T18:57:46"
+    },
+    {
+      "达人名称": "低互动达人E",
+      "userId": "mock_e0005",
+      "platform": "小红书",
+      "category": "美食探店",
+      "city": "上海",
+      "overall_score": 69.0,
+      "conclusion": "待复核",
+      "dimensions": {
+        "style_tone": {
+          "score": 64,
+          "evidence": "启发式打分：命中正向关键词 1 个 / 负向关键词 0 个；（未配置 LLM，建议开启 --llm 提升准确率）",
+          "detail": {
+            "llm": false,
+            "good_hits": 1,
+            "bad_hits": 0
+          }
+        },
+        "price_band": {
+          "score": 85,
+          "evidence": "客单价 80 元，接近价格带边缘（[90, 500]）",
+          "detail": {
+            "llm": false,
+            "hits": [
+              80.0
+            ],
+            "price": 80.0,
+            "price_confidence": 0.55,
+            "matched": true
+          }
+        },
+        "comment_profile": {
+          "score": 75.0,
+          "evidence": "粉丝地域含目标城市 ['上海', '北京']；女性粉丝占比 55% 符合目标；抽样相关帖子评论合计 5 条（评论区画像需评论明细数据进一步聚合）",
+          "detail": {
+            "female_ratio": 0.55,
+            "city_str": "上海;北京;广州",
+            "comment_total": 5,
+            "needs_comment_detail": true
+          }
+        },
+        "engagement_cpm_cpe": {
+          "score": 50.0,
+          "evidence": "CPM 800 元（可接受 ≤800）；CPE 50.00 元（偏高 >15）",
+          "detail": {
+            "sample_count": 2,
+            "sample_imp": 2500,
+            "sample_read": 600,
+            "sample_like": 40,
+            "sample_comment": 5,
+            "cpm": 800.0,
+            "cpe": 50.0
+          }
+        }
+      },
+      "weights": {
+        "style_tone": 0.25,
+        "price_band": 0.3,
+        "comment_profile": 0.2,
+        "engagement_cpm_cpe": 0.25
+      },
+      "rule_version": "1.0",
+      "generated_at": "2026-08-01T18:57:46"
+    }
+  ]
+}

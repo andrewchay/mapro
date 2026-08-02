@@ -1,0 +1,6 @@
+﻿达人名称,userId,category,city,overall_score,conclusion,style_tone,price_band,comment_profile,engagement_cpm_cpe
+水果探店达人A,mock_a0001,美食探店,上海,92.0,通过,88,100,75.0,100.0
+咖啡探店达人B,mock_b0002,美食探店,上海,70.0,待复核,72,40,75.0,100.0
+水果探店达人C,mock_c0003,美食探店,上海,63.2,待复核,68,50,50.0,85.0
+甜品探店达人D,mock_d0004,美食探店,上海,86.0,通过,64,100,75.0,100.0
+低互动达人E,mock_e0005,美食探店,上海,69.0,待复核,64,85,75.0,50.0

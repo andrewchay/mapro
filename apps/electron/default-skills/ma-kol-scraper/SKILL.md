@@ -1,17 +1,15 @@
 ---
 name: "ma-kol-scraper"
-description: "从蒲公英平台按条件批量采集 KOL 数据并输出 CSV。不再生成独立脚本：通过 CDP 连接 Chrome，用通用采集器 kol_collector.py + 一份 config JSON，由 Agent 自动执行并校验。当用户提到采集/爬虫/蒲公英/KOL 数据/批量导出达人或类似表述时触发。"
-version: "2.0.2"
+description: "从蒲公英平台按条件批量采集 KOL 数据并输出 CSV，并可进一步执行达人圈选校验（风格/价格带/评论区画像/CPM·CPE 四条规则）输出达人评分卡。通过 CDP 连接 Chrome，用通用采集器 kol_collector.py + config JSON 采集，用 kol_screening.py + screening_rules.json 校验。当用户提到采集/爬虫/蒲公英/KOL 数据/批量导出达人/达人圈选/达人评分卡或类似表述时触发。"
+version: "2.2.0"
 ---
 
-# 蒲公英 KOL 采集（通用采集器 + config，Agent 自动执行）
+# 蒲公英 KOL 采集 + 达人圈选校验（采集器 v2.2）
 
-## 设计原则（v2 变更）
+## 设计原则（v2.2 变更）
 
-1. **不生成独立脚本**。采集逻辑已固化在唯一入口 `scripts/kol_collector.py`（通用参数化采集器，基于已验证的母婴采集逻辑改造）。
-2. **Agent 自动执行**。Agent 自己写一份很小的 config JSON（只有筛选参数），然后**自己用 Bash 运行**采集器并读取进度，全程不需要用户敲命令。
-3. **WebBridge 不可用于蒲公英**。蒲公英是重前端 SPA，筛选项是自定义 div + JS 事件，WebBridge 的 CSS selector 定位不到；必须走 CDP + `page.evaluate(fetch(...))` 模式（浏览器自动附带 x-s/x-t 签名）。
-4. **登录检查不阻塞**。采集器检测到未登录时直接失败退出（不等待 input），由 Agent 提示用户登录后重跑。
+1. **评论区画像默认开启（v2.2）**。采集器默认抓评论明细（评论者昵称+文本），校验引擎 `validate_comment_profile` 做地理/性别/消费信号聚合分析；无明细时自动降级为粉丝画像代理并标注 degraded。可用 config `grab_comments: false` 关闭以提速。
+2. 其余沿用 v2.1：采集与校验分离、相关帖子抽样、规则配置化、不生成独立脚本、Agent 自动执行、WebBridge 不可用于蒲公英（走 CDP + fetch 签名）、登录检查不阻塞。
 
 ## 本 Skill 文件位置
 
@@ -20,7 +18,9 @@ version: "2.0.2"
 ```
 <workspace>/skills/ma-kol-scraper/
 ├── SKILL.md                          ← 本文件
-├── scripts/kol_collector.py          ← 通用采集器（唯一入口，约 1180 行）
+├── scripts/kol_collector.py          ← 通用采集器（v2.1，约 1480 行）
+├── scripts/kol_screening.py          ← 达人圈选校验引擎（新，约 500 行）
+├── screening_rules.json              ← 校验规则配置（价格带/权重/阈值/提示词）
 ├── examples/config-shanghai-food-tandian.json  ← 上海美食探店示例
 └── references/
     ├── payload.md                    ← 搜索 API payload 参考
@@ -28,7 +28,7 @@ version: "2.0.2"
     └── scraper_template.py           ← 旧模板（历史参考，勿再使用）
 ```
 
-产出写入 `<workspace>/workspace-files/`（config JSON、CSV、debug JSON）。
+产出写入 `<workspace>/workspace-files/`（config JSON、CSV、debug JSON、notes_samples JSON、scorecard）。
 
 ## 何时使用
 
@@ -88,6 +88,12 @@ version: "2.0.2"
 | `max_kols` | `0` | 0=不限 |
 | `coop_note_months` | `3` | 合作笔记时间范围（月） |
 | `coop_note_pages_max` | `10` | 合作笔记翻页数 |
+| `sample_note_count` | `5` | （v2.1）每个 KOL 抽取相关帖子样本数，供校验引擎使用 |
+| `relevance_keywords` | `["水果","食品","饮料"]` | （v2.1）相关性关键词（如水果→食品/饮料），空=只用 target_tags |
+| `grab_note_text` | `true` | （v2.1）是否抓抽屉内笔记正文文本信号 |
+| `grab_comments` | `true` | （v2.2）**是否抓评论明细**（评论者昵称+文本，默认开启，每篇约 +1-2s 成本）；设为 `false` 可提速，但评论区画像校验降级为粉丝画像代理 |
+| `notes_samples_file` | `workspace-files/xx_samples.json` | （v2.1）抽样笔记 JSON 输出路径；留空则不输出 |
+| `force_redownload_ids` | `[]` | （v2.0.3）**强制重采指定 userId 列表**，不受断点去重影响；搜索未命中时自动从已有 CSV 补齐。修复历史数据时只重跑异常达人用 |
 | `output_file` | `workspace-files/xx.csv` | 绝对路径 |
 
 > 类目说明：蒲公英的 `firstIndustry` 取值需要从前端 payload 观察确认；**稳妥做法是 keyword + target_tags 过滤**（示例已按此配置）。`target_tags` 在搜索阶段宽松过滤、详情页阶段严格过滤。
@@ -111,8 +117,9 @@ python3 <skill>/scripts/kol_collector.py \
 **🔴 硬性条件（需要修复或确认）：**
 1. 合作笔记篇数 > 0 但最低曝光缺失 → 抽屉提取失败，需复核或手动复核该达人
 2. CPM 异常高（> 10000）→ 最低曝光解析到极小值，检查 `note_exposure` 逻辑
-3. 阅读量 > 曝光量 → 字段映射错误
+3. 阅读量 > 曝光量 → 字段映射错误（v2.0.3 已修复：互动字段 API 优先、抽屉兜底，ex() 支持同行/换行两种布局 + 万/千单位）
 4. 报价与粉丝量同时为空 → blogger API 异常
+5. 最低点赞 = 0 但最低曝光有值 → 需确认该条笔记互动是否真的为 0（v2.0.3 已修复 0 点赞被 `or inf` 跳过的 bug）
 
 **🟡 软性提醒：** 女性粉丝占比 < 0.5（若目标人群为女性需注意）等。
 
@@ -128,8 +135,33 @@ python3 <skill>/scripts/kol_collector.py \
 
 ## CSV 字段清单（采集器已实现，勿重复编写）
 
-达人名称 / 小红书号 / 内容类目 / 地域 / 粉丝量 / 粉丝所在区域（前五城市）/ 获赞与收藏 / 图文报价（万）/ 视频报价（万）/ 女性粉丝占比 / 日常笔记发布篇数·曝光·阅读·点赞中位数 / 合作笔记发布篇数·曝光·阅读·点赞中位数 / 合作笔记最低曝光（含阅读·点赞·收藏·评论·时间）/ 合作笔记最低点赞（含阅读·收藏·评论·时间）/ 内容标签 / 擅长标签 / 预估CPM / 预估CPE / 数据来源。
+达人名称 / 小红书号 / 内容类目 / 地域 / 粉丝量 / 粉丝所在区域（前五城市）/ 获赞与收藏 / 图文报价（万）/ 视频报价（万）/ 女性粉丝占比 / 日常笔记发布篇数·曝光·阅读·点赞中位数 / 合作笔记发布篇数·曝光·阅读·点赞中位数 / 合作笔记最低曝光（含阅读·点赞·收藏·评论·时间）/ 合作笔记最低点赞（含阅读·收藏·评论·时间）/ 内容标签 / 擅长标签 / 预估CPM / 预估CPE / （v2.1）相关帖子抽样数 / 相关帖子标题 / 相关帖子正文片段 / 相关帖子POI/团购信号 / 相关帖子评论数 / 相关帖子曝光·阅读·点赞·评论合计 / 数据来源。
 （日常与合作笔记均取「仅自然流量」`advertiseSwitch=0`，近 30 天。）
+
+## 达人圈选校验（v2.1）—— Step 5 及以后
+
+采集完成并拿到 CSV（建议同时配置 `notes_samples_file` 输出抽样笔记）后，运行校验引擎生成评分卡：
+
+```bash
+python3 <skill>/scripts/kol_screening.py \
+  --csv <workspace>/workspace-files/{产品}{城市}KOL采集结果.csv \
+  --samples <workspace>/workspace-files/{产品}{城市}_samples.json \
+  --rules <skill>/screening_rules.json \
+  --out <workspace>/workspace-files/{产品}{城市}_scorecard.json \
+  --category 美食探店 --city 上海
+```
+
+- 可选 `--llm`：启用 LLM 调性打分 / 客单价抽取（需设置 `SCREENING_LLM_URL` / `SCREENING_LLM_KEY` 环境变量，兼容 Proma Cloud 或 OpenAI 风格接口）；不启用时用关键词启发式兜底，准确率有限。
+- 可选 `--db <kol-database.sqlite> --campaign-id xxx`：把评分卡写入 `kol_performance` 表，可复核、可追踪。
+- 输出三个文件：`scorecard.json`（结构化）、`scorecard.md`（人类可读）、`scorecard.csv`（圈选结果表）。
+
+**四条校验规则：**
+1. ① 风格校验：抽样笔记 → LLM 调性打分（无 LLM 时关键词粗评）
+2. ② 价格带校验：笔记文本/POI/团购 → 客单价抽取 → 与 screening_rules.json 价格带规则匹配（如美食 杭州≥80/上海≥90）
+3. ③ 评论区画像校验：**grab_comments=true 时**消费评论明细做地理/性别/消费信号聚合；无明细时降级粉丝画像代理并标注 degraded
+4. ④ 互动/CPM/CPE：相关类目帖子曝光/点赞聚合 → 估算 CPM/CPE → 与基准对比
+
+**规则配置化：** 所有类目价格带、权重、阈值在 `screening_rules.json` 中，业务提供完整规则后只改该文件。
 
 ## 关键原则
 
@@ -160,6 +192,9 @@ python3 <skill>/scripts/kol_collector.py --config <workspace>/workspace-files/co
 
 ## 版本历史
 
+- **v2.0.3**（2026-08-02）：修复最低曝光/最低点赞/CPM/CPE 数据源——抽屉 `ex()` 提取支持同行/换行两种布局与万/千单位换算；互动字段改为 **API 优先、抽屉兜底**（避免抽屉 DOM 布局变化导致「阅读 > 曝光」字段错位）；`get_min_like_coop_note` 不再把 0 点赞笔记当 `inf` 跳过；`_note_metric` 统一提取多命名互动字段。
+- **v2.2.0**（2026-08-02）：评论区画像真正可用——采集器 `grab_comments=true` 时抓评论明细（昵称+文本）；校验引擎消费评论做地理/性别/消费信号聚合，无明细自动降级并标注 degraded；CSV 新增「评论样本用户/评论样本文本」列。
+- **v2.1.0**（2026-08-01）：新增相关帖子抽样（标题/正文/POI/团购信号/互动数，CSV 新列 + notes_samples JSON）；新增校验引擎 `kol_screening.py`（四条规则：风格/价格带/评论画像/CPM·CPE → 评分卡）；新增 `screening_rules.json` 规则配置（可维护、不写死）；新增 `--db` 落库 kol_performance。
 - **v2.0.2**（2026-08-01）：末尾写入改为「合并已有行」，断点重跑不再丢旧数据；`net::ERR_*` 网络中断纳入自动重连判定；CSV 新增独立 `userId` 列，断点续采改用 csv 模块按 userId 去重（兼容旧 CSV 回退小红书号列）。
 - **v2.0.1**（2026-08-01）：location 支持省市区 token 匹配（修复杭州被误滤）；搜索阶段同时检查 contentTags/featureTags/personalTags；CDP 断线自动重连并重试一次；断点续采跳过已产出 KOL。
 - **v2.0.0**（2026-08-01）：改为通用采集器 `scripts/kol_collector.py` + config JSON，Agent 自动执行；不再生成独立脚本。

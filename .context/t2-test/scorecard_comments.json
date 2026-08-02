@@ -1,0 +1,380 @@
+{
+  "generated_at": "2026-08-02T18:00:56",
+  "rules_version": "1.0",
+  "count": 5,
+  "scorecards": [
+    {
+      "达人名称": "水果探店达人A",
+      "userId": "mock_a0001",
+      "platform": "小红书",
+      "category": "美食探店",
+      "city": "上海",
+      "overall_score": 97.0,
+      "conclusion": "通过",
+      "dimensions": {
+        "style_tone": {
+          "score": 88,
+          "evidence": "启发式打分：命中正向关键词 7 个 / 负向关键词 0 个；（未配置 LLM，建议开启 --llm 提升准确率）",
+          "detail": {
+            "llm": false,
+            "good_hits": 7,
+            "bad_hits": 0
+          }
+        },
+        "price_band": {
+          "score": 100,
+          "evidence": "客单价 90 元 ∈ [90, 500]",
+          "detail": {
+            "llm": false,
+            "hits": [
+              88.0,
+              88.0,
+              90.0,
+              90.0
+            ],
+            "price": 90.0,
+            "price_confidence": 0.7,
+            "matched": true
+          }
+        },
+        "comment_profile": {
+          "score": 100.0,
+          "evidence": "评论文本含地域信号：上海/本地；评论昵称/文本女性信号偏多（女 1 > 男 0）；评论文本含消费信号：好吃/性价比/回购/品质/新鲜/带娃；评论明细 6 条 / 2 篇笔记",
+          "detail": {
+            "comment_total": 120,
+            "comment_detail_count": 6,
+            "comment_note_count": 2,
+            "degraded": false,
+            "users": [
+              "上海小囡",
+              "Momo酱",
+              "果果妈",
+              "静安阿姐",
+              "Alice",
+              "桃子小姐"
+            ],
+            "texts": [
+              "这家的鲜切水果真的新鲜，回购好几次了",
+              "人均90能接受，品质很好",
+              "带娃去买的，水果很干净",
+              "本地人推荐，性价比不错",
+              "上海这边水果店很少有这么讲究的",
+              "闺蜜约会买了果盒，好看好吃"
+            ]
+          }
+        },
+        "engagement_cpm_cpe": {
+          "score": 100.0,
+          "evidence": "CPM 32 元（优秀 ≤300）；CPE 1.25 元（优秀 ≤5）",
+          "detail": {
+            "sample_count": 5,
+            "sample_imp": 95000,
+            "sample_read": 21000,
+            "sample_like": 2400,
+            "sample_comment": 120,
+            "cpm": 31.58,
+            "cpe": 1.25
+          }
+        }
+      },
+      "weights": {
+        "style_tone": 0.25,
+        "price_band": 0.3,
+        "comment_profile": 0.2,
+        "engagement_cpm_cpe": 0.25
+      },
+      "rule_version": "1.0",
+      "generated_at": "2026-08-02T18:00:56"
+    },
+    {
+      "达人名称": "咖啡探店达人B",
+      "userId": "mock_b0002",
+      "platform": "小红书",
+      "category": "美食探店",
+      "city": "上海",
+      "overall_score": 66.0,
+      "conclusion": "待复核",
+      "dimensions": {
+        "style_tone": {
+          "score": 72,
+          "evidence": "启发式打分：命中正向关键词 3 个 / 负向关键词 0 个；（未配置 LLM，建议开启 --llm 提升准确率）",
+          "detail": {
+            "llm": false,
+            "good_hits": 3,
+            "bad_hits": 0
+          }
+        },
+        "price_band": {
+          "score": 40,
+          "evidence": "客单价 40 元 < 下限 90 元（消费力可能不足）",
+          "detail": {
+            "llm": false,
+            "hits": [
+              38.0,
+              40.0
+            ],
+            "price": 40.0,
+            "price_confidence": 0.6,
+            "matched": false
+          }
+        },
+        "comment_profile": {
+          "score": 55.0,
+          "evidence": "评论文本无显著地域信号（地理维度弱）；评论昵称/文本男性信号偏多（男 2 > 女 0）；评论文本含消费信号：性价比；评论明细 4 条 / 2 篇笔记",
+          "detail": {
+            "comment_total": 60,
+            "comment_detail_count": 4,
+            "comment_note_count": 2,
+            "degraded": false,
+            "users": [
+              "张先生",
+              "老铁",
+              "小刘",
+              "Ken"
+            ],
+            "texts": [
+              "咖啡一般般，性价比不如隔壁",
+              "打卡拍照可以，味道就那样",
+              "周末路过喝了一杯，还行",
+              "这家店适合拍照，咖啡豆一般"
+            ]
+          }
+        },
+        "engagement_cpm_cpe": {
+          "score": 100.0,
+          "evidence": "CPM 38 元（优秀 ≤300）；CPE 2.22 元（优秀 ≤5）",
+          "detail": {
+            "sample_count": 4,
+            "sample_imp": 52000,
+            "sample_read": 11000,
+            "sample_like": 900,
+            "sample_comment": 60,
+            "cpm": 38.46,
+            "cpe": 2.22
+          }
+        }
+      },
+      "weights": {
+        "style_tone": 0.25,
+        "price_band": 0.3,
+        "comment_profile": 0.2,
+        "engagement_cpm_cpe": 0.25
+      },
+      "rule_version": "1.0",
+      "generated_at": "2026-08-02T18:00:56"
+    },
+    {
+      "达人名称": "水果探店达人C",
+      "userId": "mock_c0003",
+      "platform": "小红书",
+      "category": "美食探店",
+      "city": "上海",
+      "overall_score": 63.9,
+      "conclusion": "待复核",
+      "dimensions": {
+        "style_tone": {
+          "score": 68,
+          "evidence": "启发式打分：命中正向关键词 2 个 / 负向关键词 0 个；（未配置 LLM，建议开启 --llm 提升准确率）",
+          "detail": {
+            "llm": false,
+            "good_hits": 2,
+            "bad_hits": 0
+          }
+        },
+        "price_band": {
+          "score": 50,
+          "evidence": "无价格数据",
+          "detail": {
+            "llm": false,
+            "hits": [],
+            "price": null,
+            "price_confidence": 0,
+            "matched": null
+          }
+        },
+        "comment_profile": {
+          "score": 53.0,
+          "evidence": "评论文本无显著地域信号（地理维度弱）；评论性别信号：女 0 / 男 0（参考）；评论文本含消费信号：便宜/新鲜；评论文本含负面信号：踩雷；评论明细 2 条 / 1 篇笔记",
+          "detail": {
+            "comment_total": 15,
+            "comment_detail_count": 2,
+            "comment_note_count": 1,
+            "degraded": false,
+            "users": [
+              "小李",
+              "阿强"
+            ],
+            "texts": [
+              "10块钱一大袋确实便宜，但不太新鲜",
+              "有点踩雷，买回来烂了几个"
+            ]
+          }
+        },
+        "engagement_cpm_cpe": {
+          "score": 85.0,
+          "evidence": "CPM 111 元（优秀 ≤300）；CPE 6.67 元（可接受 ≤15）",
+          "detail": {
+            "sample_count": 3,
+            "sample_imp": 9000,
+            "sample_read": 2100,
+            "sample_like": 150,
+            "sample_comment": 15,
+            "cpm": 111.11,
+            "cpe": 6.67
+          }
+        }
+      },
+      "weights": {
+        "style_tone": 0.25,
+        "price_band": 0.3,
+        "comment_profile": 0.2,
+        "engagement_cpm_cpe": 0.25
+      },
+      "rule_version": "1.0",
+      "generated_at": "2026-08-02T18:00:56"
+    },
+    {
+      "达人名称": "甜品探店达人D",
+      "userId": "mock_d0004",
+      "platform": "小红书",
+      "category": "美食探店",
+      "city": "上海",
+      "overall_score": 87.0,
+      "conclusion": "通过",
+      "dimensions": {
+        "style_tone": {
+          "score": 64,
+          "evidence": "启发式打分：命中正向关键词 1 个 / 负向关键词 0 个；（未配置 LLM，建议开启 --llm 提升准确率）",
+          "detail": {
+            "llm": false,
+            "good_hits": 1,
+            "bad_hits": 0
+          }
+        },
+        "price_band": {
+          "score": 100,
+          "evidence": "客单价 198 元 ∈ [90, 500]",
+          "detail": {
+            "llm": false,
+            "hits": [
+              120.0,
+              120.0,
+              198.0,
+              198.0
+            ],
+            "price": 198.0,
+            "price_confidence": 0.7,
+            "matched": true
+          }
+        },
+        "comment_profile": {
+          "score": 80.0,
+          "evidence": "评论文本无显著地域信号（地理维度弱）；评论昵称/文本女性信号偏多（女 1 > 男 0）；评论文本含消费信号：带孩子/约会/闺蜜；评论明细 4 条 / 2 篇笔记",
+          "detail": {
+            "comment_total": 150,
+            "comment_detail_count": 4,
+            "comment_note_count": 2,
+            "degraded": false,
+            "users": [
+              "上海吃货",
+              "Linda",
+              "宝妈Emma",
+              "Cici"
+            ],
+            "texts": [
+              "甜品很精致，人均120不亏",
+              "和闺蜜去拍照，超好看",
+              "带孩子去的，环境好",
+              "约会首选，甜品颜值高"
+            ]
+          }
+        },
+        "engagement_cpm_cpe": {
+          "score": 100.0,
+          "evidence": "CPM 42 元（优秀 ≤300）；CPE 1.56 元（优秀 ≤5）",
+          "detail": {
+            "sample_count": 6,
+            "sample_imp": 120000,
+            "sample_read": 26000,
+            "sample_like": 3200,
+            "sample_comment": 150,
+            "cpm": 41.67,
+            "cpe": 1.56
+          }
+        }
+      },
+      "weights": {
+        "style_tone": 0.25,
+        "price_band": 0.3,
+        "comment_profile": 0.2,
+        "engagement_cpm_cpe": 0.25
+      },
+      "rule_version": "1.0",
+      "generated_at": "2026-08-02T18:00:56"
+    },
+    {
+      "达人名称": "低互动达人E",
+      "userId": "mock_e0005",
+      "platform": "小红书",
+      "category": "美食探店",
+      "city": "上海",
+      "overall_score": 69.0,
+      "conclusion": "待复核",
+      "dimensions": {
+        "style_tone": {
+          "score": 64,
+          "evidence": "启发式打分：命中正向关键词 1 个 / 负向关键词 0 个；（未配置 LLM，建议开启 --llm 提升准确率）",
+          "detail": {
+            "llm": false,
+            "good_hits": 1,
+            "bad_hits": 0
+          }
+        },
+        "price_band": {
+          "score": 85,
+          "evidence": "客单价 80 元，接近价格带边缘（[90, 500]）",
+          "detail": {
+            "llm": false,
+            "hits": [
+              80.0
+            ],
+            "price": 80.0,
+            "price_confidence": 0.55,
+            "matched": true
+          }
+        },
+        "comment_profile": {
+          "score": 75.0,
+          "evidence": "[降级] 粉丝地域含目标城市 ['上海', '北京']；[降级] 女性粉丝占比 55% 符合目标；[降级] 抽样相关帖子评论合计 5 条，但未采集评论明细（开启 grab_comments=true 后可用评论画像）",
+          "detail": {
+            "comment_total": 5,
+            "comment_detail_count": 0,
+            "comment_note_count": 0,
+            "degraded": true
+          }
+        },
+        "engagement_cpm_cpe": {
+          "score": 50.0,
+          "evidence": "CPM 800 元（可接受 ≤800）；CPE 50.00 元（偏高 >15）",
+          "detail": {
+            "sample_count": 2,
+            "sample_imp": 2500,
+            "sample_read": 600,
+            "sample_like": 40,
+            "sample_comment": 5,
+            "cpm": 800.0,
+            "cpe": 50.0
+          }
+        }
+      },
+      "weights": {
+        "style_tone": 0.25,
+        "price_band": 0.3,
+        "comment_profile": 0.2,
+        "engagement_cpm_cpe": 0.25
+      },
+      "rule_version": "1.0",
+      "generated_at": "2026-08-02T18:00:56"
+    }
+  ]
+}

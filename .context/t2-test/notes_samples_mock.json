@@ -1,0 +1,286 @@
+{
+  "generated_at": "2026-08-01T19:00:00",
+  "count": 5,
+  "kols": [
+    {
+      "userId": "mock_a0001",
+      "name": "水果探店达人A",
+      "platform": "小红书",
+      "target_tags": [
+        "美食"
+      ],
+      "relevance_keywords": [
+        "水果",
+        "食品",
+        "饮料"
+      ],
+      "samples": [
+        {
+          "noteId": "n_a1",
+          "title": "鲜切水果探店",
+          "text": "这家水果店人均90元，主打鲜切果盒和应季水果，品质很好。地址在静安寺附近，还有团购套餐88元起。",
+          "impNum": 30000,
+          "readNum": 8000,
+          "likeNum": 900,
+          "commentNum": 40,
+          "isAdvertise": true,
+          "date": "2026-07-20",
+          "matched_keywords": [
+            "美食",
+            "水果"
+          ],
+          "comments": [
+            {
+              "user": "上海小囡",
+              "text": "这家的鲜切水果真的新鲜，回购好几次了"
+            },
+            {
+              "user": "Momo酱",
+              "text": "人均90能接受，品质很好"
+            },
+            {
+              "user": "果果妈",
+              "text": "带娃去买的，水果很干净"
+            },
+            {
+              "user": "静安阿姐",
+              "text": "本地人推荐，性价比不错"
+            }
+          ]
+        },
+        {
+          "noteId": "n_a2",
+          "title": "网红水果店实测",
+          "text": "人均消费90元，鲜切果盒用料新鲜，店员服务态度好。",
+          "impNum": 25000,
+          "readNum": 6000,
+          "likeNum": 700,
+          "commentNum": 30,
+          "isAdvertise": true,
+          "date": "2026-07-18",
+          "matched_keywords": [
+            "美食"
+          ],
+          "comments": [
+            {
+              "user": "Alice",
+              "text": "上海这边水果店很少有这么讲究的"
+            },
+            {
+              "user": "桃子小姐",
+              "text": "闺蜜约会买了果盒，好看好吃"
+            }
+          ]
+        },
+        {
+          "noteId": "n_a3",
+          "title": "水果店日常",
+          "text": "今天去的水果店人好多，买了鲜切凤梨和西瓜，好吃！",
+          "impNum": 40000,
+          "readNum": 7000,
+          "likeNum": 800,
+          "commentNum": 50,
+          "isAdvertise": false,
+          "date": "2026-07-15",
+          "matched_keywords": [
+            "水果"
+          ],
+          "comments": []
+        }
+      ]
+    },
+    {
+      "userId": "mock_b0002",
+      "name": "咖啡探店达人B",
+      "platform": "小红书",
+      "target_tags": [
+        "咖啡"
+      ],
+      "relevance_keywords": [
+        "食品",
+        "饮料",
+        "咖啡"
+      ],
+      "samples": [
+        {
+          "noteId": "n_b1",
+          "title": "人均38元的小众咖啡店",
+          "text": "这家咖啡店人均38元，环境不错，适合拍照打卡。地址在西湖区。",
+          "impNum": 15000,
+          "readNum": 4000,
+          "likeNum": 300,
+          "commentNum": 15,
+          "isAdvertise": true,
+          "date": "2026-07-15",
+          "matched_keywords": [
+            "咖啡"
+          ],
+          "comments": [
+            {
+              "user": "张先生",
+              "text": "咖啡一般般，性价比不如隔壁"
+            },
+            {
+              "user": "老铁",
+              "text": "打卡拍照可以，味道就那样"
+            },
+            {
+              "user": "小刘",
+              "text": "周末路过喝了一杯，还行"
+            }
+          ]
+        },
+        {
+          "noteId": "n_b2",
+          "title": "杭州咖啡探店",
+          "text": "人均40元，燕麦拿铁好喝，豆子品质在线。",
+          "impNum": 12000,
+          "readNum": 3000,
+          "likeNum": 250,
+          "commentNum": 10,
+          "isAdvertise": true,
+          "date": "2026-07-12",
+          "matched_keywords": [
+            "咖啡"
+          ],
+          "comments": [
+            {
+              "user": "Ken",
+              "text": "这家店适合拍照，咖啡豆一般"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "userId": "mock_c0003",
+      "name": "水果探店达人C",
+      "platform": "小红书",
+      "target_tags": [
+        "美食"
+      ],
+      "relevance_keywords": [
+        "水果",
+        "食品",
+        "饮料"
+      ],
+      "samples": [
+        {
+          "noteId": "n_c1",
+          "title": "平价水果店打卡",
+          "text": "街边小店水果很便宜，10块钱能买一大袋。",
+          "impNum": 5000,
+          "readNum": 1200,
+          "likeNum": 80,
+          "commentNum": 5,
+          "isAdvertise": true,
+          "date": "2026-07-10",
+          "matched_keywords": [
+            "水果"
+          ],
+          "comments": [
+            {
+              "user": "小李",
+              "text": "10块钱一大袋确实便宜，但不太新鲜"
+            },
+            {
+              "user": "阿强",
+              "text": "有点踩雷，买回来烂了几个"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "userId": "mock_d0004",
+      "name": "甜品探店达人D",
+      "platform": "小红书",
+      "target_tags": [
+        "甜品"
+      ],
+      "relevance_keywords": [
+        "食品",
+        "饮料",
+        "甜品"
+      ],
+      "samples": [
+        {
+          "noteId": "n_d1",
+          "title": "上海甜品店人均120元",
+          "text": "这家甜品店人均120元，环境精致，适合约会，团购有双人套餐198元。",
+          "impNum": 40000,
+          "readNum": 10000,
+          "likeNum": 1100,
+          "commentNum": 55,
+          "isAdvertise": true,
+          "date": "2026-07-22",
+          "matched_keywords": [
+            "甜品"
+          ],
+          "comments": [
+            {
+              "user": "上海吃货",
+              "text": "甜品很精致，人均120不亏"
+            },
+            {
+              "user": "Linda",
+              "text": "和闺蜜去拍照，超好看"
+            },
+            {
+              "user": "宝妈Emma",
+              "text": "带孩子去的，环境好"
+            }
+          ]
+        },
+        {
+          "noteId": "n_d2",
+          "title": "网红甜品探店",
+          "text": "人均120元，甜品颜值高味道好。",
+          "impNum": 35000,
+          "readNum": 8000,
+          "likeNum": 900,
+          "commentNum": 40,
+          "isAdvertise": true,
+          "date": "2026-07-19",
+          "matched_keywords": [
+            "甜品"
+          ],
+          "comments": [
+            {
+              "user": "Cici",
+              "text": "约会首选，甜品颜值高"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "userId": "mock_e0005",
+      "name": "低互动达人E",
+      "platform": "小红书",
+      "target_tags": [
+        "美食"
+      ],
+      "relevance_keywords": [
+        "水果",
+        "食品",
+        "饮料"
+      ],
+      "samples": [
+        {
+          "noteId": "n_e1",
+          "title": "上海探店",
+          "text": "普通探店笔记人均80元。",
+          "impNum": 2500,
+          "readNum": 600,
+          "likeNum": 40,
+          "commentNum": 5,
+          "isAdvertise": true,
+          "date": "2026-07-05",
+          "matched_keywords": [],
+          "comments": []
+        }
+      ]
+    }
+  ]
+}
