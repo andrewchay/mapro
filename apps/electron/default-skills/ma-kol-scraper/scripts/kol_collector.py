@@ -621,6 +621,9 @@ class KolCollector:
             time.sleep(2)
 
             # ===== 4. 合作笔记 segment 筛选 =====
+            # v2.0.5：点击合作笔记 segment；注意 segment 切换可能不重新请求 notes_detail API
+            # （前端复用缓存），因此清空后必须主动 fetch 合作笔记 API 作为可靠数据源。
+            captured["notes_detail"] = []
             try:
                 detail_page.evaluate("""() => {
                     const segs = document.querySelectorAll('.d-segment-item, [class*=segment]');
@@ -640,6 +643,21 @@ class KolCollector:
                 time.sleep(2)
             except Exception:
                 pass
+
+            # v2.0.5：主动 fetch 合作笔记 notes_detail（segment 可能不触发新请求，
+            # 必须确保抽屉提取有可靠的 API 顺序数据）
+            try:
+                url = (f"https://pgy.xiaohongshu.com/api/solar/kol/data_v2/notes_detail"
+                       f"?userId={user_id}&pageNum=1&pageSize=20")
+                js = js_fetch_json(url)
+                data = detail_page.evaluate(js)
+                if data and data.get("code") == 0:
+                    notes = safe_get(data, "data", "list", default=[]) or []
+                    if notes:
+                        captured["notes_detail"] = [data]
+                        print(f"      [主动fetch] 合作笔记 notes_detail 获取 {len(notes)} 条")
+            except Exception as e:
+                print(f"      [主动fetch] 失败: {e}")
 
             # ===== 5. 翻页 + 抽屉曝光提取 =====
             pull_cutoff = datetime.datetime.now() - datetime.timedelta(days=30 * self.coop_note_months)
@@ -684,31 +702,34 @@ class KolCollector:
                 if not new_notes:
                     continue
 
-                # 检查时间范围
-                all_old = True
-                for note in new_notes:
-                    if note.get("isAdvertise"):
-                        dt = parse_publish_time(note.get("date") or note.get("publishTime"))
-                        if dt and dt >= pull_cutoff:
-                            all_old = False
-                            break
-                if all_old:
-                    break
-
-                page_coop = [n for n in new_notes if n.get("isAdvertise")]
-                if not page_coop:
+                # v2.0.5 修正：合作笔记 segment 点击后 DOM 显示的就是合作笔记卡片（.note-card-wrapper），
+                # API 的 isAdvertise 标记并不可靠（部分达人 segment 返回仍是日常笔记），
+                # 因此直接遍历 DOM 全部合作笔记卡片逐个提取抽屉（每张卡片抽屉都有「本篇笔记数据」曝光面板）。
+                # 注意：不再按 API isAdvertise 做时间范围 break（合作笔记 segment 的 API 标记可能全为 False，
+                #       若用 old 判断会提前 break，导致抽屉曝光完全没提取）。
+                dom_count = detail_page.evaluate("() => document.querySelectorAll('.note-card-wrapper').length")
+                if dom_count <= 0:
                     continue
+                # 建立 noteId -> API 笔记 映射（补充 readNum/likeNum 等 API 字段）
+                api_by_id = {n.get("noteId"): n for n in all_detail_notes if n.get("noteId")}
 
-                # 提取抽屉数据
-                for ci in range(len(page_coop)):
-                    note = page_coop[ci]
-                    nid = note.get("noteId")
-                    if nid and nid in note_exposure:
-                        continue
+                for ci in range(dom_count):
+                    note = api_by_id.get("") or {}
+                    # 抽屉提取后通过抽屉标题/图片近似关联，若无法关联则先按卡片索引保存占位，
+                    # 抽屉内的曝光/阅读/点赞通过 note_exposure 的 key 注入到 build_row（见 note_field 的 _note_metric fallback）。
+                    nid = None  # 抽屉提取后会从 DOM 反查 noteId（见下方 drawer_nid）
+
+                    if ci > 0:
+                        # 关闭上一个抽屉
+                        try:
+                            detail_page.keyboard.press("Escape")
+                            time.sleep(0.6)
+                        except Exception:
+                            pass
 
                     clicked = detail_page.evaluate(
                         """({idx}) => {
-                            const cards = document.querySelectorAll('.note-card-wrapper, [class*=note-card], [class*=noteCard]');
+                            const cards = document.querySelectorAll('.note-card-wrapper');
                             if (idx >= cards.length) return false;
                             const card = cards[idx];
                             const mask = card.querySelector('.note-card__mask, [class*=mask]');
@@ -751,7 +772,7 @@ class KolCollector:
                                         const n = parseNum(same[1], same[2]);
                                         if (n !== null) return n;
                                     }
-                                    // 布局 B：换行式「曝光量\n1,475」/「曝光量\n1.5万」——取下一行数字
+                                    // 布局 B：换行式「曝光量\\n1,475」/「曝光量\\n1.5万」——取下一行数字
                                     const next = lines[i+1];
                                     if (next) {
                                         const m = next.match(/([\d,.]+)\s*(万|千|w|k)?/);
@@ -773,15 +794,55 @@ class KolCollector:
                         };
                     }""")
 
-                    if drawer_data and drawer_data.get("exposure"):
+                    # v2.0.5：抽屉数据提取 + 关联
+                    #  用抽屉标题与 API 笔记标题做前缀匹配，反查 noteId；匹配失败时用 card_{ci} 占位，
+                    #  build_row 的 _note_metric 会按 note_exposure key 读取（详见 note_field 的 fallback）。
+                    #  物理校验仅拦截严重异常（阅读 > 10x 曝光 或 点赞 > 阅读）。
+                    exp = None
+                    drawer_ok = False
+                    if drawer_data:
+                        exp = drawer_data.get("exposure")
+                        reads = drawer_data.get("reads")
+                        likes = drawer_data.get("likes")
+                        phys_ok = True
+                        if exp:
+                            if reads and reads > exp * 10:
+                                phys_ok = False
+                            if likes and reads and likes > reads:
+                                phys_ok = False
+                        if exp and phys_ok:
+                            drawer_ok = True
+
+                    # 反查 noteId：抽屉标题 vs API 笔记标题（前缀匹配）
+                    nid = None
+                    if drawer_ok:
+                        drawer_title = (drawer_data.get("title") or "").strip()
+                        best = None
+                        for cand_id, cand in api_by_id.items():
+                            cand_title = (cand.get("title") or "").strip()
+                            if drawer_title and cand_title:
+                                if (drawer_title[:10] in cand_title) or (cand_title[:10] in drawer_title):
+                                    best = cand_id
+                                    break
+                        if best is None and drawer_title:
+                            for cand_id, cand in api_by_id.items():
+                                cand_title = (cand.get("title") or "").strip()
+                                if cand_title and drawer_title[:5] in cand_title:
+                                    best = cand_id
+                                    break
+                        nid = best or f"card_{ci}"
+
+                    if drawer_ok and nid:
                         note_exposure[nid] = drawer_data["exposure"]
                         for k2, kk in (("reads", "readNum"), ("likes", "likeNum"),
                                        ("favorites", "collectNum"), ("comments", "commentNum")):
                             if drawer_data.get(k2):
                                 note_exposure[f"{nid}_{kk}"] = drawer_data[k2]
+                    else:
+                        print(f"      [SKIP] 抽屉无有效曝光 card={ci} exp={exp}")
 
                     # v2.1：保存抽屉内文本信号（标题+正文片段+可能的POI/团购/人均信息）
-                    if drawer_data:
+                    if drawer_data and nid:
                         captured.setdefault("note_texts", {})[nid] = {
                             "title": drawer_data.get("title") or "",
                             "text": drawer_data.get("text") or "",
@@ -876,6 +937,7 @@ class KolCollector:
 
         except Exception as e:
             print(f"      [ERROR] 详情页处理异常: {e}")
+            import traceback; traceback.print_exc()
 
         finally:
             detail_page.remove_listener("response", on_resp)
@@ -904,13 +966,13 @@ class KolCollector:
                 if api_has["imp"] is None:
                     note["impNum"] = note_exposure[nid]
                 if api_has["read"] is None:
-                    note["readNum"] = note_exposure.get(f"{nid}_reads")
+                    note["readNum"] = note_exposure.get(f"{nid}_readNum")
                 if api_has["like"] is None:
-                    note["likeNum"] = note_exposure.get(f"{nid}_likes")
+                    note["likeNum"] = note_exposure.get(f"{nid}_likeNum")
                 if api_has["collect"] is None:
-                    note["collectNum"] = note_exposure.get(f"{nid}_favorites")
+                    note["collectNum"] = note_exposure.get(f"{nid}_collectNum")
                 if api_has["comment"] is None:
-                    note["commentNum"] = note_exposure.get(f"{nid}_comments")
+                    note["commentNum"] = note_exposure.get(f"{nid}_commentNum")
             if nid and nid in note_texts:
                 note["_title"] = note_texts[nid].get("title", "")
                 note["_text"] = note_texts[nid].get("text", "")
@@ -993,16 +1055,44 @@ class KolCollector:
             if api_has["imp"] is None:
                 note["impNum"] = note_exposure[nid]
             if api_has["read"] is None:
-                note["readNum"] = note_exposure.get(f"{nid}_reads")
+                note["readNum"] = note_exposure.get(f"{nid}_readNum")
             if api_has["like"] is None:
-                note["likeNum"] = note_exposure.get(f"{nid}_likes")
+                note["likeNum"] = note_exposure.get(f"{nid}_likeNum")
             if api_has["collect"] is None:
-                note["collectNum"] = note_exposure.get(f"{nid}_favorites")
+                note["collectNum"] = note_exposure.get(f"{nid}_collectNum")
             if api_has["comment"] is None:
-                note["commentNum"] = note_exposure.get(f"{nid}_comments")
+                note["commentNum"] = note_exposure.get(f"{nid}_commentNum")
 
-        min_imp_note = self.get_min_imp_coop_note(all_detail_notes)
-        min_like_note = self.get_min_like_coop_note(all_detail_notes)
+        # v2.0.5：抽屉占位笔记（card_* 或未匹配 API 的抽屉数据）并入 min 候选，
+        # 避免「API 无 isAdvertise 标记/无对应笔记」时最低曝光/最低点赞丢失
+        drawer_candidates = []
+        for dkey in note_exposure:
+            # 只处理「主曝光 key」（noteId 或 card_xxx），跳过 {key}_readNum 等后缀辅助 key
+            if not isinstance(dkey, str):
+                continue
+            if dkey.endswith(("_readNum", "_likeNum", "_collectNum", "_commentNum")):
+                continue
+            imp = note_exposure[dkey]
+            if imp:
+                # 占位笔记补 date=今天（DOM 合作笔记卡片均在近 3 个月内，避免被时间过滤丢弃）
+                drawer_candidates.append({
+                    "noteId": dkey,
+                    "isAdvertise": True,
+                    "impNum": imp,
+                    "readNum": note_exposure.get(f"{dkey}_readNum"),
+                    "likeNum": note_exposure.get(f"{dkey}_likeNum"),
+                    "collectNum": note_exposure.get(f"{dkey}_collectNum"),
+                    "commentNum": note_exposure.get(f"{dkey}_commentNum"),
+                    "date": datetime.datetime.now().strftime("%Y-%m-%d"),
+                })
+        # 合并：API 笔记 + 抽屉候选（按 noteId 去重，抽屉候选优先）
+        merged_notes = {n.get("noteId"): n for n in all_detail_notes if n.get("noteId")}
+        for dc in drawer_candidates:
+            merged_notes[dc["noteId"]] = dc
+        merged_list = list(merged_notes.values())
+        # 保留原始 all_detail_notes 顺序（isAdvertise 筛选用），追加抽屉候选
+        min_imp_note = self.get_min_imp_coop_note(merged_list)
+        min_like_note = self.get_min_like_coop_note(merged_list)
 
         # 计算 CPM / CPE（优先用合作笔记最低曝光/最低点赞笔记的真实值；缺失时回退中位数）
         cpm = None
