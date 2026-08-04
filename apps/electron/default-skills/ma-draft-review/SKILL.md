@@ -1,7 +1,7 @@
 ---
 name: ma-draft-review
 description: 达人稿件三态审核专家。读取飞书文档/文件/消息内文案形式的达人稿件，匹配 brief 后从合规（一票否决）、品牌契合（含 brief）、内容质量三维审核，图片用 Kimi 视觉审，输出 pass/minor/block 三态回复并标注版本。含 brief 管理（导入/查询/更新）。当群聊出现"初稿/改稿/终稿/成片/发布预览/请查收/辛苦审核/审稿/稿件"或"录入brief/导入brief"时触发。
-version: "1.0.1"
+version: "1.0.2"
 ---
 
 # 达人稿件三态审核
@@ -46,16 +46,19 @@ version: "1.0.1"
 ### Step 2 · 读取稿件内容
 
 按优先级尝试，失败自动降级下一档：
-1. **飞书文档/wiki 链接**：用 WebBridge 或飞书文档 API 读取正文 + 提取图片块
-2. **文件**（docx/txt/md）：解析正文 + 提取 docx 内联图片
-3. **消息内文案**：直接用消息文本
-4. 全部失败或内容过短（<30 字）→ **转人工**：群内提示"稿件无法自动审核：{原因}，已转人工审核"，不自动催办
+1. **优先从仓库读取**：查 `workspace-files/draft-review/{达人名}_v*.md`，取该达人**最大版本号**的文件作为稿件。（飞书群里分享云文档/发文件时系统会自动按达人名+版本号入库，历史版本全部保留；审稿读最新版即可，无需重读完整上下文，省 token）
+2. **飞书文档/wiki 链接**：用 WebBridge 或飞书文档 API 读取正文 + 提取图片块
+3. **文件**（docx/txt/md）：解析正文 + 提取 docx 内联图片
+4. **消息内文案**：直接用消息文本
+5. 全部失败或内容过短（<30 字）→ **转人工**：群内提示"稿件无法自动审核：{原因}，已转人工审核"，不自动催办
 
 ### Step 3 · 匹配 Brief
 
-- 按达人名查找 `workspace-files/briefs/{达人名}.md`
+- 优先按达人名查找 `workspace-files/briefs/{达人名}.md`
+- 未找到时，读取综合 brief `workspace-files/briefs/brief.md`（飞书发来的 brief 文档会自动入库到这里），从中按达人名提取对应段落（达人名通常作为小标题出现，如 `莉莉` / `【莉莉】` / `莉莉：`）
 - 找到 → 审核 prompt 带入 brief 对照品牌要求
-- 未找到 → 按通用投放要求审核，回复注明"未录入 brief，按通用投放要求审核"
+- 综合 brief 中提取不到该达人段 → 整份综合 brief 作为参考带入
+- 完全未找到 → 按通用投放要求审核，回复注明"未录入 brief，按通用投放要求审核"
 
 ### Step 4 · 文字审核（三维 + 投放执行要点）
 
@@ -113,15 +116,16 @@ verdict 规则：
 
 ## Brief 管理
 
-存储约定：`workspace-files/briefs/{达人名}.md`
+存储约定：`workspace-files/briefs/{达人名}.md`（单达人）；飞书发来的 brief 文件自动入库为 `briefs/brief.md`（综合版，一份含所有达人）。
 
 | 操作 | 触发词 | 动作 |
 |------|--------|------|
 | 导入 | 录入brief / 导入brief + 文档链接 + 达人名 | 读文档 → 提取达人名+核心要点 → 写入 `workspace-files/briefs/{达人名}.md` |
-| 查询 | 达人brief / brief是什么 | 列出该达人 brief 或确认是否存在 |
+| 自动入库 | 在群里发含"brief"的文档/云文档 | bridge 自动提取全文 → 写入 `workspace-files/briefs/brief.md`（无需手动触发） |
+| 查询 | 达人brief / brief是什么 | 列出该达人 brief 或确认是否存在（含综合版 brief.md） |
 | 更新 | 更新brief + 文档链接 | 覆盖写入同名文件 |
 
-brief 文档来源支持：飞书文档/wiki 链接、本地文件、PDF（提取全文，按达人名匹配分 brief 页）。
+brief 文档来源支持：飞书文档/wiki 链接、本地文件、PDF（提取全文，按达人名匹配分 brief 页）。综合 brief（brief.md）审稿时按达人段匹配。
 
 ## 转人工兜底
 
@@ -144,7 +148,9 @@ brief 文档来源支持：飞书文档/wiki 链接、本地文件、PDF（提�
 
 ## 状态存储
 
-- `workspace-files/briefs/{达人名}.md` — brief 文档
+- `workspace-files/briefs/{达人名}.md` — brief 文档（单达人）
+- `workspace-files/briefs/brief.md` — 综合 brief（一份含所有达人，飞书发来自动入库）
+- `workspace-files/draft-review/{达人名}_v{n}.md` — 稿件仓库（飞书云文档/文件分享自动按版本号入库，历史各版保留，审稿读最大版本）
 - `workspace-files/draft-review-state.jsonl` — 版本计数（按 群+达人，JSONL 追加）
 
 ## 与相关 Skill 的边界

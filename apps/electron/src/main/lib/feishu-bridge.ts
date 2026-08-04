@@ -35,8 +35,10 @@ import {
   getAgentWorkspace,
   getWorkspaceCapabilities,
 } from './agent-workspace-manager'
-import { getFeishuBotBindingsPath } from './config-paths'
-import { writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
+import { getFeishuBotBindingsPath, getWorkspaceFilesDir } from './config-paths'
+import { writeFileSync, readFileSync, existsSync, readdirSync, mkdirSync } from 'node:fs'
+import { extname, join } from 'node:path'
+import { extractTextFromFile, isSupportedDocumentExtension } from './document-parser'
 import {
   inferImageMediaType as inferImageMediaTypeShared,
   saveImageToSession as saveImageToSessionShared,
@@ -468,6 +470,100 @@ class FeishuBridge {
     }
   }
 
+  /**
+   * 识别飞书发来的 brief 文档（文件名含 brief / BRIEF 等），提取全文并持久化
+   *
+   * 综合 brief（一份含所有达人）存为 workspace-files/briefs/brief.md，
+   * 供后续任何会话审核稿件时按达人段匹配。返回是否已入库。
+   */
+  private async saveFeishuBriefIfNeeded(
+    workspaceSlug: string,
+    fileName: string,
+    filePath: string,
+  ): Promise<boolean> {
+    // 仅识别文件名含 brief 关键词的文档
+    if (!/\bbrief\b|brief|briefs/i.test(fileName)) return false
+    if (!isSupportedDocumentExtension(extname(fileName))) return false
+
+    try {
+      const docText = await extractTextFromFile(filePath)
+      const text = docText.trim()
+      if (!text) return false
+
+      const briefsDir = join(getWorkspaceFilesDir(workspaceSlug), 'briefs')
+      mkdirSync(briefsDir, { recursive: true })
+      const briefPath = join(briefsDir, 'brief.md')
+      writeFileSync(briefPath, text, 'utf-8')
+      console.log(`[飞书 Bridge] brief 已自动入库: ${briefPath} (${text.length} 字)`)
+      return true
+    } catch (error) {
+      console.warn(`[飞书 Bridge] brief 入库失败 ${fileName}:`, error)
+      return false
+    }
+  }
+
+  /**
+   * 识别飞书发来的稿件云文档（docx）并按版本号入库
+   *
+   * 依据消息文本中的稿件触发词（初稿/改稿/终稿/稿件等）判定这是待审核稿件；
+   * 达人名从消息文本提取（【XX】/ 紧邻稿件关键词的 token），提取不到用文档标题兜底。
+   * 按版本号存为 workspace-files/draft-review/{达人名}_v{版本}.md，历史版本全部保留。
+   * 返回存入库的版本号；非稿件文档返回 null。
+   */
+  private async saveFeishuDocxAsDraft(
+    workspaceSlug: string,
+    userText: string,
+    docName: string,
+    docContent: string,
+  ): Promise<number | null> {
+    // 稿件触发词：消息文本需含这些关键词才判定为待审核稿件
+    const draftTriggers = /初稿|改稿|终稿|成片|发布预览|请查收|辛苦审核|审稿|稿件|审核一下|请审核|预览/i
+    if (!draftTriggers.test(userText)) return null
+
+    // 提取达人名：优先【XX】，兜底用文档标题
+    let influencerName = ''
+    const bracketMatch = userText.match(/【[^】]+】/)
+    if (bracketMatch) {
+      influencerName = bracketMatch[0].replace(/[【】]/g, '').trim()
+    }
+    if (!influencerName) {
+      influencerName = docName.replace(/\.(md|txt)$/i, '').trim() || '未命名'
+    }
+    // 达人名安全化
+    const safeName = influencerName.replace(/[/\\:*?"<>|]/g, '_').slice(0, 30) || '未命名'
+
+    try {
+      const draftDir = join(getWorkspaceFilesDir(workspaceSlug), 'draft-review')
+      mkdirSync(draftDir, { recursive: true })
+
+      // 统计该达人已有版本数（命名 {safeName}_v{n}.md）
+      let version = 1
+      const prefix = `${safeName}_v`
+      const existingFiles = readdirSync(draftDir).filter((f) =>
+        f.startsWith(prefix) && f.endsWith('.md'),
+      )
+      if (existingFiles.length > 0) {
+        let maxV = 0
+        for (const f of existingFiles) {
+          const m = f.match(/_v(\d+)\.md$/)
+          if (m && m[1]) {
+            const n = parseInt(m[1], 10)
+            if (!Number.isNaN(n) && n > maxV) maxV = n
+          }
+        }
+        version = maxV + 1
+      }
+
+      const draftPath = join(draftDir, `${safeName}_v${version}.md`)
+      writeFileSync(draftPath, docContent, 'utf-8')
+      console.log(`[飞书 Bridge] 稿件已入库 ${draftPath} (第 ${version} 版, ${docContent.length} 字)`)
+      return version
+    } catch (error) {
+      console.warn(`[飞书 Bridge] 稿件入库失败:`, error)
+      return null
+    }
+  }
+
   // ===== 飞书消息处理 =====
 
   private async handleFeishuMessage(data: Record<string, unknown>): Promise<void> {
@@ -544,6 +640,8 @@ class FeishuBridge {
     let text = ''
     const imageAttachments: FeishuImageAttachment[] = []
     const fileAttachments: FeishuFileAttachment[] = []
+    // 稿件云文档（docx）暂存：供 handleUserMessage 按版本号入库
+    let docxDraft: { name: string; content: string } | undefined
 
     if (messageType === 'text') {
       const content = JSON.parse(message.content as string) as { text?: string }
@@ -621,6 +719,8 @@ class FeishuBridge {
           const docContent = await this.fetchFeishuDocxContent(documentId)
           if (docContent) {
             text = `${text ? text + '\n' : ''}（群成员分享了云文档「${docName}」，以下是文档内容）\n\n${docContent}`
+            // 暂存稿件云文档信息，用于 handleUserMessage 中按版本号入库
+            docxDraft = { name: docName, content: docContent }
             console.log(`[飞书 Bridge] 已读取云文档「${docName}」内容 (${docContent.length} 字)`)
           } else {
             await this.sendTextMessage(chatId, `已收到云文档「${docName}」，但无法读取文档内容（可能无读取权限）。`)
@@ -703,7 +803,7 @@ class FeishuBridge {
       }
 
       // 普通消息（文本/图片/文件）→ 转发到会话
-      await this.handleUserMessage(msgCtx, text, imageAttachments, fileAttachments)
+      await this.handleUserMessage(msgCtx, text, imageAttachments, fileAttachments, docxDraft)
     } finally {
       this.processingChats.delete(chatId)
     }
@@ -1106,6 +1206,7 @@ class FeishuBridge {
     text: string,
     imageAttachments: FeishuImageAttachment[] = [],
     fileAttachments: FeishuFileAttachment[] = [],
+    docxDraft?: { name: string; content: string },
   ): Promise<void> {
     const { chatId } = msgCtx
     let binding = this.chatBindings.get(chatId)
@@ -1129,6 +1230,7 @@ class FeishuBridge {
     }
 
     // 保存飞书图片和文件到 session 工作目录，构建文件引用
+    // 文档类文件（PDF/word/txt 等）额外提取正文文本注入，让 Agent 无需额外工具即可读取文件内容
     const attachedRefs: string[] = []
     const workspace = binding.workspaceId ? getAgentWorkspace(binding.workspaceId) : undefined
     if (workspace) {
@@ -1143,7 +1245,27 @@ class FeishuBridge {
           workspace.slug, binding.sessionId, file.fileName, file.data,
         )
         attachedRefs.push(`- ${file.fileName}: ${savedPath}`)
+        // 文档类文件：提取文本注入，避免 Agent 只拿到路径却读不到内容
+        if (isSupportedDocumentExtension(extname(file.fileName))) {
+          try {
+            const docText = await extractTextFromFile(savedPath)
+            if (docText && docText.trim().length > 0) {
+              attachedRefs.push(`【抽取自 ${file.fileName}】\n${docText.slice(0, 12000)}`)
+            }
+          } catch (docErr) {
+            console.warn(`[飞书 Bridge] 提取文档 ${file.fileName} 文本失败:`, docErr)
+          }
+        }
+        // brief 文档：自动入库到 workspace-files/briefs/brief.md，供后续审稿跨会话匹配
+        if (workspace) {
+          await this.saveFeishuBriefIfNeeded(workspace.slug, file.fileName, savedPath)
+        }
       }
+    }
+    // 稿件云文档（docx）：按达人名+版本号入库到 workspace-files/draft-review/
+    // 消息文本含稿件触发词才判定为待审核稿件；历史版本全部保留，后续改版 agent 从库里读最新版，省 token
+    if (workspace && docxDraft) {
+      await this.saveFeishuDocxAsDraft(workspace.slug, text, docxDraft.name, docxDraft.content)
     }
     const fileReferences = attachedRefs.length > 0
       ? `<attached_files>\n${attachedRefs.join('\n')}\n</attached_files>\n\n`
