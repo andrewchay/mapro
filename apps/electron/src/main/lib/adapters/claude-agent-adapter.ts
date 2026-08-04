@@ -207,6 +207,46 @@ const FRIENDLY_ERROR_MESSAGES: Array<{ pattern: RegExp; message: string }> = [
     pattern: /validation error/i,
     message: 'API 请求格式校验失败，请重试或开启新会话',
   },
+  {
+    pattern: /Service is too busy|service_unavailable_error|503/i,
+    message: '模型服务当前繁忙（503），MAPro 正在自动重试，请稍候 1-2 分钟后查看结果；若持续失败，建议在设置中切换到其他可用渠道。',
+  },
+  {
+    pattern: /rate.?limit|429|too many requests|requests per|rpm|qpm/i,
+    message: '模型接口触发速率限制（429），MAPro 正在自动按指数退避重试，请稍后查看结果。',
+  },
+  {
+    pattern: /overloaded|529|high load|concurrent/i,
+    message: '模型服务商当前排队过载（529），MAPro 正在自动重试，请稍候再查看结果；如持续失败可切换其他渠道。',
+  },
+  {
+    pattern: /502|Bad Gateway|504|Gateway Timeout|520|522|524/i,
+    message: '模型网关/源站瞬时异常（502/504/52x），MAPro 正在自动重试，稍后查看结果即可。',
+  },
+  {
+    pattern: /invalid.*api.?key|api.?key.*invalid|401|unauthorized|authentication/i,
+    message: '模型渠道的 API Key 无效或未授权，请在设置中检查并更新渠道配置。',
+  },
+  {
+    pattern: /quota|insufficient balance|billing|额度|余额|用完/i,
+    message: '当前模型渠道的额度/余额不足，请充值或切换到其他可用渠道。',
+  },
+  {
+    pattern: /context.*length|prompt too long|content.*too long|max.?tokens|token.*limit/i,
+    message: '本次任务上下文过长，超出模型最大输入长度，请精简内容或开启新会话。',
+  },
+  {
+    pattern: /content.*policy|moderation|safety|violation|违规|敏感/i,
+    message: '内容触发了模型安全策略，请检查稿件文字/图片中是否包含违规或敏感描述。',
+  },
+  {
+    pattern: /timeout|timed out|ETIMEDOUT/i,
+    message: '模型接口响应超时，MAPro 正在自动重试；如多次失败可切换渠道或稍后再试。',
+  },
+  {
+    pattern: /ECONNRESET|socket hang up|broken pipe|connection.*reset|network.*error|ENOTFOUND|DNS/i,
+    message: '网络连接瞬时中断，MAPro 正在自动重试；如持续失败请检查本机网络或代理设置。',
+  },
 ]
 
 /** 错误消息最大保留长度（超出部分截断，防止存储膨胀） */

@@ -165,10 +165,11 @@ function isAutoRetryableCatchError(
   if (rawErrorMessage) {
     if (rawErrorMessage.includes('context_management')) return true
   }
-  // 兜底：extractApiError 未识别但 stderr / 错误文本中包含 502 / 529 或 overloaded 关键字时也视为可重试
-  // 502 (Bad Gateway) 通常是上游网关瞬时异常，与 529 一样很快自行恢复
+  // 兜底：extractApiError 未识别但 stderr / 错误文本中包含已知瞬时 HTTP 状态码或过载关键字时也视为可重试
+  // 502 (Bad Gateway) / 504 (Gateway Timeout) / 520 / 522 / 524 (Cloudflare 层级的超时/源站异常)
+  // 529 (Anthropic overloaded) 通常很快自行恢复；503 service_unavailable_error / Service is too busy 为服务商并发上限
   const text = `${rawErrorMessage ?? ''}\n${stderr ?? ''}`
-  if (/\b502\b|\b529\b|overloaded/i.test(text)) return true
+  if (/\b502\b|\b503\b|\b504\b|\b520\b|\b522\b|\b524\b|\b529\b|overloaded|service_unavailable_error|Service is too busy|rate.?limit|429/i.test(text)) return true
   // 瞬时网络错误（terminated / ECONNRESET / socket hang up 等）
   if (isTransientNetworkError(rawErrorMessage, stderr)) return true
   return false
