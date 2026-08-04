@@ -30,6 +30,7 @@ type PermissionResult = {
 interface PendingAskUser {
   resolve: (result: PermissionResult) => void
   request: AskUserRequest
+  timeoutId?: ReturnType<typeof setTimeout>
 }
 
 /**
@@ -41,17 +42,23 @@ export class AgentAskUserService {
   /** 待处理的 AskUser 请求 Map（requestId → PendingAskUser） */
   private pendingRequests = new Map<string, PendingAskUser>()
 
+  /** Headless 场景下 AskUser 超时时间（60s） */
+  readonly HEADLESS_ASK_USER_TIMEOUT_MS = 60_000
+
   /**
    * 处理 AskUserQuestion 工具调用
    *
    * 解析问题列表，发送到渲染进程，阻塞等待用户回答，
    * 回答后通过 updatedInput 注入 answers 字段。
+   *
+   * @param isHeadless 是否为 headless 场景（飞书 bot 远程触发）。headless 下不发送渲染进程，60s 超时自动 deny。
    */
   handleAskUserQuestion(
     sessionId: string,
     input: Record<string, unknown>,
     signal: AbortSignal,
     sendToRenderer: (request: AskUserRequest) => void,
+    isHeadless = false,
   ): Promise<PermissionResult> {
     const questions = this.parseQuestions(input)
 
@@ -63,13 +70,30 @@ export class AgentAskUserService {
       toolInput: input,
     }
 
-    sendToRenderer(request)
+    // Headless 场景：不发送到渲染进程（无人能回答）
+    if (!isHeadless) {
+      sendToRenderer(request)
+    }
 
     return new Promise<PermissionResult>((resolve) => {
-      this.pendingRequests.set(request.requestId, { resolve, request })
+      // Headless 场景：添加超时保护
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
+      if (isHeadless) {
+        timeoutId = setTimeout(() => {
+          if (this.pendingRequests.has(request.requestId)) {
+            console.log(`[AskUser] Headless 超时自动 deny [${sessionId}] (${this.HEADLESS_ASK_USER_TIMEOUT_MS / 1000}s)`)
+            this.pendingRequests.delete(request.requestId)
+            resolve({ behavior: 'deny', message: '无人应答，按默认策略继续' })
+          }
+        }, this.HEADLESS_ASK_USER_TIMEOUT_MS)
+      }
+
+      const pending: PendingAskUser = { resolve, request, timeoutId }
+      this.pendingRequests.set(request.requestId, pending)
 
       signal.addEventListener('abort', () => {
         if (this.pendingRequests.has(request.requestId)) {
+          if (timeoutId) clearTimeout(timeoutId)
           this.pendingRequests.delete(request.requestId)
           resolve({ behavior: 'deny', message: '操作已中止' })
         }
@@ -85,6 +109,8 @@ export class AgentAskUserService {
   respondToAskUser(requestId: string, answers: Record<string, string>): string | null {
     const pending = this.pendingRequests.get(requestId)
     if (!pending) return null
+
+    if (pending.timeoutId) clearTimeout(pending.timeoutId)
 
     const sessionId = pending.request.sessionId
 
@@ -115,6 +141,7 @@ export class AgentAskUserService {
   clearSessionPending(sessionId: string): void {
     for (const [requestId, pending] of this.pendingRequests) {
       if (pending.request.sessionId === sessionId) {
+        if (pending.timeoutId) clearTimeout(pending.timeoutId)
         pending.resolve({ behavior: 'deny', message: '会话已结束' })
         this.pendingRequests.delete(requestId)
       }

@@ -86,6 +86,10 @@ interface SessionBuffer {
   text: string
   toolSummaries: Map<string, ToolSummary>
   startedAt: number
+  /** 是否有未应答的 AskUser 请求（用于 headless 场景） */
+  hasPendingAskUser: boolean
+  /** 最近一次 AskUser 的问题摘要（用于最终回复中提示用户） */
+  lastAskUserSummary?: string
 }
 
 // ===== Bridge =====
@@ -443,6 +447,27 @@ class FeishuBridge {
     return Buffer.concat(chunks)
   }
 
+  /**
+   * 读取飞书云文档（新版 docx）的纯文本内容
+   *
+   * 使用 docx.document.raw_content API，需要应用开启 docx:document 读取权限。
+   * 返回 null 表示读取失败（无权限 / 文档不存在）。
+   */
+  private async fetchFeishuDocxContent(documentId: string): Promise<string | null> {
+    if (!this.client) throw new Error('飞书 Client 未初始化')
+
+    try {
+      const resp = await this.client.docx.document.rawContent({
+        path: { document_id: documentId },
+      })
+      const content = resp.data?.content?.trim()
+      return content && content.length > 0 ? content : null
+    } catch (error) {
+      console.error(`[飞书 Bridge] 读取云文档 ${documentId} 内容失败:`, error)
+      return null
+    }
+  }
+
   // ===== 飞书消息处理 =====
 
   private async handleFeishuMessage(data: Record<string, unknown>): Promise<void> {
@@ -507,11 +532,11 @@ class FeishuBridge {
     // 记录最近交互的 chatId 作为默认通知目标
     this.defaultNotifyChatId = chatId
 
-    // 仅处理文本、图片、富文本和文件消息
-    const supportedTypes = new Set(['text', 'image', 'post', 'file'])
+    // 仅处理文本、图片、富文本、文件和云文档消息
+    const supportedTypes = new Set(['text', 'image', 'post', 'file', 'docx'])
     if (!supportedTypes.has(messageType)) {
       console.log(`[飞书 Bridge] 不支持的消息类型: ${messageType}`)
-      await this.sendTextMessage(chatId, '目前仅支持文本、图片和文件消息。')
+      await this.sendTextMessage(chatId, '目前仅支持文本、图片、文件和云文档消息。')
       return
     }
 
@@ -581,6 +606,31 @@ class FeishuBridge {
           await this.sendCardMessage(chatId, buildErrorCard('文件下载失败，请重试。'))
           return
         }
+      }
+    } else if (messageType === 'docx') {
+      // 云文档消息：尝试读取文档内容并作为文本注入，让 Agent 能读到文档正文
+      try {
+        const content = JSON.parse(message.content as string) as {
+          document_id?: string
+          doc_name?: string
+          url?: string
+        }
+        const documentId = content.document_id
+        const docName = content.doc_name || '飞书云文档'
+        if (documentId) {
+          const docContent = await this.fetchFeishuDocxContent(documentId)
+          if (docContent) {
+            text = `${text ? text + '\n' : ''}（群成员分享了云文档「${docName}」，以下是文档内容）\n\n${docContent}`
+            console.log(`[飞书 Bridge] 已读取云文档「${docName}」内容 (${docContent.length} 字)`)
+          } else {
+            await this.sendTextMessage(chatId, `已收到云文档「${docName}」，但无法读取文档内容（可能无读取权限）。`)
+            return
+          }
+        }
+      } catch (error) {
+        console.error('[飞书 Bridge] 解析云文档消息失败:', error)
+        await this.sendTextMessage(chatId, '云文档解析失败，请重试。')
+        return
       }
     }
 
@@ -1104,6 +1154,7 @@ class FeishuBridge {
       text: '',
       toolSummaries: new Map(),
       startedAt: Date.now(),
+      hasPendingAskUser: false,
     })
 
     // 发送思考中指示
@@ -1145,6 +1196,19 @@ class FeishuBridge {
         const parts: string[] = []
         if (contextParts.length > 0) parts.push(contextParts.join(' '))
         if (historyContext) parts.push(historyContext)
+
+        // 群聊场景输出格式硬约束：避免 Agent 把过程性说明、工具描述、思考过程性文字一股脑贴到群里
+        // 强制只输出最终结论，供运营/第三方可读的回复
+        parts.push(
+          '[群聊输出格式要求]\n' +
+          '1. 直接给出最终结论和执行结果，不要写过程性说明（如"我先去..."、"接下来我会..."、"让我看看..."、"好的收到"之类的启动语。\n' +
+          '2. 工具调用、读取文件、调用skill的动作本身属于内部步骤，不要写入最终回答。\n' +
+          '3. 引用数据或结论时，只说结果，不说分析过程或调用了什么工具。\n' +
+          '4. 如果需要向用户提出澄清，请把所有问题合并为一条，放在回复最前面。\n' +
+          '5. 禁止把原始 JSON、错误堆栈、后端错误体直接贴出，已有的友好中文提示直接用简短一句话说明原因和建议即可。\n' +
+          '6. 保持回复面向运营与第三方阅读，语气专业、简洁，避免冗长段落不超过 5 段，必要时使用要点列表。',
+        )
+
         if (fileReferences) parts.push(fileReferences.trimEnd())
         parts.push(userText)
         agentMessage = parts.join('\n')
@@ -1172,6 +1236,7 @@ class FeishuBridge {
         modelId,
         workspaceId: binding.workspaceId,
         permissionModeOverride: 'bypassPermissions',
+        isHeadless: true,
         ...(customMcpServers && { customMcpServers }),
       }
 
@@ -1256,6 +1321,107 @@ class FeishuBridge {
         this.sessionBuffers.delete(sessionId)
       }
     }
+
+    // 第 3 层加固：捕获 AskUser 请求事件
+    if (payload.kind === 'mapro_event' && payload.event.type === 'ask_user_request') {
+      const askUserBuffer = this.sessionBuffers.get(sessionId)
+      if (askUserBuffer) {
+        const request = payload.event.request
+        // 标记存在未应答的 AskUser
+        askUserBuffer.hasPendingAskUser = true
+        // 提取问题摘要（取第一个问题的 header + question 前 50 字）
+        if (request.questions && request.questions.length > 0) {
+          const firstQ = request.questions[0]
+          if (firstQ) {
+            const summary = firstQ.header ? `${firstQ.header}：${firstQ.question}` : firstQ.question
+            askUserBuffer.lastAskUserSummary = summary.slice(0, 50)
+          }
+        }
+        console.log(`[飞书 Bridge] AskUser 请求 [${sessionId}]:`, askUserBuffer.lastAskUserSummary)
+      }
+    }
+
+    // AskUser 已解决时清除标记
+    if (payload.kind === 'mapro_event' && payload.event.type === 'ask_user_resolved') {
+      const resolvedBuffer = this.sessionBuffers.get(sessionId)
+      if (resolvedBuffer) {
+        resolvedBuffer.hasPendingAskUser = false
+      }
+    }
+  }
+
+  /**
+   * 清洗 Agent 原始输出文本，去除过程性说明、工具解释、thinking 标签、追问段落等
+   * 确保最终发到飞书群的回复简洁专业，面向运营/第三方阅读
+   */
+  private sanitizeRemoteBotReply(text: string, buffer: SessionBuffer): string {
+    if (!text) return ''
+
+    let result = text
+
+    // 1. 去除 thinking 标签内容（包含 XML 声明）
+    const thinkingTagRegex = /(?:<\?xml[^>]*>)?<thinking>[\s\S]*?<\/thinking>/gi
+    result = result.replace(thinkingTagRegex, '')
+
+    // 2. 去除 thinking 分隔符块 (--- Thinking --- / === Thinking ===)
+    result = result.replace(/[-=]{3,}\s*Thinking\s*[-=]{3,}[\s\S]*?(?:[-=]{3,}|$)/gi, '')
+
+    // 3. 按行处理：过滤纯过程性单行
+    const lines = result.split('\n')
+    const filteredLines = lines.filter((line) => {
+      const trimmed = line.trim()
+      // 纯过程性单行模式：(正在|准备|接下来|我将|我现在).*(调用|读取|分析|检查|连接|下载|打开|搜索|执行)
+      if (/^(?:正在|准备|接下来|我将|我现在|我开始|让我来|好的|收到|明白).*(?:调用|读取|分析|检查|连接|下载|打开|搜索|执行|查看|加载)/i.test(trimmed)) {
+        return false
+      }
+      // 以常见启动语开头的短行
+      if (/^(?:好的|收到|明白|了解|没问题|OK|好的啊|好的呀|让我想想|让我看看|让我查一下|我来帮你).{0,30}$/i.test(trimmed)) {
+        return false
+      }
+      // JSON 错误残留块检测
+      if (/^\s*\{.*"error"/i.test(trimmed)) {
+        return false
+      }
+      return true
+    })
+    result = filteredLines.join('\n')
+
+    // 4. 按段落处理：过滤过程性段落和追问段落
+    const paragraphs = result.split(/\n\n+/)
+    const filteredParagraphs = paragraphs.filter((para) => {
+      const trimmed = para.trim()
+      if (!trimmed) return true // 保留空段落用于分隔
+
+      // 过滤包含追问关键词的段落（AskUser 未应答时 agent 留下的追问）
+      if (buffer.hasPendingAskUser) {
+        const hasQuestionPattern =
+          /(?:请问|请告诉我|我需要确认|请选择|请你提供|你能否告诉我|需要你回答|我需要你选择)/i.test(trimmed)
+        const hasShortQuestion = /^.{0,80}[\u4e00-\u9fa5]{0,20}[?？]$/im.test(trimmed)
+        if (hasQuestionPattern || (hasShortQuestion && trimmed.length < 150)) {
+          return false
+        }
+      }
+      return true
+    })
+    result = filteredParagraphs.join('\n\n')
+
+    // 5. 如果 AskUser 未应答，追加简短提示
+    if (buffer.hasPendingAskUser && buffer.lastAskUserSummary) {
+      result += `\n\n⚠️ 本次任务需要确认：${buffer.lastAskUserSummary}。请直接回复确认，我会继续处理。`
+    }
+
+    // 6. 合并多余空行
+    result = result.replace(/\n{3,}/g, '\n\n')
+
+    // 7. 去除首尾空白
+    result = result.trim()
+
+    // 8. 如果清洗后为空，给默认回复
+    if (!result) {
+      result = '任务已完成。'
+    }
+
+    return result
   }
 
   /** 飞书发起的会话完成：发送完整回复到飞书 */
@@ -1263,10 +1429,13 @@ class FeishuBridge {
     const buffer = this.sessionBuffers.get(sessionId)
     if (!buffer) return
 
+    // 第 2 层加固：清洗 Agent 原始输出，去除过程性说明和追问段落
+    const cleanedText = this.sanitizeRemoteBotReply(buffer.text, buffer)
+
     const duration = (Date.now() - buffer.startedAt) / 1000
     const toolSummaries = Array.from(buffer.toolSummaries.values())
     const result: FormattedAgentResult = {
-      text: buffer.text,
+      text: cleanedText,
       toolSummaries,
       duration,
     }

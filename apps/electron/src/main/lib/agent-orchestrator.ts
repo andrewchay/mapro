@@ -541,8 +541,9 @@ export class AgentOrchestrator {
     startedAt?: number
     permissionMode?: MAProPermissionMode
     attachments?: FileAttachment[]
+    isHeadless?: boolean
   }): Promise<void> {
-    const { sessionId, agentRuntime =  'proma', channelId, workspaceId, userMessage, modelId, provider, adapterProvider, apiKey, baseUrl, callbacks, startedAt, permissionMode, attachments } = options
+    const { sessionId, agentRuntime =  'proma', channelId, workspaceId, userMessage, modelId, provider, adapterProvider, apiKey, baseUrl, callbacks, startedAt, permissionMode, attachments, isHeadless } = options
     let userMessageUuid = ''
 
     try {
@@ -576,7 +577,7 @@ export class AgentOrchestrator {
         (request: PermissionRequest) => {
           runtimeServices.events.emit(sessionId, { kind: 'mapro_event', event: { type: 'permission_request', request } } as AgentStreamPayload)
         },
-        (sid, toolInput, signal, sendAskUser) => askUserService.handleAskUserQuestion(sid, toolInput, signal, sendAskUser),
+        (sid, toolInput, signal, sendAskUser) => askUserService.handleAskUserQuestion(sid, toolInput, signal, sendAskUser, isHeadless),
         (request: AskUserRequest) => {
           runtimeServices.events.emit(sessionId, { kind: 'mapro_event', event: { type: 'ask_user_request', request } } as AgentStreamPayload)
         },
@@ -643,6 +644,7 @@ export class AgentOrchestrator {
             (request: AskUserRequest) => {
               runtimeServices.events.emit(sessionId, { kind: 'mapro_event', event: { type: 'ask_user_request', request } } as AgentStreamPayload)
             },
+            isHeadless,
           )
           if (result.behavior === 'deny') {
             return { behavior: 'deny', message: result.message }
@@ -1388,8 +1390,11 @@ export class AgentOrchestrator {
    * 通过 EventBus 分发 AgentEvent，通过 callbacks 发送控制信号。
    */
   async sendMessage(input: AgentSendInput, callbacks: SessionCallbacks): Promise<void> {
-    const { sessionId, userMessage, channelId, modelId, agentRuntime, workspaceId, additionalDirectories, customMcpServers, permissionModeOverride, mentionedSkills, mentionedMcpServers, mentionedSessionIds, attachments } = input
+    const { sessionId, userMessage, channelId, modelId, agentRuntime, workspaceId, additionalDirectories, customMcpServers, permissionModeOverride, mentionedSkills, mentionedMcpServers, mentionedSessionIds, attachments, isHeadless: inputIsHeadless } = input
     const stderrChunks: string[] = []
+    // 外部覆盖权限模式 + 显式 isHeadless 标记（如飞书 bot 无 UI 场景）视为 headless：
+    // AskUser 无人应答时走超时自动 deny。桌面端即使选 bypassPermissions 也不算 headless。
+    const isHeadless = inputIsHeadless ?? false
 
     // 0. 并发保护
     if (this.activeSessions.has(sessionId)) {
@@ -1629,6 +1634,7 @@ export class AgentOrchestrator {
         startedAt: input.startedAt,
         permissionMode: initialPermissionMode,
         attachments,
+        isHeadless,
       })
       return
     }
@@ -1860,7 +1866,7 @@ export class AgentOrchestrator {
         (request: PermissionRequest) => {
           this.eventBus.emit(sessionId, { kind: 'mapro_event', event: { type: 'permission_request', request } })
         },
-        (sid, toolInput, signal, sendAskUser) => askUserService.handleAskUserQuestion(sid, toolInput, signal, sendAskUser),
+        (sid, toolInput, signal, sendAskUser) => askUserService.handleAskUserQuestion(sid, toolInput, signal, sendAskUser, isHeadless),
         (request: AskUserRequest) => {
           this.eventBus.emit(sessionId, { kind: 'mapro_event', event: { type: 'ask_user_request', request } })
         },
@@ -1952,6 +1958,7 @@ export class AgentOrchestrator {
             (request: AskUserRequest) => {
               this.eventBus.emit(sessionId, { kind: 'mapro_event', event: { type: 'ask_user_request', request } })
             },
+            isHeadless,
           )
         }
 
