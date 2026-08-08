@@ -121,7 +121,14 @@ function isToolResultBlock(block: unknown): block is ToolResultLikeBlock {
 }
 
 export function sdkMessagesToChatMessages(messages: SDKMessage[]): ChatMessage[] {
-  const recent = messages.slice(-MAX_HISTORY_MESSAGES)
+  // 成对裁剪：切点若落在 tool_use/tool_result 对中间（切点前是 assistant、切点是其
+  // tool_result 的 user 消息），前移切点把 assistant 一并包含，避免拆散工具调用对，
+  // 保证每轮 tool 结果与其调用始终成对出现在历史中。
+  let start = Math.max(0, messages.length - MAX_HISTORY_MESSAGES)
+  if (start > 0 && messages[start]?.type === 'user' && messages[start - 1]?.type === 'assistant') {
+    start -= 1
+  }
+  const recent = messages.slice(start)
   const result: ChatMessage[] = []
 
   for (const msg of recent) {

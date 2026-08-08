@@ -452,8 +452,8 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
   {
     id: 'search_kols',
     title: '筛选候选达人',
-    description: '基于 KOL 金字塔参数，从数据库中搜索并筛选符合形象角色与调性契合度的候选达人',
-    toolName: 'kol-data/search_kols',
+    description: '基于 KOL 金字塔参数，从蒲公英平台采集并筛选符合形象角色与调性契合度的候选达人',
+    toolName: 'ma-kol-scraper',
     minArtifactLength: 300,
     artifactRequirements: [
       { name: '搜索条件', aliases: ['搜索', '筛选', '条件', '参数', '筛选标准'] },
@@ -464,20 +464,20 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
     ],
     agentPrompt: `## 步骤 10: 筛选候选达人
 
-目标：基于 KOL 金字塔参数（平台、类目、粉丝量级、预算范围、形象角色），搜索并筛选候选达人。筛选不仅要考虑数据匹配，还要评估达人形象与品牌人格的契合度。
+目标：基于 KOL 金字塔参数（平台、类目、粉丝量级、预算范围、形象角色），使用 ma-kol-scraper skill 通过蒲公英平台采集并筛选候选达人。
 
 执行要求：
-1. 使用 kol-data/search_kols 工具按金字塔参数筛选候选 KOL
-2. 对重点达人，使用 ma-kol-history-review 工具或数据库信息评估：
+1. 使用 ma-kol-scraper skill 通过 CDP 连接 Chrome，从蒲公英博主广场按参数搜索筛选候选 KOL
+2. 对重点达人，从详情页评估：
    - 近 10-20 条内容质量与风格稳定性
-   - 过往品牌合作历史（是否有竞品合作）
-   - 履约风险信号
+   - 过往品牌合作数据
+   - 达人数据分析（粉丝画像、数据表现等）
 3. 筛选结果必须保存到：\`kol-search/\`
 4. 文件命名建议：\`kol-search-results.md\`、\`kol-shortlist.md\`
 5. 完成标准（校验时会检查）：
    - kol-search-results.md 必须包含搜索条件、筛选逻辑、KOL 列表（至少300字）
    - kol-shortlist.md 必须包含精选推荐及推荐理由（至少300字）
-   - 每位 KOL 推荐理由必须包含：数据匹配度、形象契合度、调性契合度、历史审阅摘要
+   - 每位 KOL 推荐理由必须包含：数据匹配度、形象契合度、调性契合度、历史数据摘要
    - 每位 KOL 信息包含：ID、名称、平台、粉丝量、互动率、类目、报价、城市
 
 前置产物：\`kol-pyramid/\` 目录中的 KOL 金字塔与形象角色矩阵文件

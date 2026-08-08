@@ -1125,6 +1125,8 @@ export interface AgentSendInput {
   customMcpServers?: Record<string, Record<string, unknown>>
   /** 强制覆盖权限模式（飞书等无 UI 交互场景下强制 'bypassPermissions'） */
   permissionModeOverride?: MAProPermissionMode
+  /** 是否为无 UI 交互的 headless 场景（飞书 bot 远程触发）。headless 下 AskUser 无人应答时超时自动 deny */
+  isHeadless?: boolean
   /** 用户通过 /skill:xxx 引用的 Skill slug 列表 */
   mentionedSkills?: string[]
   /** 用户通过 #mcp:xxx 引用的 MCP 服务器名称列表 */

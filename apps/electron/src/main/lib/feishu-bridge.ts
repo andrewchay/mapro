@@ -35,8 +35,10 @@ import {
   getAgentWorkspace,
   getWorkspaceCapabilities,
 } from './agent-workspace-manager'
-import { getFeishuBotBindingsPath } from './config-paths'
-import { writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
+import { getFeishuBotBindingsPath, getWorkspaceFilesDir, getConfigDir } from './config-paths'
+import { writeFileSync, readFileSync, existsSync, readdirSync, mkdirSync, appendFileSync } from 'node:fs'
+import { basename, extname, join, dirname } from 'node:path'
+import { extractTextFromFile, isSupportedDocumentExtension } from './document-parser'
 import {
   inferImageMediaType as inferImageMediaTypeShared,
   saveImageToSession as saveImageToSessionShared,
@@ -45,6 +47,8 @@ import {
 } from './bridge-attachment-utils'
 import { getSettings } from './settings-service'
 import { presenceService } from './feishu-presence'
+import { getToolCredentials } from './chat-tool-config'
+import { executeGroupNicknameFetchTask } from './browser-automation/browser-automation-service.ts'
 import { loadClaudeAgentSdk } from './claude-sdk-loader'
 import {
   buildAgentReplyCard,
@@ -86,6 +90,62 @@ interface SessionBuffer {
   text: string
   toolSummaries: Map<string, ToolSummary>
   startedAt: number
+  /** 是否有未应答的 AskUser 请求（用于 headless 场景） */
+  hasPendingAskUser: boolean
+  /** 最近一次 AskUser 的问题摘要（用于最终回复中提示用户） */
+  lastAskUserSummary?: string
+}
+
+/** draft-review-state.jsonl 单条记录（版本与存档由 bridge 入库时确定性写入，审核字段由 Agent 回填） */
+interface DraftReviewStateRecord {
+  /** 飞书群 chatId，作为 (群, 达人) 版本累计维度 */
+  groupId: string
+  /** 达人名 */
+  influencer: string
+  /** 版本号（bridge 按 (群, 达人) 自动递增，唯一事实源） */
+  version: number
+  /** 三态判定：red | yellow | green（Agent 审核后回填） */
+  verdict?: string
+  /** 文字审核总分（Agent 回填） */
+  textScore?: number
+  /** 图片审核总分（Agent 回填） */
+  imageScore?: number
+  /** 稿件全文存档路径（draft-archives/{达人名}/{达人名}_v{N}.md） */
+  archivePath: string
+  /** 入库时间戳 */
+  ts: number
+}
+
+/**
+ * 群角色名单（用户手动维护，按群隔离）
+ *
+ * 通过群内指令「名单：Account-姓名、执行-姓名」由 bridge 确定性录入，
+ * 作为 Agent 红卡 @执行 / 黄卡·绿卡·审核失败 @Account 判定的最高优先依据
+ * （其次才是成员名称前缀 Account- / 执行-）。
+ * 名字按通讯录姓名精确匹配群成员 openId，匹配不到时 @ 降级为文字点名。
+ */
+interface GroupRoleList {
+  /** 我方关键人（黄卡/绿卡/审核失败 @Account） */
+  accountNames: string[]
+  /** 第三方执行方（红卡 @执行） */
+  executorNames: string[]
+  /** 名单更新时间戳 */
+  updatedAt: number
+}
+
+/**
+ * 群审核口径（用户可维护，按群隔离）
+ *
+ * 通过群内指令「口径：...」由 bridge 确定性录入，
+ * 稿件审核消息转发时确定性注入 `[本群审核口径: ...]`，
+ * 作为审核判定的最高优先依据（优先于 brief 旧措辞），
+ * 不依赖 Agent 从 SKILL.md 记得该规则。
+ */
+interface GroupAuditStandard {
+  /** 口径文本（注入消息的原始内容） */
+  content: string
+  /** 口径更新时间戳 */
+  updatedAt: number
 }
 
 // ===== Bridge =====
@@ -127,8 +187,26 @@ class FeishuBridge {
   private groupInfoCache = new Map<string, FeishuGroupInfo>()
   /** open_id → 用户显示名称缓存 */
   private userNameCache = new Map<string, string>()
+  /** 正在进行的群昵称抓取（防止同一群重复触发） */
+  private nicknameFetchesInFlight = new Set<string>()
+  /** chatId → 最近一次群昵称抓取尝试时间戳（成功/失败都记录，避免频繁重试） */
+  private lastNicknameFetchAt = new Map<string, number>()
+  /** 群昵称抓取冷却时间（毫秒）：1 分钟 */
+  private static readonly NICKNAME_FETCH_COOLDOWN_MS = 60_000
   /** 群信息缓存有效期（毫秒）：1 小时 */
   private static readonly GROUP_CACHE_TTL = 3600_000
+  /**
+   * 默认群审核口径（与 ma-draft-review SKILL.md Step 4 一致）
+   * 用户可通过群内指令「口径：...」按群覆盖，未维护时使用此默认值。
+   */
+  private static readonly DEFAULT_AUDIT_STANDARD =
+    '字数 200 字左右即可，不按 brief 字数要求（如 300 字），不强制扩充，不计分、不构成红卡；' +
+    '关键词埋点正文语义体现即达标，不强求标题/前 15 字；' +
+    '话题标签 #忘本美学、#vonbon忘本甄果 必须植入（缺失即红卡），数量不限'
+  /** chatId → 群角色名单缓存（用户手动维护，按群隔离） */
+  private groupRoleCache = new Map<string, GroupRoleList>()
+  /** chatId → 群审核口径缓存（用户可维护，按群隔离） */
+  private auditStandardCache = new Map<string, GroupAuditStandard>()
 
   /** 消息去重（防止 SDK WebSocket 重复投递） */
   private recentMessageIds = new Set<string>()
@@ -257,6 +335,10 @@ class FeishuBridge {
     this.lastUserMessageId.clear()
     this.groupInfoCache.clear()
     this.userNameCache.clear()
+    this.nicknameFetchesInFlight.clear()
+    this.lastNicknameFetchAt.clear()
+    this.groupRoleCache.clear()
+    this.auditStandardCache.clear()
     this.defaultNotifyChatId = null
     this.botOpenId = null
 
@@ -443,6 +525,327 @@ class FeishuBridge {
     return Buffer.concat(chunks)
   }
 
+  /**
+   * 读取飞书云文档（新版 docx）的纯文本内容
+   *
+   * 使用 docx.document.raw_content API，需要应用开启 docx:document 读取权限。
+   * 返回 null 表示读取失败（无权限 / 文档不存在）。
+   */
+  private async fetchFeishuDocxContent(documentId: string): Promise<string | null> {
+    if (!this.client) throw new Error('飞书 Client 未初始化')
+
+    try {
+      const resp = await this.client.docx.document.rawContent({
+        path: { document_id: documentId },
+      })
+      const content = resp.data?.content?.trim()
+      return content && content.length > 0 ? content : null
+    } catch (error) {
+      console.error(`[飞书 Bridge] 读取云文档 ${documentId} 内容失败:`, error)
+      return null
+    }
+  }
+
+  /**
+   * 文本内容含 brief 关键词 → 提取全文并按来源文件名分存为 briefs/{文件名}.md
+   *
+   * 每份 brief 独立一个 md（如「第二批达人 Brief 合集.pdf」→ briefs/vonbon 忘本甄果 · 第二批达人 Brief 合集.md），
+   * 互不覆盖；单达人 brief 文件名即达人名，供审稿时按 briefs/{达人名}.md 直接命中。
+   * 返回是否已入库。
+   */
+  private async saveBriefTextIfNeeded(
+    workspaceSlug: string,
+    fileName: string,
+    text: string,
+  ): Promise<boolean> {
+    // 仅识别文件名含 brief 关键词的文档
+    if (!/\bbrief\b|brief|briefs/i.test(fileName)) return false
+    const trimmed = text.trim()
+    if (!trimmed) return false
+
+    try {
+      const briefsDir = join(getWorkspaceFilesDir(workspaceSlug), 'briefs')
+      mkdirSync(briefsDir, { recursive: true })
+      const base = fileName.replace(/\.[^.]+$/, '').replace(/[/\\:*?"<>|]/g, '_').trim() || 'brief'
+      const briefPath = join(briefsDir, `${base}.md`)
+      writeFileSync(briefPath, trimmed, 'utf-8')
+      console.log(`[飞书 Bridge] brief 已自动入库: ${briefPath} (${trimmed.length} 字)`)
+      return true
+    } catch (error) {
+      console.warn(`[飞书 Bridge] brief 入库失败 ${fileName}:`, error)
+      return false
+    }
+  }
+
+  /**
+   * 识别飞书发来的 brief 文件（文件名含 brief / BRIEF 等），提取全文并持久化
+   *
+   * 综合 brief（一份含所有达人）存为 workspace-files/briefs/brief.md，
+   * 供后续任何会话审核稿件时按达人段匹配。返回是否已入库。
+   */
+  private async saveFeishuBriefIfNeeded(
+    workspaceSlug: string,
+    fileName: string,
+    filePath: string,
+  ): Promise<boolean> {
+    // 仅识别文件名含 brief 关键词的文档
+    if (!/\bbrief\b|brief|briefs/i.test(fileName)) return false
+    if (!isSupportedDocumentExtension(extname(fileName))) return false
+
+    try {
+      const docText = await extractTextFromFile(filePath)
+      return await this.saveBriefTextIfNeeded(workspaceSlug, fileName, docText)
+    } catch (error) {
+      console.warn(`[飞书 Bridge] brief 入库失败 ${fileName}:`, error)
+      return false
+    }
+  }
+
+  // ===== 稿件入库（版本递增下沉到 bridge） =====
+
+  /** draft-review-state.jsonl 路径（工作区 workspace-files 根下） */
+  private getDraftReviewStatePath(workspaceSlug: string): string {
+    return join(getWorkspaceFilesDir(workspaceSlug), 'draft-review-state.jsonl')
+  }
+
+  /** 读取全部 draft-review-state 记录（损坏行跳过） */
+  private readDraftReviewState(workspaceSlug: string): DraftReviewStateRecord[] {
+    const statePath = this.getDraftReviewStatePath(workspaceSlug)
+    if (!existsSync(statePath)) return []
+    try {
+      const records: DraftReviewStateRecord[] = []
+      for (const line of readFileSync(statePath, 'utf-8').split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        try {
+          records.push(JSON.parse(trimmed) as DraftReviewStateRecord)
+        } catch {
+          // 损坏行跳过，不影响版本累计
+        }
+      }
+      return records
+    } catch (error) {
+      console.warn('[飞书 Bridge] 读取 draft-review-state 失败:', error)
+      return []
+    }
+  }
+
+  /** 追加一条 draft-review-state 记录 */
+  private appendDraftReviewState(workspaceSlug: string, record: DraftReviewStateRecord): void {
+    try {
+      const statePath = this.getDraftReviewStatePath(workspaceSlug)
+      mkdirSync(dirname(statePath), { recursive: true })
+      appendFileSync(statePath, JSON.stringify(record) + '\n', 'utf-8')
+    } catch (error) {
+      console.warn('[飞书 Bridge] 追加 draft-review-state 失败:', error)
+    }
+  }
+
+  /**
+   * 稿件全文存档（版本递增由 bridge 确定性完成，不再依赖 Agent 计算）
+   *
+   * 版本号按 (群, 达人) 在 draft-review-state.jsonl 中的最大版本 +1 递增；
+   * 全文写入 workspace-files/draft-archives/{达人名}/{达人名}_v{N}.md，
+   * 并在 jsonl 追加一条基础记录（审核字段待 Agent 审核后回填）。
+   * 入库前先与最新一版全文对比：内容一致 → 视为同版重发，不递增版本、不重复存档。
+   * 返回 { version, archivePath }；失败返回 null。
+   */
+  private archiveDraftReview(
+    workspaceSlug: string,
+    groupId: string,
+    influencer: string,
+    content: string,
+  ): { version: number; archivePath: string } | null {
+    try {
+      const records = this.readDraftReviewState(workspaceSlug)
+      const sameInfluencer = records.filter((r) => r.groupId === groupId && r.influencer === influencer)
+      const latest = sameInfluencer.reduce<DraftReviewStateRecord | null>(
+        (max, r) => (max === null || r.version > max.version ? r : max),
+        null,
+      )
+
+      const trimmed = content.trim()
+
+      // 内容对比：与最新一版全文一致 → 同版重发（如云文档链接重复粘贴/催审），不递增版本
+      if (latest?.archivePath && existsSync(latest.archivePath)) {
+        try {
+          const stored = readFileSync(latest.archivePath, 'utf-8')
+            .replace(/^# 稿件 v\d+[^\n]*\n\n/, '')
+            .trim()
+          if (stored === trimmed) {
+            console.log(`[飞书 Bridge] 稿件内容与第 ${latest.version} 版一致，视为同版重发，不新增版本`)
+            return { version: latest.version, archivePath: latest.archivePath }
+          }
+        } catch {
+          // 读档失败不影响正常递增流程
+        }
+      }
+
+      const version = (latest?.version ?? 0) + 1
+
+      const archiveDir = join(getWorkspaceFilesDir(workspaceSlug), 'draft-archives', influencer)
+      mkdirSync(archiveDir, { recursive: true })
+      const archivePath = join(archiveDir, `${influencer}_v${version}.md`)
+      writeFileSync(archivePath, `# 稿件 v${version} · ${influencer}\n\n${trimmed}\n`, 'utf-8')
+
+      this.appendDraftReviewState(workspaceSlug, {
+        groupId,
+        influencer,
+        version,
+        archivePath,
+        ts: Date.now(),
+      })
+      console.log(`[飞书 Bridge] 稿件已存档 ${archivePath} (第 ${version} 版, ${content.length} 字)`)
+      return { version, archivePath }
+    } catch (error) {
+      console.warn('[飞书 Bridge] 稿件存档失败:', error)
+      return null
+    }
+  }
+
+  /** 消息文本是否含稿件触发词（判定为待审核稿件） */
+  private isDraftTriggerText(text: string): boolean {
+    return /初稿|改稿|终稿|成片|发布预览|请查收|辛苦审核|审稿|稿件|审核一下|请审核|预览/i.test(text)
+  }
+
+  /** 提取达人名：优先【XX】，兜底用文档/文件名（去扩展名） */
+  private extractInfluencerName(userText: string, fallbackName: string): string {
+    let name = ''
+    const bracketMatch = userText.match(/【[^】]+】/)
+    if (bracketMatch) {
+      name = bracketMatch[0].replace(/[【】]/g, '').trim()
+    }
+    if (!name) {
+      name = fallbackName.replace(/\.(docx|doc|pdf|txt|md)$/i, '').trim() || '未命名'
+    }
+    return name.replace(/[/\\:*?"<>|]/g, '_').slice(0, 30) || '未命名'
+  }
+
+  /**
+   * 识别飞书发来的稿件（云文档 docx / 文件）并按版本号入库
+   *
+   * 依据消息文本中的稿件触发词（初稿/改稿/终稿/稿件等）判定这是待审核稿件；
+   * 达人名从消息文本提取（【XX】优先，兜底用文档/文件名）。
+   * 流程（全部由 bridge 确定性完成，Agent 不再计算版本号）：
+   * 1. 版本号按 (群, 达人) 在 draft-review-state.jsonl 中递增
+   * 2. 全文存档 draft-archives/{达人名}/{达人名}_v{N}.md + jsonl 记录
+   * 3. 稿件仓库 draft-review/{达人名}_v{N}.md（历史保留，Agent 读最新版省 token）
+   * 返回存入库的版本号；非稿件文档返回 null。
+   */
+  private saveDraftReview(
+    workspaceSlug: string,
+    groupId: string,
+    userText: string,
+    docName: string,
+    docContent: string,
+    force = false,
+  ): Promise<number | null> {
+    if (!force && !this.isDraftTriggerText(userText)) return Promise.resolve(null)
+    const safeName = this.extractInfluencerName(userText, docName)
+
+    try {
+      const archived = this.archiveDraftReview(workspaceSlug, groupId, safeName, docContent)
+      const version = archived?.version ?? 1
+
+      const draftDir = join(getWorkspaceFilesDir(workspaceSlug), 'draft-review')
+      mkdirSync(draftDir, { recursive: true })
+      const draftPath = join(draftDir, `${safeName}_v${version}.md`)
+      writeFileSync(draftPath, docContent, 'utf-8')
+      console.log(`[飞书 Bridge] 稿件已入库 ${draftPath} (第 ${version} 版, ${docContent.length} 字)`)
+      return Promise.resolve(version)
+    } catch (error) {
+      console.warn(`[飞书 Bridge] 稿件入库失败:`, error)
+      return Promise.resolve(null)
+    }
+  }
+
+  /**
+   * 群聊中所有文件/云文档消息（无论是否 @Bot）自动入库到会话区文件
+   *
+   * 落盘位置：
+   * - 该群已有绑定会话 → session 工作目录（与 @Bot 消息的附件保存一致）
+   * - 未绑定会话 → 默认工作区 workspace-files/feishu-inbox/{chatId}/ 归档，供后续会话访问
+   *
+   * 仅入库不触发 Agent，避免无关文件消耗 Token。
+   */
+  private async archiveGroupFile(
+    chatId: string,
+    messageId: string,
+    messageType: string,
+    content: string,
+  ): Promise<void> {
+    try {
+      // 选择目标工作区：绑定会话 > Bot 默认 > 应用设置 > 第一个工作区
+      const binding = this.chatBindings.get(chatId)
+      let workspaceId = binding?.workspaceId ?? this.botConfig.defaultWorkspaceId ?? getSettings().agentWorkspaceId
+      if (!workspaceId) {
+        const byTime = listAgentWorkspacesByUpdatedAt()
+        const def = byTime.find((w) => w.slug === 'default')
+        workspaceId = def?.id ?? byTime[0]?.id
+      }
+      if (!workspaceId) return
+      const workspace = getAgentWorkspace(workspaceId)
+      if (!workspace) return
+
+      if (messageType === 'file') {
+        const parsed = JSON.parse(content) as { file_key?: string; file_name?: string }
+        if (!parsed.file_key) return
+        const fileData = await this.downloadFeishuFile(messageId, parsed.file_key)
+        const fileName = parsed.file_name || `feishu-${parsed.file_key}`
+        let savedPath: string
+        if (binding) {
+          savedPath = saveFileToSessionShared(workspace.slug, binding.sessionId, fileName, fileData)
+        } else {
+          const inboxDir = join(getWorkspaceFilesDir(workspace.slug), 'feishu-inbox', chatId)
+          mkdirSync(inboxDir, { recursive: true })
+          savedPath = join(inboxDir, fileName.replace(/[/\\:*?"<>|]/g, '_'))
+          writeFileSync(savedPath, fileData)
+        }
+        console.log(`[飞书 Bridge] 群文件已自动入库: ${savedPath} (${fileData.length} bytes)`)
+        // 未 @Bot 的文件也要落盘到 workspace：
+        // ① 文件名含 brief → briefs/brief.md（跨会话 brief 匹配）
+        // ② 文件名含稿件特征 → 提取全文入 draft-review 稿件仓库（按达人名+版本）
+        await this.saveFeishuBriefIfNeeded(workspace.slug, fileName, savedPath)
+        if (isSupportedDocumentExtension(extname(fileName)) && /初稿|改稿|终稿|成片|预览|稿件/i.test(fileName)) {
+          try {
+            const docText = await extractTextFromFile(savedPath)
+            const influencer = this.extractInfluencerName(fileName, fileName)
+            await this.saveDraftReview(workspace.slug, chatId, fileName, influencer || fileName, docText, true)
+          } catch (error) {
+            console.warn(`[飞书 Bridge] 稿件文件入库失败 ${fileName}:`, error)
+          }
+        }
+      } else if (messageType === 'docx') {
+        // 云文档：读取正文保存为 Markdown
+        const parsed = JSON.parse(content) as { document_id?: string; doc_name?: string }
+        if (!parsed.document_id) return
+        const docContent = await this.fetchFeishuDocxContent(parsed.document_id)
+        if (!docContent) return
+        const fileName = `${(parsed.doc_name || '飞书云文档').replace(/[/\\:*?"<>|]/g, '_')}.md`
+        let savedPath: string
+        if (binding) {
+          savedPath = saveFileToSessionShared(
+            workspace.slug, binding.sessionId, fileName, Buffer.from(docContent, 'utf-8'),
+          )
+        } else {
+          const inboxDir = join(getWorkspaceFilesDir(workspace.slug), 'feishu-inbox', chatId)
+          mkdirSync(inboxDir, { recursive: true })
+          savedPath = join(inboxDir, fileName)
+          writeFileSync(savedPath, docContent, 'utf-8')
+        }
+        console.log(`[飞书 Bridge] 群云文档已自动入库: ${savedPath} (${docContent.length} 字)`)
+        // 未 @Bot 的云文档也要落盘到 workspace：
+        // ① 文件名含 brief → briefs/brief.md
+        // ② 主动分享云文档即视为稿件候选 → 无条件入 draft-review 稿件仓库
+        await this.saveBriefTextIfNeeded(workspace.slug, fileName, docContent)
+        const influencer = this.extractInfluencerName(fileName, fileName)
+        await this.saveDraftReview(workspace.slug, chatId, fileName, influencer || fileName, docContent, true)
+      }
+    } catch (error) {
+      console.warn('[飞书 Bridge] 群文件自动入库失败:', error)
+    }
+  }
+
   // ===== 飞书消息处理 =====
 
   private async handleFeishuMessage(data: Record<string, unknown>): Promise<void> {
@@ -492,9 +895,14 @@ class FeishuBridge {
       return
     }
 
-    // 群聊中仅处理 @Bot 的消息
+    // 群聊消息：非 @Bot 的文件/云文档消息仍然自动入库，但不触发 Agent
     if (chatType === 'group') {
-      if (!(await this.isBotMentioned(mentions))) {
+      const mentioned = await this.isBotMentioned(mentions)
+      if (!mentioned) {
+        // 群内所有文件（云文档/pdf/docx 等）无论是否 @Bot 都入库到会话区文件
+        if (messageType === 'file' || messageType === 'docx') {
+          await this.archiveGroupFile(chatId, messageId, messageType, message.content as string)
+        }
         return
       }
     }
@@ -507,11 +915,11 @@ class FeishuBridge {
     // 记录最近交互的 chatId 作为默认通知目标
     this.defaultNotifyChatId = chatId
 
-    // 仅处理文本、图片、富文本和文件消息
-    const supportedTypes = new Set(['text', 'image', 'post', 'file'])
+    // 仅处理文本、图片、富文本、文件和云文档消息
+    const supportedTypes = new Set(['text', 'image', 'post', 'file', 'docx'])
     if (!supportedTypes.has(messageType)) {
       console.log(`[飞书 Bridge] 不支持的消息类型: ${messageType}`)
-      await this.sendTextMessage(chatId, '目前仅支持文本、图片和文件消息。')
+      await this.sendTextMessage(chatId, '目前仅支持文本、图片、文件和云文档消息。')
       return
     }
 
@@ -519,6 +927,8 @@ class FeishuBridge {
     let text = ''
     const imageAttachments: FeishuImageAttachment[] = []
     const fileAttachments: FeishuFileAttachment[] = []
+    // 稿件云文档（docx）暂存：供 handleUserMessage 按版本号入库
+    let docxDraft: { name: string; content: string } | undefined
 
     if (messageType === 'text') {
       const content = JSON.parse(message.content as string) as { text?: string }
@@ -581,6 +991,33 @@ class FeishuBridge {
           await this.sendCardMessage(chatId, buildErrorCard('文件下载失败，请重试。'))
           return
         }
+      }
+    } else if (messageType === 'docx') {
+      // 云文档消息：尝试读取文档内容并作为文本注入，让 Agent 能读到文档正文
+      try {
+        const content = JSON.parse(message.content as string) as {
+          document_id?: string
+          doc_name?: string
+          url?: string
+        }
+        const documentId = content.document_id
+        const docName = content.doc_name || '飞书云文档'
+        if (documentId) {
+          const docContent = await this.fetchFeishuDocxContent(documentId)
+          if (docContent) {
+            text = `${text ? text + '\n' : ''}（群成员分享了云文档「${docName}」，以下是文档内容）\n\n${docContent}`
+            // 暂存稿件云文档信息，用于 handleUserMessage 中按版本号入库
+            docxDraft = { name: docName, content: docContent }
+            console.log(`[飞书 Bridge] 已读取云文档「${docName}」内容 (${docContent.length} 字)`)
+          } else {
+            await this.sendTextMessage(chatId, `已收到云文档「${docName}」，但无法读取文档内容（可能无读取权限）。`)
+            return
+          }
+        }
+      } catch (error) {
+        console.error('[飞书 Bridge] 解析云文档消息失败:', error)
+        await this.sendTextMessage(chatId, '云文档解析失败，请重试。')
+        return
       }
     }
 
@@ -652,10 +1089,251 @@ class FeishuBridge {
         return
       }
 
+      // 群角色名单指令（需 @Bot 触发）：名单：Account-徐旭雯、执行-青子
+      // 由 bridge 确定性解析存档，不经过 Agent，按群（chatId）隔离
+      if (chatType === 'group' && /^(名单|更新名单|设置名单)\s*[:：]/.test(text)) {
+        await this.handleRoleListCommand(msgCtx, text)
+        return
+      }
+
+      // 群审核口径指令（需 @Bot 触发）：口径：字数 200 字左右即可...
+      // 由 bridge 确定性存档并按群注入，审核时优先于 brief 旧措辞
+      if (chatType === 'group' && /^(口径|审核口径)\s*[:：]/.test(text)) {
+        await this.handleAuditStandardCommand(msgCtx, text)
+        return
+      }
+
       // 普通消息（文本/图片/文件）→ 转发到会话
-      await this.handleUserMessage(msgCtx, text, imageAttachments, fileAttachments)
+      await this.handleUserMessage(msgCtx, text, imageAttachments, fileAttachments, docxDraft)
     } finally {
       this.processingChats.delete(chatId)
+    }
+  }
+
+  // ===== 群角色名单（用户手动维护，按群隔离） =====
+
+  /**
+   * 处理群角色名单指令：名单：Account-徐旭雯、执行-青子
+   *
+   * 按群（chatId）持久化到 {configDir}/feishu-group-roles/{chatId}.json，
+   * 作为 Agent 红卡 @执行 / 黄卡·绿卡·审核失败 @Account 判定的最高优先依据。
+   * 名字需与群成员通讯录姓名精确匹配，匹配不到的名字 @ 会降级为文字点名，回执中单独提示。
+   */
+  private async handleRoleListCommand(msgCtx: FeishuMessageContext, text: string): Promise<void> {
+    const { chatId } = msgCtx
+    const payload = text.replace(/^(名单|更新名单|设置名单)\s*[:：]\s*/, '').trim()
+    if (!payload) {
+      await this.sendTextMessage(
+        chatId,
+        '名单格式：名单：Account-姓名1、执行-姓名2（Account- 我方关键人 → 黄卡/绿卡/审核失败 @；执行- 第三方执行方 → 红卡 @）',
+      )
+      return
+    }
+
+    const accountNames: string[] = []
+    const executorNames: string[] = []
+    const invalidEntries: string[] = []
+
+    // 1. 按显式分隔符（顿号/逗号/分号/换行）拆分条目；名字内允许空格（如英文全名 Dennis Zhang）
+    // 2. 每个条目再按前缀标记（Account-/执行-）前瞻切分，兼容"用空格分隔多条"的写法
+    const rawEntries = payload
+      .split(/[、,，;；\n]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    for (const raw of rawEntries) {
+      const segments = raw
+        .split(/(?=account\s*[:：-]|执行\s*[:：-])/i)
+        .map((s) => s.trim())
+        .filter(Boolean)
+      for (const segment of segments) {
+        const accountMatch = segment.match(/^account\s*[:：-]\s*(.+)$/i)
+        const executorMatch = segment.match(/^执行\s*[:：-]\s*(.+)$/)
+        if (accountMatch?.[1]) {
+          const name = accountMatch[1].trim()
+          if (name) accountNames.push(name)
+        } else if (executorMatch?.[1]) {
+          const name = executorMatch[1].trim()
+          if (name) executorNames.push(name)
+        } else {
+          invalidEntries.push(segment)
+        }
+      }
+    }
+
+    const list: GroupRoleList = {
+      accountNames: Array.from(new Set(accountNames)),
+      executorNames: Array.from(new Set(executorNames)),
+      updatedAt: Date.now(),
+    }
+    if (list.accountNames.length === 0 && list.executorNames.length === 0) {
+      await this.sendTextMessage(chatId, '未识别到有效名单，格式：名单：Account-姓名1、执行-姓名2')
+      return
+    }
+
+    await this.saveGroupRoleList(chatId, list)
+
+    // 校验名单名字能否匹配到群成员（@ 转换依赖 name↔openId 精确匹配）
+    const unmatched = this.findUnmatchedNames(chatId, [...list.accountNames, ...list.executorNames])
+
+    const replyParts: string[] = ['✅ 已录入本群名单：']
+    if (list.accountNames.length > 0) {
+      replyParts.push(`Account 成员 ${list.accountNames.length} 人（${list.accountNames.join('、')}）`)
+    }
+    if (list.executorNames.length > 0) {
+      replyParts.push(`执行成员 ${list.executorNames.length} 人（${list.executorNames.join('、')}）`)
+    }
+    if (invalidEntries.length > 0) {
+      replyParts.push(`未识别条目：${invalidEntries.join('、')}`)
+    }
+    if (unmatched.length > 0) {
+      // 附上本群成员姓名，方便用户对照真实名字（@ 转换与群成员 name 精确匹配）
+      const groupInfo = this.groupInfoCache.get(chatId)
+      const memberNames = (groupInfo?.members ?? [])
+        .filter((m) => m.openId !== this.botOpenId)
+        .map((m) => m.name)
+      const memberSample =
+        memberNames.length === 0
+          ? '（空，可能未拉取到群成员，请检查机器人是否有群成员读取权限）'
+          : memberNames.length > 10
+            ? `${memberNames.slice(0, 10).join('、')} 等 ${memberNames.length} 人`
+            : memberNames.join('、')
+      console.warn(
+        `[飞书 Bridge] 群角色名单未匹配（${chatId}）：${unmatched.join('、')}；群成员=[${memberNames.join(', ')}]`,
+      )
+      replyParts.push(`⚠️ 以下名字未匹配到群成员，@ 将降级为文字点名：${unmatched.join('、')}。本群成员名单：${memberSample}`)
+    }
+    await this.sendTextMessage(chatId, replyParts.join('；'))
+  }
+
+  /** 获取名单文件路径：{configDir}/feishu-group-roles/{chatId}.json */
+  private getGroupRoleListPath(chatId: string): string {
+    return join(getConfigDir(), 'feishu-group-roles', `${chatId}.json`)
+  }
+
+  /** 读取某群角色名单（带缓存，首次读盘） */
+  private getGroupRoleList(chatId: string): GroupRoleList | null {
+    const cached = this.groupRoleCache.get(chatId)
+    if (cached) return cached
+
+    try {
+      const path = this.getGroupRoleListPath(chatId)
+      if (!existsSync(path)) return null
+      const raw = JSON.parse(readFileSync(path, 'utf-8')) as GroupRoleList
+      this.groupRoleCache.set(chatId, raw)
+      return raw
+    } catch (error) {
+      console.warn(`[飞书 Bridge] 读取群角色名单失败（${chatId}）:`, error)
+      return null
+    }
+  }
+
+  /** 持久化群角色名单并更新缓存 */
+  private async saveGroupRoleList(chatId: string, list: GroupRoleList): Promise<void> {
+    try {
+      const dir = join(getConfigDir(), 'feishu-group-roles')
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true })
+      }
+      writeFileSync(this.getGroupRoleListPath(chatId), JSON.stringify(list, null, 2), 'utf-8')
+      this.groupRoleCache.set(chatId, list)
+      console.log(`[飞书 Bridge] 群角色名单已保存（${chatId}）: Account ${list.accountNames.length} 人，执行 ${list.executorNames.length} 人`)
+    } catch (error) {
+      console.error(`[飞书 Bridge] 保存群角色名单失败（${chatId}）:`, error)
+      await this.sendTextMessage(chatId, '名单保存失败，请稍后重试。')
+    }
+  }
+
+  /** 找出名单中未匹配到群成员通讯录姓名的名字（@ 会降级为文字点名） */
+  private findUnmatchedNames(chatId: string, names: string[]): string[] {
+    const groupInfo = this.groupInfoCache.get(chatId)
+    const memberNames = new Set((groupInfo?.members ?? []).map((m) => m.name))
+    return names.filter((n) => !memberNames.has(n))
+  }
+
+  // ===== 群审核口径（用户可维护，按群隔离） =====
+
+  /**
+   * 处理群审核口径指令：口径：字数 200 字左右即可...
+   *
+   * 按群（chatId）持久化到 {configDir}/feishu-audit-standards/{chatId}.json，
+   * 稿件审核消息转发时由 bridge 确定性注入 `[本群审核口径: ...]`，
+   * 作为审核判定最高优先依据（优先于 brief 旧措辞），不依赖 Agent 记忆 SKILL 规则。
+   */
+  private async handleAuditStandardCommand(msgCtx: FeishuMessageContext, text: string): Promise<void> {
+    const { chatId } = msgCtx
+    const content = text.replace(/^(口径|审核口径)\s*[:：]\s*/, '').trim()
+    if (!content) {
+      await this.sendTextMessage(
+        chatId,
+        '未识别到口径内容，格式：口径：字数 200 字左右即可，关键词埋点正文语义体现即达标…',
+      )
+      return
+    }
+    const standard: GroupAuditStandard = { content, updatedAt: Date.now() }
+    await this.saveAuditStandard(chatId, standard)
+    const preview = content.length > 60 ? `${content.slice(0, 60)}…` : content
+    await this.sendTextMessage(
+      chatId,
+      `✅ 已更新本群审核口径（${content.length} 字）：${preview}。审核时以此为准，优先于 brief 旧措辞。`,
+    )
+  }
+
+  /** 获取口径文件路径：{configDir}/feishu-audit-standards/{chatId}.json */
+  private getAuditStandardPath(chatId: string): string {
+    return join(getConfigDir(), 'feishu-audit-standards', `${chatId}.json`)
+  }
+
+  /** 读取某群审核口径（带缓存，首次读盘；未维护时返回默认口径） */
+  private getAuditStandard(chatId: string): GroupAuditStandard {
+    const cached = this.auditStandardCache.get(chatId)
+    if (cached) return cached
+
+    try {
+      const path = this.getAuditStandardPath(chatId)
+      if (existsSync(path)) {
+        const raw = JSON.parse(readFileSync(path, 'utf-8')) as GroupAuditStandard
+        this.auditStandardCache.set(chatId, raw)
+        return raw
+      }
+    } catch (error) {
+      console.warn(`[飞书 Bridge] 读取群审核口径失败（${chatId}）:`, error)
+    }
+    return { content: FeishuBridge.DEFAULT_AUDIT_STANDARD, updatedAt: 0 }
+  }
+
+  /** 持久化群审核口径并更新缓存 */
+  private async saveAuditStandard(chatId: string, standard: GroupAuditStandard): Promise<void> {
+    try {
+      const dir = join(getConfigDir(), 'feishu-audit-standards')
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true })
+      }
+      writeFileSync(this.getAuditStandardPath(chatId), JSON.stringify(standard, null, 2), 'utf-8')
+      this.auditStandardCache.set(chatId, standard)
+      console.log(`[飞书 Bridge] 群审核口径已保存（${chatId}）: ${standard.content.slice(0, 60)}...`)
+    } catch (error) {
+      console.error(`[飞书 Bridge] 保存群审核口径失败（${chatId}）:`, error)
+      await this.sendTextMessage(chatId, '审核口径保存失败，请稍后重试。')
+    }
+  }
+
+  /** 稿件审核特征检测：命中审核关键词或携带附件（文件/云文档/图片） */
+  private isDraftReviewMessage(text: string, hasAttachment: boolean): boolean {
+    if (hasAttachment) return true
+    return /初稿|改稿|终稿|成稿|成片|审稿|稿件|审一下|审核|预览|请查收|辛苦审核|发布预览|发布/.test(text)
+  }
+
+  /** 读取已落盘的单达人 brief（briefs/{达人名}.md），不存在返回 null */
+  private readInfluencerBrief(workspaceId: string, influencer: string): string | null {
+    try {
+      const workspace = getAgentWorkspace(workspaceId)
+      if (!workspace) return null
+      const briefPath = join(getWorkspaceFilesDir(workspace.slug), 'briefs', `${influencer}.md`)
+      if (!existsSync(briefPath)) return null
+      return readFileSync(briefPath, 'utf-8')
+    } catch (error) {
+      console.warn(`[飞书 Bridge] 读取达人 brief 失败（${influencer}）:`, error)
+      return null
     }
   }
 
@@ -1056,6 +1734,7 @@ class FeishuBridge {
     text: string,
     imageAttachments: FeishuImageAttachment[] = [],
     fileAttachments: FeishuFileAttachment[] = [],
+    docxDraft?: { name: string; content: string },
   ): Promise<void> {
     const { chatId } = msgCtx
     let binding = this.chatBindings.get(chatId)
@@ -1079,6 +1758,7 @@ class FeishuBridge {
     }
 
     // 保存飞书图片和文件到 session 工作目录，构建文件引用
+    // 文档类文件（PDF/word/txt 等）额外提取正文文本注入，让 Agent 无需额外工具即可读取文件内容
     const attachedRefs: string[] = []
     const workspace = binding.workspaceId ? getAgentWorkspace(binding.workspaceId) : undefined
     if (workspace) {
@@ -1093,7 +1773,40 @@ class FeishuBridge {
           workspace.slug, binding.sessionId, file.fileName, file.data,
         )
         attachedRefs.push(`- ${file.fileName}: ${savedPath}`)
+        // 文档类文件：提取文本注入，避免 Agent 只拿到路径却读不到内容
+        if (isSupportedDocumentExtension(extname(file.fileName))) {
+          try {
+            const docText = await extractTextFromFile(savedPath)
+            if (docText && docText.trim().length > 0) {
+              attachedRefs.push(`【抽取自 ${file.fileName}】\n${docText.slice(0, 12000)}`)
+            }
+          } catch (docErr) {
+            console.warn(`[飞书 Bridge] 提取文档 ${file.fileName} 文本失败:`, docErr)
+          }
+        }
+        // 稿件文件（docx/doc/pdf/txt/md）：消息含稿件触发词时，版本递增 + 全文存档由 bridge 确定性完成
+        if (workspace && this.isDraftTriggerText(text) && isSupportedDocumentExtension(extname(file.fileName))) {
+          try {
+            const docText = await extractTextFromFile(savedPath)
+            if (docText && docText.trim().length > 0) {
+              await this.saveDraftReview(workspace.slug, chatId, text, file.fileName, docText)
+            }
+          } catch (docErr) {
+            console.warn(`[飞书 Bridge] 稿件文件 ${file.fileName} 入库失败:`, docErr)
+          }
+        }
+        // brief 文档：自动入库到 workspace-files/briefs/brief.md，供后续审稿跨会话匹配
+        if (workspace) {
+          await this.saveFeishuBriefIfNeeded(workspace.slug, file.fileName, savedPath)
+        }
       }
+    }
+    // 稿件云文档（docx）：版本递增 + 全文存档由 bridge 确定性完成，历史版本全部保留，后续改版 agent 从库里读最新版，省 token
+    // 用户主动分享云文档到群即视为稿件候选，无条件入库（不再依赖消息文本含触发词）；
+    // 云文档 brief（文件名含 brief）自动入库 briefs/brief.md
+    if (workspace && docxDraft) {
+      await this.saveDraftReview(workspace.slug, chatId, text, docxDraft.name, docxDraft.content, true)
+      await this.saveBriefTextIfNeeded(workspace.slug, docxDraft.name, docxDraft.content)
     }
     const fileReferences = attachedRefs.length > 0
       ? `<attached_files>\n${attachedRefs.join('\n')}\n</attached_files>\n\n`
@@ -1104,6 +1817,7 @@ class FeishuBridge {
       text: '',
       toolSummaries: new Map(),
       startedAt: Date.now(),
+      hasPendingAskUser: false,
     })
 
     // 发送思考中指示
@@ -1138,6 +1852,44 @@ class FeishuBridge {
           contextParts.push('[提示: 如需 @某人，请直接使用 @姓名 格式，如 @Alice，系统会自动转换为飞书 @mention]')
         }
 
+        // 注入本群角色名单（用户手动维护，红卡 @执行 / 黄卡·绿卡·审核失败 @Account 判定的最高优先依据）
+        const roleList = this.getGroupRoleList(chatId)
+        if (roleList && (roleList.accountNames.length > 0 || roleList.executorNames.length > 0)) {
+          const roleParts: string[] = []
+          if (roleList.accountNames.length > 0) {
+            roleParts.push(`Account 成员：${roleList.accountNames.join('、')}`)
+          }
+          if (roleList.executorNames.length > 0) {
+            roleParts.push(`执行成员：${roleList.executorNames.join('、')}`)
+          }
+          contextParts.push(`[本群角色名单: ${roleParts.join('；')}]（审核时红卡 @执行成员、黄卡/绿卡/审核失败 @Account 成员，按此名单 @真实姓名）`)
+        }
+
+        // 注入本群审核口径 + 已落盘单达人 brief（仅稿件审核特征消息；由系统确定性注入，
+        // 不依赖 Agent 从 SKILL 记忆或主动读文件，审核判定最高优先依据）
+        if (this.isDraftReviewMessage(userText, hasAnyAttachment || !!docxDraft)) {
+          const standard = this.getAuditStandard(chatId)
+          contextParts.push(`[本群审核口径: ${standard.content}]（审核判定时本口径优先于 brief 旧措辞）`)
+          // 审核硬约束（与 ma-draft-review SKILL Step 6/格式细节一致，系统确定性注入避免 Agent 自由发挥）：
+          // 硬伤→红卡 @执行-返工；争议→黄卡 @Account-拍板；无硬伤→绿卡 @Account-放行；审核失败→@Account；不输出分数；
+          // 判定依据不写入回复（仅黄卡/绿卡"可优化"区块内允许写）；产品名词序/同义变体不得判红卡、不得列入红卡"必须修改"清单（归入黄/绿卡"可优化"）；黄卡/绿卡末尾"可优化（结合 brief 方向，非硬性）"区块必须对照 brief 方向逐一产出建议（每条含优化方向+判定依据，仅确实无方向性差距才"- 无建议"）
+          contextParts.push(
+            '[审核硬约束: 硬伤→红卡 @执行成员（提交人）给逐条返工意见；无硬伤但有争议→黄卡 @Account成员 拍板；无硬伤无争议→绿卡 @Account成员 确认放行；审核失败（稿件无法自动审核）→@Account成员 转人工；不输出分数；产品名词序/同义变体不得判红卡、不得列入红卡"必须修改"清单（归入黄/绿卡"可优化"）；判定依据不写入回复（仅黄卡/绿卡"可优化"区块内允许写判定依据）；黄卡/绿卡末尾必须输出"可优化（结合 brief 方向，非硬性）"区块并对照 brief 方向逐一产出建议——每条建议对照 brief 方向与稿件内容差距产出，含优化方向+判定依据，仅确实无方向性差距才输出"- 无建议"；必须按 ma-draft-review 三态模板格式输出]',
+          )
+
+          const docName = docxDraft?.name ?? fileAttachments[0]?.fileName ?? ''
+          const influencer = this.extractInfluencerName(userText, docName)
+          if (influencer) {
+            const brief = this.readInfluencerBrief(binding.workspaceId, influencer)
+            if (brief) {
+              const briefPreview = brief.length > 3000 ? `${brief.slice(0, 3000)}…（brief 过长已截断）` : brief
+              contextParts.push(
+                `[本群 brief（${influencer}）: ${briefPreview}]（审核时按此 brief 内容方向对照稿件，正文主体未承载 brief 核心逻辑即红卡）`,
+              )
+            }
+          }
+        }
+
         // 获取群聊历史消息作为上下文
         const chatHistory = await this.fetchChatHistory(chatId)
         const historyContext = this.formatChatHistoryContext(chatHistory)
@@ -1145,6 +1897,20 @@ class FeishuBridge {
         const parts: string[] = []
         if (contextParts.length > 0) parts.push(contextParts.join(' '))
         if (historyContext) parts.push(historyContext)
+
+        // 群聊场景输出格式硬约束：避免 Agent 把过程性说明、工具描述、思考过程性文字一股脑贴到群里
+        // 强制只输出最终结论，供运营/第三方可读的回复
+        parts.push(
+          '[群聊输出格式要求]\n' +
+          '1. 直接给出最终结论和执行结果，不要写过程性说明（如"我先去..."、"接下来我会..."、"让我看看..."、"好的收到"之类的启动语。\n' +
+          '2. 工具调用、读取文件、调用skill的动作本身属于内部步骤，不要写入最终回答。\n' +
+          '3. 引用数据或结论时，只说结果，不说分析过程或调用了什么工具。\n' +
+          '4. 如果需要向用户提出澄清，请把所有问题合并为一条，放在回复最前面。\n' +
+          '5. 禁止把原始 JSON、错误堆栈、后端错误体直接贴出，已有的友好中文提示直接用简短一句话说明原因和建议即可。\n' +
+          '6. 保持回复面向运营与第三方阅读，语气专业、简洁，避免冗长段落不超过 5 段，必要时使用要点列表。\n' +
+          '7. 禁止输出任何工作过程描述（如"让我查看""我正在读取""文件已定位""稿件已提取""正在处理""已确认""现在查找"等），即使这些是真实执行过的动作。所有中间步骤都只在内部完成，群内只输出最终结论；例如稿件审核任务只输出审核意见结果，不输出查找、比对、确认的过程。',
+        )
+
         if (fileReferences) parts.push(fileReferences.trimEnd())
         parts.push(userText)
         agentMessage = parts.join('\n')
@@ -1172,6 +1938,7 @@ class FeishuBridge {
         modelId,
         workspaceId: binding.workspaceId,
         permissionModeOverride: 'bypassPermissions',
+        isHeadless: true,
         ...(customMcpServers && { customMcpServers }),
       }
 
@@ -1256,6 +2023,155 @@ class FeishuBridge {
         this.sessionBuffers.delete(sessionId)
       }
     }
+
+    // 第 3 层加固：捕获 AskUser 请求事件
+    if (payload.kind === 'mapro_event' && payload.event.type === 'ask_user_request') {
+      const askUserBuffer = this.sessionBuffers.get(sessionId)
+      if (askUserBuffer) {
+        const request = payload.event.request
+        // 标记存在未应答的 AskUser
+        askUserBuffer.hasPendingAskUser = true
+        // 提取问题摘要（取第一个问题的 header + question 前 50 字）
+        if (request.questions && request.questions.length > 0) {
+          const firstQ = request.questions[0]
+          if (firstQ) {
+            const summary = firstQ.header ? `${firstQ.header}：${firstQ.question}` : firstQ.question
+            askUserBuffer.lastAskUserSummary = summary.slice(0, 50)
+          }
+        }
+        console.log(`[飞书 Bridge] AskUser 请求 [${sessionId}]:`, askUserBuffer.lastAskUserSummary)
+      }
+    }
+
+    // AskUser 已解决时清除标记
+    if (payload.kind === 'mapro_event' && payload.event.type === 'ask_user_resolved') {
+      const resolvedBuffer = this.sessionBuffers.get(sessionId)
+      if (resolvedBuffer) {
+        resolvedBuffer.hasPendingAskUser = false
+      }
+    }
+  }
+
+  /**
+   * 清洗 Agent 原始输出文本，去除过程性说明、工具解释、thinking 标签、追问段落等
+   * 确保最终发到飞书群的回复简洁专业，面向运营/第三方阅读
+   */
+  private sanitizeRemoteBotReply(text: string, buffer: SessionBuffer): string {
+    if (!text) return ''
+
+    let result = text
+
+    // 1. 去除 thinking 标签内容（包含 XML 声明）
+    const thinkingTagRegex = /(?:<\?xml[^>]*>)?<thinking>[\s\S]*?<\/thinking>/gi
+    result = result.replace(thinkingTagRegex, '')
+
+    // 2. 去除 thinking 分隔符块 (--- Thinking --- / === Thinking ===)
+    result = result.replace(/[-=]{3,}\s*Thinking\s*[-=]{3,}[\s\S]*?(?:[-=]{3,}|$)/gi, '')
+
+    // 3. 按行处理：过滤纯过程性单行
+    const lines = result.split('\n')
+    const filteredLines = lines.filter((line) => {
+      const trimmed = line.trim()
+      // 以常见启动语开头的短行
+      if (/^(?:好的|收到|明白|了解|没问题|OK|好的啊|好的呀|让我想想|让我看看|让我查一下|我来帮你).{0,30}$/i.test(trimmed)) {
+        return false
+      }
+      // JSON 错误残留块检测
+      if (/^\s*\{.*"error"/i.test(trimmed)) {
+        return false
+      }
+      // 过程性叙述行（让我查看/文件已定位/正在处理等）
+      if (this.isProcessualText(trimmed)) {
+        return false
+      }
+      return true
+    })
+    result = filteredLines.join('\n')
+
+    // 4. 按段落处理：过滤过程性段落和追问段落
+    const paragraphs = result.split(/\n\n+/)
+    const filteredParagraphs = paragraphs.filter((para) => {
+      const trimmed = para.trim()
+      if (!trimmed) return true // 保留空段落用于分隔
+
+      // 过滤包含追问关键词的段落（AskUser 未应答时 agent 留下的追问）
+      if (buffer.hasPendingAskUser) {
+        const hasQuestionPattern =
+          /(?:请问|请告诉我|我需要确认|请选择|请你提供|你能否告诉我|需要你回答|我需要你选择)/i.test(trimmed)
+        const hasShortQuestion = /^.{0,80}[\u4e00-\u9fa5]{0,20}[?？]$/im.test(trimmed)
+        if (hasQuestionPattern || (hasShortQuestion && trimmed.length < 150)) {
+          return false
+        }
+      }
+      // 过程性叙述段落（"让我查看""已确认关键信息""正在处理"等），仅保留结论性段落
+      if (this.isProcessualText(trimmed)) {
+        return false
+      }
+      return true
+    })
+    result = filteredParagraphs.join('\n\n')
+
+    // 5. 如果 AskUser 未应答，追加简短提示
+    if (buffer.hasPendingAskUser && buffer.lastAskUserSummary) {
+      result += `\n\n⚠️ 本次任务需要确认：${buffer.lastAskUserSummary}。请直接回复确认，我会继续处理。`
+    }
+
+    // 6. 合并多余空行
+    result = result.replace(/\n{3,}/g, '\n\n')
+
+    // 7. 去除首尾空白
+    result = result.trim()
+
+    // 8. 如果清洗后为空，给默认回复
+    if (!result) {
+      result = '任务已完成。'
+    }
+
+    return result
+  }
+
+  /**
+   * 判断文本是否为过程性叙述（思考/动作描述/状态汇报），而非最终结论
+   *
+   * 用于群聊输出清洗：Agent 在群里的回复应只包含最终结论（如审核意见），
+   * "让我查看…""文件已定位…""正在处理…""已确认关键信息…" 这类过程描述一律过滤。
+   * 行级与段落级过滤共用此判断。
+   */
+  private isProcessualText(text: string): boolean {
+    const trimmed = text.trim()
+    if (!trimmed) return false
+
+    // 1. 明确的结论标记（带冒号或"如下"等列举形式）强制保留
+    if (/(?:审核意见|审核结果|审核结论|修改意见|修改建议|总体评价|最终结论|评审结果|意见如下|建议如下|结论)[:：]|(?:意见|建议|结论)如下/i.test(trimmed)) {
+      return false
+    }
+
+    // 2. 第一人称/时序过程动词开头（"让我/我来/我现在/我已/正在/现在/接下来/首先/下一步"）
+    if (/^(?:让我|我来|我现在|我已在|我已|我正在|我准备|我将|我完成|我已经|现在|正在|接下来|首先|下一步|是的[，,、]?正在|好的[，,、]?正在)/i.test(trimmed)) {
+      return true
+    }
+
+    // 3. 状态汇报/动作描述（"文件已定位""稿件已提取""正在处理""现在查找"等）
+    if (/(?:已定位|已提取|已确认|已同步|已找到|已读取|已下载|已保存|已入库|已收到|已成功|正在处理|正在确认|正在查找|正在核对|正在分析|正在读取|现在查找|现在提取|现在确认|现在完成|快速核对|快速确认|核对一下|确认一下|检查一下|查看一下|定位到|提取到|找到文件|读取到|同步到)/i.test(trimmed)) {
+      return true
+    }
+
+    // 4. 以"让我"开头的完整叙述句
+    if (/^让我.{0,120}$/i.test(trimmed)) {
+      return true
+    }
+
+    // 5. 文件操作异常/失败汇报
+    if (/(?:无法直接提取|提取异常|读取失败|下载失败|解析失败|找不到|未找到|无法读取|暂时无法|没有权限|权限不足|需要权限)/i.test(trimmed)) {
+      return true
+    }
+
+    // 6. 过程性清单项（上传文件/保存位置等）
+    if (/^(?:上传文件|文件路径|保存位置|存放位置|落盘位置|同步到)[:：]/i.test(trimmed)) {
+      return true
+    }
+
+    return false
   }
 
   /** 飞书发起的会话完成：发送完整回复到飞书 */
@@ -1263,10 +2179,13 @@ class FeishuBridge {
     const buffer = this.sessionBuffers.get(sessionId)
     if (!buffer) return
 
+    // 第 2 层加固：清洗 Agent 原始输出，去除过程性说明和追问段落
+    const cleanedText = this.sanitizeRemoteBotReply(buffer.text, buffer)
+
     const duration = (Date.now() - buffer.startedAt) / 1000
     const toolSummaries = Array.from(buffer.toolSummaries.values())
     const result: FormattedAgentResult = {
-      text: buffer.text,
+      text: cleanedText,
       toolSummaries,
       duration,
     }
@@ -1467,6 +2386,8 @@ class FeishuBridge {
   private async getGroupInfo(chatId: string): Promise<FeishuGroupInfo | null> {
     const cached = this.groupInfoCache.get(chatId)
     if (cached && Date.now() - cached.cachedAt < FeishuBridge.GROUP_CACHE_TTL) {
+      // 缓存命中：仍调度一次群昵称抓取（带冷却），便于验证与失败重试
+      this.scheduleNicknameRefresh(chatId)
       return cached
     }
 
@@ -1488,11 +2409,27 @@ class FeishuBridge {
         this.userNameCache.set(m.openId, m.name)
       }
 
+      // 异步补充群昵称（CDP 抓取飞书网页版，群昵称优先覆盖通讯录姓名，失败静默回退）
+      this.scheduleNicknameRefresh(chatId)
+
       return info
     } catch (error) {
       console.warn('[飞书 Bridge] 获取群聊信息失败:', error)
       return null
     }
+  }
+
+  /**
+   * 调度群昵称抓取：带 in-flight 守卫与 1 分钟冷却，成功/失败都记录尝试时间。
+   */
+  private scheduleNicknameRefresh(chatId: string): void {
+    if (this.nicknameFetchesInFlight.has(chatId)) return
+    const last = this.lastNicknameFetchAt.get(chatId)
+    if (last !== undefined && Date.now() - last < FeishuBridge.NICKNAME_FETCH_COOLDOWN_MS) return
+    this.lastNicknameFetchAt.set(chatId, Date.now())
+    this.refreshGroupNicknames(chatId).catch((error) => {
+      console.warn('[飞书 Bridge] 群昵称抓取异常:', error)
+    })
   }
 
   /**
@@ -1513,6 +2450,62 @@ class FeishuBridge {
     } catch (error) {
       console.warn('[飞书 Bridge] 获取群成员列表失败:', error)
       return []
+    }
+  }
+
+  /**
+   * 通过 CDP 连接已登录飞书网页版的 Chrome，抓取群成员群昵称并覆盖缓存
+   *
+   * OpenAPI 只能拿到通讯录姓名（不带 Account-/执行- 前缀），前缀识别依赖群昵称，
+   * 因此这里以 CDP 抓取结果优先覆盖 groupInfoCache 与 userNameCache。
+   * 未配置 CDP 端口或抓取失败时静默回退到 API 通讯录姓名。
+   */
+  private async refreshGroupNicknames(chatId: string): Promise<void> {
+    if (this.nicknameFetchesInFlight.has(chatId)) return
+    const info = this.groupInfoCache.get(chatId)
+    if (!info || !info.members || info.members.length === 0) return
+    const apiMembers = info.members
+
+    // CDP 端口复用「网页爬取」工具设置
+    const credentials = getToolCredentials('web-scraper')
+    const port =
+      typeof credentials.chromeRemoteDebuggingPort === 'string'
+        ? credentials.chromeRemoteDebuggingPort.trim()
+        : ''
+    if (!port) return
+
+    this.nicknameFetchesInFlight.add(chatId)
+    try {
+      const result = await executeGroupNicknameFetchTask(
+        {
+          chatId,
+          groupName: info.name,
+          apiMembers: apiMembers.map((m) => ({ openId: m.openId, name: m.name })),
+        },
+        { chromeRemoteDebuggingPort: port, timeoutMs: 90_000 },
+      )
+
+      if (result.success && result.members.length > 0) {
+        const nicknameMap = new Map(result.members.map((m) => [m.openId, m.name]))
+        const mergedMembers = apiMembers.map((m) =>
+          nicknameMap.has(m.openId) ? { ...m, name: nicknameMap.get(m.openId)! } : m,
+        )
+        this.groupInfoCache.set(chatId, {
+          ...info,
+          members: mergedMembers,
+          cachedAt: Date.now(),
+        })
+        for (const m of mergedMembers) {
+          this.userNameCache.set(m.openId, m.name)
+        }
+        console.log(`[飞书 Bridge] 群昵称抓取完成（${chatId}）：覆盖 ${result.members.length} 人（${result.summary}）`)
+      } else if (result.error) {
+        console.warn(`[飞书 Bridge] 群昵称抓取失败（${chatId}）：${result.error}`)
+      }
+    } catch (error) {
+      console.warn('[飞书 Bridge] 群昵称抓取异常:', error)
+    } finally {
+      this.nicknameFetchesInFlight.delete(chatId)
     }
   }
 

@@ -615,6 +615,7 @@ export class BridgeCommandHandler {
       modelId,
       workspaceId: binding.workspaceId,
       permissionModeOverride: 'bypassPermissions' as const,
+      isHeadless: true,
     }
 
     runAgentHeadless(input, {

@@ -1314,6 +1314,333 @@ export async function executeBrowserFetchTask(
   }
 }
 
+// ===== 飞书群昵称抓取（CDP 连接已登录飞书网页版的 Chrome） =====
+
+/**
+ * 群昵称抓取任务输入
+ *
+ * 通过 CDP 连接已登录飞书网页版的 Chrome，打开目标群聊并抓取成员群昵称，
+ * 用于覆盖 OpenAPI 只能拿到的通讯录姓名（前缀识别依赖群昵称）。
+ */
+export interface GroupNicknameFetchTaskInput {
+  /** 目标群 chatId */
+  chatId: string
+  /** 群名称（用于 messenger 搜索兜底打开群聊） */
+  groupName?: string
+  /** 飞书 Web 宿主，如 https://xxx.feishu.cn（可选，脚本会从已打开页面自动推断） */
+  feishuWebUrl?: string
+  /** OpenAPI 获取的群成员列表（openId + 通讯录姓名），用于与页面显示名匹配 */
+  apiMembers: { openId: string; name: string }[]
+}
+
+export interface GroupNicknameFetchTaskResult {
+  success: boolean
+  summary: string
+  taskDir: string
+  /** 抓取到的群昵称（openId → 群昵称） */
+  members: { openId: string; name: string }[]
+  /** 网络捕获到的成员 API 响应条数（调试用） */
+  capturedCount: number
+  /** DOM 文本匹配到的成员数（调试用） */
+  domMatchedCount: number
+  error?: string
+}
+
+export const GROUP_NICKNAME_SCRIPT = `import json
+import os
+import re
+import sys
+
+from playwright.sync_api import sync_playwright
+
+CHAT_ID = os.environ['CHAT_ID']
+HOST = os.environ.get('FEISHU_WEB_URL', '').strip().rstrip('/')
+GROUP_NAME = os.environ.get('GROUP_NAME', '') or ''
+API_MEMBERS_FILE = os.environ['API_MEMBERS_FILE']
+RESULT_FILE = os.environ['RESULT_FILE']
+SCREENSHOT_FILE = os.environ['SCREENSHOT_FILE']
+PORT = os.environ.get('CHROME_REMOTE_DEBUGGING_PORT', '').strip()
+MAX_SCROLLS = int(os.environ.get('MAX_SCROLLS', '6') or '6')
+SCROLL_DELAY_MS = int(os.environ.get('SCROLL_DELAY_MS', '1500') or '1500')
+
+if not PORT:
+    raise SystemExit('缺少 CHROME_REMOTE_DEBUGGING_PORT：本任务必须通过 CDP 连接已登录飞书网页版的 Chrome')
+
+with open(API_MEMBERS_FILE, 'r', encoding='utf-8') as f:
+    api_members = json.load(f)
+
+# 通讯录姓名 → openId（用于与页面显示名做前缀匹配）
+contact_to_id = {}
+for m in api_members:
+    name = (m.get('name') or '').strip()
+    if name and name not in contact_to_id:
+        contact_to_id[name] = m.get('openId', '')
+
+
+def extract_members(data):
+    """递归提取 JSON 中带 open_id + name 的成员对象（内部 API 响应结构启发式）"""
+    found = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            oid = node.get('open_id') or node.get('member_id') or node.get('openId') or node.get('memberId') or node.get('id')
+            name = node.get('name') or node.get('nickname') or node.get('display_name')
+            if isinstance(oid, str) and oid.startswith('ou_') and isinstance(name, str) and name.strip():
+                found.append({'open_id': oid, 'name': name.strip()})
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(data)
+    return found
+
+
+playwright = None
+browser = None
+context = None
+page = None
+captured_members = []
+captured_urls = []
+
+
+def on_response(response):
+    url = response.url or ''
+    if 'feishu.cn' not in url and 'larksuite.com' not in url:
+        return
+    if 'member' not in url.lower() and '/im/' not in url.lower():
+        return
+    try:
+        data = json.loads(response.body())
+    except Exception:
+        return
+    hits = extract_members(data)
+    if hits:
+        captured_urls.append(url)
+        for h in hits:
+            captured_members.append(h)
+
+
+try:
+    playwright = sync_playwright().start()
+    browser = playwright.chromium.connect_over_cdp('http://127.0.0.1:' + PORT)
+    if not browser.contexts:
+        raise RuntimeError('CDP 浏览器没有可用上下文，请确认 Chrome 已启动且登录飞书网页版')
+    context = browser.contexts[0]
+    page = context.new_page()
+    page.on('response', on_response)
+
+    # 确定飞书 Web 宿主：优先显式传入，其次从已打开页面推断
+    host = HOST
+    if not host:
+        for p in context.pages:
+            match = re.match(r'(https://[a-z0-9.-]+\\.(?:feishu\\.cn|larksuite\\.com))', p.url or '')
+            if match:
+                host = match.group(1)
+                break
+    if not host:
+        raise RuntimeError('无法确定飞书 Web 宿主：请传入 FEISHU_WEB_URL，或先在 Chrome 中打开飞书网页版')
+
+    def page_has_chat():
+        try:
+            if not page:
+                return False
+            if CHAT_ID in page.url:
+                return True
+            body_text = page.inner_text('body')
+            return any(cname and cname in body_text for cname in contact_to_id)
+        except Exception:
+            return False
+
+    # 候选一：直接打开群聊 URL（多种路由格式）
+    chat_opened = False
+    for prefix in ('/messenger/card', '/message/chat', '/messenger/chat', '/space/im/chat'):
+        url = host + prefix + '/' + CHAT_ID
+        try:
+            page.goto(url, wait_until='domcontentloaded', timeout=20000)
+            page.wait_for_timeout(3000)
+            if page_has_chat():
+                chat_opened = True
+                break
+        except Exception as e:
+            print('[group-nickname] 打开候选 URL 失败 ' + url + ': ' + str(e), file=sys.stderr)
+
+    # 候选二：messenger 搜索群名兜底
+    if not chat_opened and GROUP_NAME:
+        try:
+            page.goto(host + '/messenger/', wait_until='domcontentloaded', timeout=20000)
+            page.wait_for_timeout(3000)
+            try:
+                search = page.locator(
+                    'input[placeholder*="搜索"], input[placeholder*="Search"], [class*="search"] input'
+                ).first
+                search.wait_for(state='visible', timeout=8000)
+                search.click()
+                search.fill(GROUP_NAME)
+            except Exception:
+                page.keyboard.press('Meta+K')
+                page.wait_for_timeout(1000)
+                page.keyboard.type(GROUP_NAME)
+            page.wait_for_timeout(2500)
+            page.get_by_text(GROUP_NAME, exact=False).first.click(timeout=6000)
+            page.wait_for_timeout(3000)
+            chat_opened = page_has_chat()
+        except Exception as e:
+            print('[group-nickname] messenger 搜索兜底失败: ' + str(e), file=sys.stderr)
+
+    if not chat_opened:
+        raise RuntimeError('未能打开目标群聊：请确认网页版已登录且该群对当前账号可见')
+
+    # 向上滚动消息区，加载更多历史消息
+    try:
+        page.mouse.move(640, 400)
+        for _ in range(MAX_SCROLLS):
+            page.mouse.wheel(0, -3000)
+            page.wait_for_timeout(SCROLL_DELAY_MS)
+    except Exception as e:
+        print('[group-nickname] 滚动消息失败: ' + str(e), file=sys.stderr)
+
+    # 收集页面上的短文本节点（消息发送者显示名候选）
+    raw_texts = page.evaluate('''(() => {
+        const set = new Set();
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+            const t = (walker.currentNode.textContent || '').trim();
+            if (!t || t.length > 30) continue;
+            const code = t.charCodeAt(0);
+            if (code >= 48 && code <= 57) continue;
+            set.add(t);
+        }
+        return Array.from(set);
+    })()''')
+
+    # 匹配：显示名等于通讯录姓名，或以其结尾（前缀-姓名 命名约定）
+    matched = {}
+    for cname, oid in contact_to_id.items():
+        hits = [t for t in raw_texts if t == cname or t.endswith(cname)]
+        if hits:
+            exact = [t for t in hits if t == cname]
+            matched[oid] = (exact or sorted(hits, key=len))[0]
+
+    # 网络捕获优先于 DOM 匹配
+    merged = {}
+    for cm in captured_members:
+        merged.setdefault(cm['open_id'], cm['name'])
+    for oid, name in matched.items():
+        merged.setdefault(oid, name)
+
+    result = {
+        'members': [{'openId': oid, 'name': name} for oid, name in merged.items()],
+        'capturedUrls': captured_urls,
+        'capturedCount': len(captured_members),
+        'domMatchedCount': len(matched),
+        'groupName': GROUP_NAME,
+    }
+    with open(RESULT_FILE, 'w', encoding='utf-8') as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+
+    try:
+        raw = page.screenshot(type='png')
+        with open(SCREENSHOT_FILE, 'wb') as f:
+            f.write(raw)
+    except Exception:
+        pass
+
+    print('[group-nickname] 完成：网络捕获 ' + str(len(captured_members)) + ' 人，DOM 匹配 ' + str(len(matched)) + ' 人', flush=True)
+except Exception as e:
+    print('[group-nickname] 失败: ' + str(e), file=sys.stderr)
+    sys.exit(1)
+finally:
+    try:
+        if page:
+            page.close()
+    except Exception:
+        pass
+    page = None
+    # CDP 复用外部 Chrome：不关闭用户浏览器
+    context = None
+    browser = None
+    try:
+        if playwright:
+            playwright.stop()
+    except Exception:
+        pass
+    playwright = None
+`
+
+/**
+ * 执行群昵称抓取任务
+ *
+ * 通过 CDP 连接已登录飞书网页版的 Chrome，打开目标群聊抓取成员群昵称。
+ * 必须配置 CDP 端口（网页爬取设置中的 chromeRemoteDebuggingPort）。
+ */
+export async function executeGroupNicknameFetchTask(
+  input: GroupNicknameFetchTaskInput,
+  options: { chromeRemoteDebuggingPort?: string; timeoutMs?: number } = {},
+): Promise<GroupNicknameFetchTaskResult> {
+  const taskDir = createBrowserFetchTaskDir()
+  const timeoutMs = options.timeoutMs ?? 120_000
+  const emptyResult = (error: string): GroupNicknameFetchTaskResult => ({
+    success: false,
+    summary: '',
+    taskDir,
+    members: [],
+    capturedCount: 0,
+    domMatchedCount: 0,
+    error,
+  })
+
+  try {
+    if (!options.chromeRemoteDebuggingPort) {
+      return emptyResult('缺少 CDP 端口（网页爬取设置中的 chromeRemoteDebuggingPort）')
+    }
+    if (input.apiMembers.length === 0) {
+      return emptyResult('缺少 API 群成员列表')
+    }
+
+    const apiMembersPath = join(taskDir, 'api-members.json')
+    writeFileSync(apiMembersPath, JSON.stringify(input.apiMembers), 'utf-8')
+    const scriptPath = join(taskDir, 'script.py')
+    writeFileSync(scriptPath, GROUP_NICKNAME_SCRIPT, 'utf-8')
+
+    const resultPath = join(taskDir, 'result.json')
+    const screenshotPath = join(taskDir, 'screenshot.png')
+
+    const env: Record<string, string> = {
+      CHAT_ID: input.chatId,
+      FEISHU_WEB_URL: input.feishuWebUrl ?? '',
+      GROUP_NAME: input.groupName ?? '',
+      API_MEMBERS_FILE: apiMembersPath,
+      RESULT_FILE: resultPath,
+      SCREENSHOT_FILE: screenshotPath,
+      CHROME_REMOTE_DEBUGGING_PORT: options.chromeRemoteDebuggingPort,
+    }
+
+    const runResult = await runPythonScript(scriptPath, taskDir, env, timeoutMs)
+    if (!runResult.success || !existsSync(resultPath)) {
+      return emptyResult(runResult.error ?? (runResult.stderr || '未生成结果文件'))
+    }
+
+    const parsed = JSON.parse(readFileSync(resultPath, 'utf-8')) as {
+      members?: { openId: string; name: string }[]
+      capturedCount?: number
+      domMatchedCount?: number
+    }
+    const members = Array.isArray(parsed.members) ? parsed.members : []
+    const capturedCount = Number(parsed.capturedCount ?? 0)
+    const domMatchedCount = Number(parsed.domMatchedCount ?? 0)
+    const summary =
+      members.length > 0
+        ? `群昵称抓取完成：共 ${members.length} 人（网络捕获 ${capturedCount}，DOM 匹配 ${domMatchedCount}）`
+        : `群昵称抓取未匹配到成员（网络捕获 ${capturedCount}，DOM 匹配 ${domMatchedCount}），保持 API 通讯录姓名`
+
+    return { success: true, summary, taskDir, members, capturedCount, domMatchedCount }
+  } catch (error) {
+    return emptyResult(error instanceof Error ? error.message : String(error))
+  }
+}
+
 /**
  * 清理指定任务目录
  */

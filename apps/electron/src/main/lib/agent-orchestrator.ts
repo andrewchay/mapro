@@ -166,10 +166,11 @@ function isAutoRetryableCatchError(
   if (rawErrorMessage) {
     if (rawErrorMessage.includes('context_management')) return true
   }
-  // 兜底：extractApiError 未识别但 stderr / 错误文本中包含 502 / 529 或 overloaded 关键字时也视为可重试
-  // 502 (Bad Gateway) 通常是上游网关瞬时异常，与 529 一样很快自行恢复
+  // 兜底：extractApiError 未识别但 stderr / 错误文本中包含已知瞬时 HTTP 状态码或过载关键字时也视为可重试
+  // 502 (Bad Gateway) / 504 (Gateway Timeout) / 520 / 522 / 524 (Cloudflare 层级的超时/源站异常)
+  // 529 (Anthropic overloaded) 通常很快自行恢复；503 service_unavailable_error / Service is too busy 为服务商并发上限
   const text = `${rawErrorMessage ?? ''}\n${stderr ?? ''}`
-  if (/\b502\b|\b529\b|overloaded/i.test(text)) return true
+  if (/\b502\b|\b503\b|\b504\b|\b520\b|\b522\b|\b524\b|\b529\b|overloaded|service_unavailable_error|Service is too busy|rate.?limit|429/i.test(text)) return true
   // 瞬时网络错误（terminated / ECONNRESET / socket hang up 等）
   if (isTransientNetworkError(rawErrorMessage, stderr)) return true
   return false
@@ -547,8 +548,9 @@ export class AgentOrchestrator {
     startedAt?: number
     permissionMode?: MAProPermissionMode
     attachments?: FileAttachment[]
+    isHeadless?: boolean
   }): Promise<void> {
-    const { sessionId, agentRuntime =  'proma', channelId, workspaceId, userMessage, modelId, provider, adapterProvider, apiKey, baseUrl, callbacks, startedAt, permissionMode, attachments } = options
+    const { sessionId, agentRuntime =  'proma', channelId, workspaceId, userMessage, modelId, provider, adapterProvider, apiKey, baseUrl, callbacks, startedAt, permissionMode, attachments, isHeadless } = options
     let userMessageUuid = ''
 
     // 轮次级看门狗：防止上游“活着但永不完成”（持续心跳/慢思考/长时间不发有效数据）导致轮次无限挂起、
@@ -596,7 +598,7 @@ export class AgentOrchestrator {
         (request: PermissionRequest) => {
           runtimeServices.events.emit(sessionId, { kind: 'mapro_event', event: { type: 'permission_request', request } } as AgentStreamPayload)
         },
-        (sid, toolInput, signal, sendAskUser) => askUserService.handleAskUserQuestion(sid, toolInput, signal, sendAskUser),
+        (sid, toolInput, signal, sendAskUser) => askUserService.handleAskUserQuestion(sid, toolInput, signal, sendAskUser, isHeadless),
         (request: AskUserRequest) => {
           runtimeServices.events.emit(sessionId, { kind: 'mapro_event', event: { type: 'ask_user_request', request } } as AgentStreamPayload)
         },
@@ -672,6 +674,7 @@ export class AgentOrchestrator {
             (request: AskUserRequest) => {
               runtimeServices.events.emit(sessionId, { kind: 'mapro_event', event: { type: 'ask_user_request', request } } as AgentStreamPayload)
             },
+            isHeadless,
           )
           if (result.behavior === 'deny') {
             return { behavior: 'deny', message: result.message }
@@ -1428,8 +1431,11 @@ export class AgentOrchestrator {
    * 通过 EventBus 分发 AgentEvent，通过 callbacks 发送控制信号。
    */
   async sendMessage(input: AgentSendInput, callbacks: SessionCallbacks): Promise<void> {
-    const { sessionId, userMessage, channelId, modelId, agentRuntime, workspaceId, additionalDirectories, customMcpServers, permissionModeOverride, mentionedSkills, mentionedMcpServers, mentionedSessionIds, attachments } = input
+    const { sessionId, userMessage, channelId, modelId, agentRuntime, workspaceId, additionalDirectories, customMcpServers, permissionModeOverride, mentionedSkills, mentionedMcpServers, mentionedSessionIds, attachments, isHeadless: inputIsHeadless } = input
     const stderrChunks: string[] = []
+    // 外部覆盖权限模式 + 显式 isHeadless 标记（如飞书 bot 无 UI 场景）视为 headless：
+    // AskUser 无人应答时走超时自动 deny。桌面端即使选 bypassPermissions 也不算 headless。
+    const isHeadless = inputIsHeadless ?? false
 
     // 0. 并发保护
     if (this.activeSessions.has(sessionId)) {
@@ -1712,6 +1718,7 @@ export class AgentOrchestrator {
         startedAt: input.startedAt,
         permissionMode: initialPermissionMode,
         attachments,
+        isHeadless,
       })
       return
     }
@@ -1943,7 +1950,7 @@ export class AgentOrchestrator {
         (request: PermissionRequest) => {
           this.eventBus.emit(sessionId, { kind: 'mapro_event', event: { type: 'permission_request', request } })
         },
-        (sid, toolInput, signal, sendAskUser) => askUserService.handleAskUserQuestion(sid, toolInput, signal, sendAskUser),
+        (sid, toolInput, signal, sendAskUser) => askUserService.handleAskUserQuestion(sid, toolInput, signal, sendAskUser, isHeadless),
         (request: AskUserRequest) => {
           this.eventBus.emit(sessionId, { kind: 'mapro_event', event: { type: 'ask_user_request', request } })
         },
@@ -2036,6 +2043,7 @@ export class AgentOrchestrator {
             (request: AskUserRequest) => {
               this.eventBus.emit(sessionId, { kind: 'mapro_event', event: { type: 'ask_user_request', request } })
             },
+            isHeadless,
           )
         }
 
