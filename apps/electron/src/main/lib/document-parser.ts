@@ -11,7 +11,22 @@
 
 import { readFileSync } from 'node:fs'
 import { extname } from 'node:path'
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import { resolveAttachmentPath } from './config-paths'
+
+/**
+ * 按真实文件路径 require（非 esbuild bundle 内联）加载 CommonJS 库
+ *
+ * pdf-parse 通过 `!module.parent` 判断是否进入 isDebugMode 测试分支（读取
+ * ./test/data 下样本 PDF）。若被 esbuild 打进 main.cjs，内联模块无 parent 会
+ * 触发该分支导致每次解析都报 ENOENT；改用 createRequire 从模块所在目录按
+ * node_modules 解析，运行时 module.parent 存在 → 不触发测试分支。
+ * 兼容 ESM / CJS：ESM 中 __filename 为 undefined，使用 import.meta.url。
+ */
+const requireFromCwd = createRequire(
+  typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url),
+)
 
 // ===== 文件类型分类 =====
 
@@ -98,9 +113,15 @@ export async function extractTextFromFile(filePath: string): Promise<string> {
 
 /**
  * 提取 PDF 文本
+ *
+ * 用 require 方式加载 pdf-parse（见 requireFromCwd 注释），避免 esbuild bundle
+ * 后 isDebugMode 测试分支导致的 ENOENT。
  */
 async function extractPdf(filePath: string): Promise<string> {
-  const pdfParse = (await import('pdf-parse')).default
+  const pdfParse = requireFromCwd('pdf-parse') as (buffer: Buffer) => Promise<{
+    numpages: number
+    text: string
+  }>
   const buffer = readFileSync(filePath)
   const result = await pdfParse(buffer)
   console.log(`[文档解析] PDF 提取完成: ${result.numpages} 页, ${result.text.length} 字符`)

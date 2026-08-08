@@ -294,6 +294,17 @@ export class ProviderAgnosticAgentAdapter implements AgentProviderAdapter {
 
         // 构建 assistant 消息的内容块
         const assistantContentBlocks: SDKContentBlock[] = []
+        // 思考块注入（放在 text 之前，渲染层按序显示）。
+        // 飞书群聊侧 buffer 只累积 text 块，thinking 不会泄漏到群聊回复。
+        if (currentThinkingBlocks.length > 0) {
+          for (const tb of currentThinkingBlocks) {
+            if (tb.thinking && tb.thinking.trim()) {
+              assistantContentBlocks.push({ type: 'thinking', thinking: tb.thinking })
+            }
+          }
+        } else if (currentReasoning && currentReasoning.trim()) {
+          assistantContentBlocks.push({ type: 'thinking', thinking: currentReasoning })
+        }
         if (currentContent) {
           assistantContentBlocks.push({ type: 'text', text: currentContent })
         }
@@ -611,6 +622,7 @@ export class ProviderAgnosticAgentAdapter implements AgentProviderAdapter {
     const results: ToolResult[] = []
 
     for (const tc of toolCalls) {
+      try {
       // EnterPlanMode：标记进入 Plan 模式并通知 UI
       if (tc.name === ENTER_PLAN_MODE_TOOL_NAME) {
         ctx.onEnterPlanMode?.()
@@ -710,6 +722,17 @@ export class ProviderAgnosticAgentAdapter implements AgentProviderAdapter {
         results.push({
           toolCallId: tc.id,
           content: `工具执行失败: ${message}`,
+          isError: true,
+        })
+      }
+      } catch (error) {
+        // 外层兜底：任何一步被中断/抛错（如 abort、AskUser/ExitPlan 回调异常）
+        // 都补齐错误结果，确保 assistant tool_calls 与 tool 结果一一对应，
+        // 避免下游 OpenAI 端点因"tool_call 无对应结果"返回 400。
+        const message = error instanceof Error ? error.message : String(error)
+        results.push({
+          toolCallId: tc.id,
+          content: `工具调用被中断或执行失败: ${message}`,
           isError: true,
         })
       }
