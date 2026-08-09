@@ -96,12 +96,11 @@ export class CampaignArtifactValidator {
       missing.push(`${dirName}/ 总字数 ${scan.totalChars} 低于最低要求 ${minLength} 字`)
     }
 
-    // 8. 检查语义锚点
+    // 8. 检查语义锚点（软校验：缺失仅作质量提醒，不进入 missing，不判定产物失败）
     const requirements = step?.artifactRequirements ?? []
     for (const req of requirements) {
       if (!this.checkRequirement(scan.combinedContent, req)) {
         unmetRequirements.push(req)
-        missing.push(`缺少语义锚点: ${req.name}（可匹配: ${req.aliases.join(' / ')}）`)
       }
     }
 

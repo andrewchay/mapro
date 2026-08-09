@@ -26,6 +26,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { getAgentWorkspacePath } from './config-paths'
+import { listAgentWorkspaces } from './agent-workspace-manager'
 import { readJsonFileSafe, writeJsonFileAtomic } from './safe-file'
 import type {
   CampaignWorkflow,
@@ -180,7 +181,10 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
 执行要求：
 1. 使用 ma-ta-portrait 工具构建用户画像
 2. 产出必须保存到以下目录：\`user-analysis/\`
-3. 文件命名建议：\`ta-portrait.md\`、\`search-habits.md\`、\`consumer-insight.md\`
+3. 【必须】将分析拆成以下**三个指定文件名**分别保存到 \`user-analysis/\` 目录（校验会精确检查这三个文件名）：
+   - \`ta-portrait.md\` — 目标受众画像（含人口统计、兴趣偏好、痛点需求）
+   - \`search-habits.md\` — 搜索习惯（含搜索平台、搜索场景、搜索关键词）
+   - \`consumer-insight.md\` — 消费者洞察（含消费者洞察、传播切入点）
 4. 完成标准（校验时会检查）：
    - ta-portrait.md 必须包含人口统计、兴趣偏好、痛点需求（至少300字）
    - search-habits.md 必须包含搜索平台、搜索场景、关键词列表（至少300字）
@@ -637,10 +641,32 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
 // 目录和文件管理
 // =====================================================================
 
+/**
+ * 解析 Campaign 工作流产物的根目录。
+ *
+ * - 若该 Campaign 在创建时指定了本地项目文件夹（workspace 绑定了 rootPath），
+ *   则产物统一存放在 `<项目文件夹>/campaign-{id}/` 子目录，便于用户直接查看。
+ * - 否则退回默认内部隔离目录 `~/.mapro/agent-workspaces/campaign-{id}/`。
+ *
+ * 注意：运行状态文件（campaign-workflow.json、.context/）始终存放在内部隔离目录
+ *（由 getAgentWorkspacePath(slug) 返回），与产物分离。
+ */
+function getCampaignArtifactsRoot(campaignId: string): string {
+  const slug = `campaign-${campaignId}`
+  const ws = listAgentWorkspaces().find((w) => w.slug === slug)
+  if (ws?.rootPath) {
+    const dir = join(ws.rootPath, slug)
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true })
+    }
+    return dir
+  }
+  return getAgentWorkspacePath(slug)
+}
+
 /** 确保所有标准 artifact 目录存在 */
 function ensureArtifactDirs(campaignId: string): void {
-  const slug = `campaign-${campaignId}`
-  const baseDir = getAgentWorkspacePath(slug)
+  const baseDir = getCampaignArtifactsRoot(campaignId)
   for (const dir of ARTIFACT_DIRS) {
     const dirPath = join(baseDir, dir)
     if (!existsSync(dirPath)) {
@@ -1121,10 +1147,10 @@ export function validateStepArtifacts(
   missing: string[]
   unmetRequirements: import('@ma-proma/shared').ArtifactRequirement[]
 } {
-  const slug = `campaign-${campaignId}`
   const dirName = STEP_DIR_MAP[stepId]
-  const dirPath = join(getAgentWorkspacePath(slug), dirName)
-  const workspaceRoot = getAgentWorkspacePath(slug)
+  const artifactsRoot = getCampaignArtifactsRoot(campaignId)
+  const dirPath = join(artifactsRoot, dirName)
+  const workspaceRoot = artifactsRoot
 
   const missing: string[] = []
   const unmetRequirements: import('@ma-proma/shared').ArtifactRequirement[] = []
@@ -1208,7 +1234,7 @@ export function validateStepArtifacts(
   for (const req of requirements) {
     if (!checkRequirement(combinedContent, req)) {
       unmetRequirements.push(req)
-      missing.push(`缺少语义锚点: ${req.name}（可匹配: ${req.aliases.join(' / ')}）`)
+      // 语义锚点为软校验：缺失仅作质量提醒，不进入 missing，不判定产物失败
     }
   }
 
@@ -1320,9 +1346,8 @@ function materializeAssistantOutputIfNeeded(
   stepId: CampaignWorkflowStepId,
   messages: import('@ma-proma/shared').AgentMessage[] | undefined,
 ): void {
-  const slug = `campaign-${campaignId}`
   const dirName = STEP_DIR_MAP[stepId]
-  const dirPath = join(getAgentWorkspacePath(slug), dirName)
+  const dirPath = join(getCampaignArtifactsRoot(campaignId), dirName)
   const existing = readTextFiles(dirPath)
 
   if (existing.files.length > 0 && existing.totalChars > 0) return
@@ -1394,12 +1419,18 @@ export function completeStepWithValidation(
   }
 
   // 产物校验通过，标记完成
+  // 软校验：若存在未命中的语义锚点，将提醒追加到 outputSummary（不阻断完成）
+  let finalSummary = outputSummary
+  if (validation.unmetRequirements.length > 0) {
+    const names = validation.unmetRequirements.map((r) => r.name).join('、')
+    finalSummary = `${outputSummary}（已通过，建议补充语义锚点：${names}）`
+  }
   const workflow = updateWorkflowStep({
     campaignId,
     stepId,
     status: 'completed',
-    outputSummary,
+    outputSummary: finalSummary,
   })
-  appendHistory(campaignId, stepId, workflow.steps.find(s => s.id === stepId)?.title ?? stepId, 'completed', outputSummary)
+  appendHistory(campaignId, stepId, workflow.steps.find(s => s.id === stepId)?.title ?? stepId, 'completed', finalSummary)
   return { success: true, workflow }
 }

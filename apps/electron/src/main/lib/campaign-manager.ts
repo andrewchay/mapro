@@ -218,6 +218,7 @@ export function getDb(): Database {
       duration_months INTEGER DEFAULT 1,
       target_city TEXT,
       target_audience TEXT,
+      project_path TEXT,
       current_phase INTEGER DEFAULT 1,
       phase_plans TEXT,
       creative_plan TEXT,
@@ -236,6 +237,9 @@ export function getDb(): Database {
   }
   if (!campaignColumns.some((col) => col.name === 'creative_plan')) {
     dbInstance.run(`ALTER TABLE campaigns ADD COLUMN creative_plan TEXT`)
+  }
+  if (!campaignColumns.some((col) => col.name === 'project_path')) {
+    dbInstance.run(`ALTER TABLE campaigns ADD COLUMN project_path TEXT`)
   }
 
   // Campaign KOL 候选池表（Slice 3）
@@ -1077,6 +1081,7 @@ function rowToCampaign(row: any): Campaign {
     id: row.id,
     name: row.name,
     brand,
+    projectPath: row.project_path || undefined,
     platform: row.platform as Campaign['platform'],
     budget,
     durationMonths,
@@ -1136,8 +1141,8 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
   })
 
   db.run(
-    `INSERT INTO campaigns (id, name, brand, platform, budget, duration_months, target_city, target_audience, current_phase, phase_plans, creative_plan, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO campaigns (id, name, brand, platform, budget, duration_months, target_city, target_audience, project_path, current_phase, phase_plans, creative_plan, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     input.name,
     input.brand,
@@ -1146,6 +1151,7 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
     durationMonths,
     JSON.stringify(targetCity),
     targetAudience,
+    input.projectPath ?? null,
     1,
     JSON.stringify(phasePlans),
     JSON.stringify(creativePlan),
@@ -1158,6 +1164,7 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
     id,
     name: input.name,
     brand: input.brand,
+    projectPath: input.projectPath,
     platform,
     budget,
     durationMonths,
@@ -1174,7 +1181,8 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
   // 创建 Campaign 专属的 Agent Workspace
   const workspaceSlug = `campaign-${id}`
   try {
-    createAgentWorkspace(campaign.name, workspaceSlug)
+    // 若用户指定了本地项目文件夹，将其绑定为 Campaign Workspace 的 rootPath
+    createAgentWorkspace(campaign.name, workspaceSlug, campaign.projectPath)
 
     // 在 Workspace 中创建 Campaign 工具脚本
     const workspacePath = getAgentWorkspacePath(workspaceSlug)
@@ -1203,6 +1211,7 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
         durationMonths: campaign.durationMonths,
         targetCity: campaign.targetCity,
         targetAudience: campaign.targetAudience,
+        projectPath: campaign.projectPath ?? null,
         currentPhase: campaign.currentPhase,
         phasePlans: campaign.phasePlans,
         creativePlan: campaign.creativePlan,
@@ -1210,7 +1219,17 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
       }, null, 2)
     )
   } catch (err) {
+    // 用户指定了本地项目文件夹时，workspace 绑定失败应让创建失败并清理 DB 记录，避免数据不一致；
+    // 未指定 projectPath 时保持原有行为（仅记录、不阻断创建）。
     console.error('[Campaign] 创建 Agent Workspace 失败:', err)
+    if (campaign.projectPath) {
+      try {
+        db.run(`DELETE FROM campaigns WHERE id = ?`, id)
+      } catch {
+        // 忽略回滚失败
+      }
+      throw err instanceof Error ? err : new Error(String(err))
+    }
   }
 
   return campaign

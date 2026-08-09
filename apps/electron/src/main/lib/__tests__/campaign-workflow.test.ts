@@ -172,7 +172,7 @@ describe('Campaign 工作流测试', () => {
     expect(result.missing.some((m) => m.includes('均为空'))).toBe(true)
   })
 
-  it('Slice 2d: 有内容但缺少语义锚点 → valid=false，原因=语义锚点', () => {
+  it('Slice 2d: 语义锚点已降级为软校验（此用例仍失败因缺硬性必需文件 kol-role-matrix.md）', () => {
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
     const dir = join(workspaceDir, 'kol-pyramid')
     mkdirSync(dir, { recursive: true })
@@ -189,8 +189,10 @@ describe('Campaign 工作流测试', () => {
     )
 
     const result = workflowService.validateStepArtifacts(testCampaignId, 'kol_pyramid')
+    // 语义锚点已降级为软校验：缺失不再判定失败；此处 valid=false 是因为缺少硬性必需文件 kol-role-matrix.md
     expect(result.valid).toBe(false)
-    expect(result.missing.some((m) => m.includes('语义锚点'))).toBe(true)
+    expect(result.missing.some((m) => m.includes('语义锚点'))).toBe(false)
+    expect(result.missing.some((m) => m.includes('kol-role-matrix.md'))).toBe(true)
     expect(result.unmetRequirements.length).toBeGreaterThan(0)
   })
 

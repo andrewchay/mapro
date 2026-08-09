@@ -169,7 +169,10 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
 执行要求：
 1. 使用 ma-ta-portrait 工具构建用户画像
 2. 产出必须保存到以下目录：\`user-analysis/\`
-3. 文件命名建议：\`ta-portrait.md\`、\`search-habits.md\`、\`consumer-insight.md\`
+3. 【必须】将分析拆成以下**三个指定文件名**分别保存到 \`user-analysis/\` 目录（校验会精确检查这三个文件名）：
+   - \`ta-portrait.md\` — 目标受众画像（含人口统计、兴趣偏好、痛点需求）
+   - \`search-habits.md\` — 搜索习惯（含搜索平台、搜索场景、搜索关键词）
+   - \`consumer-insight.md\` — 消费者洞察（含消费者洞察、传播切入点）
 4. 完成标准（校验时会检查）：
    - ta-portrait.md 必须包含人口统计、兴趣偏好、痛点需求（至少300字）
    - search-habits.md 必须包含搜索平台、搜索场景、关键词列表（至少300字）
@@ -988,13 +991,19 @@ export class CampaignWorkflowService {
       return { success: false, workflow: failedWorkflow, reason: validation.missing.join('; ') }
     }
 
+    // 软校验：若存在未命中的语义锚点，将提醒追加到 outputSummary（不阻断完成）
+    let finalSummary = outputSummary
+    if (validation.unmetRequirements.length > 0) {
+      const names = validation.unmetRequirements.map((r) => r.name).join('、')
+      finalSummary = `${outputSummary}（已通过，建议补充语义锚点：${names}）`
+    }
     const completedWorkflow = await this.updateWorkflowStepLocked({
       campaignId,
       stepId,
       status: 'completed',
-      outputSummary,
+      outputSummary: finalSummary,
     })
-    await this.appendHistory(campaignId, stepId, step.title, 'completed', outputSummary)
+    await this.appendHistory(campaignId, stepId, step.title, 'completed', finalSummary)
     return { success: true, workflow: completedWorkflow }
   }
 

@@ -247,6 +247,15 @@ export function getAgentWorkspaceCwd(workspace: AgentWorkspace, sessionId: strin
     if (!existsSync(workspace.rootPath) || !statSync(workspace.rootPath).isDirectory()) {
       throw new Error(`本地项目文件夹不可用: ${workspace.rootPath}`)
     }
+    // Campaign 工作区指定了本地项目文件夹时，运行目录落在 `<项目文件夹>/campaign-{id}/` 子目录，
+    // 与产物校验（getCampaignArtifactsRoot）保持一致，保证 Agent 写出的产物能被校验到。
+    if (workspace.slug.startsWith('campaign-')) {
+      const dir = join(workspace.rootPath, workspace.slug)
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true })
+      }
+      return dir
+    }
     return workspace.rootPath
   }
   return getAgentSessionWorkspacePath(workspace.slug, sessionId)

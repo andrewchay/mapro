@@ -285,7 +285,7 @@ describe('CampaignArtifactValidator', () => {
     expect(result.missing.some((m) => m.includes('没有可读产物'))).toBe(true)
   })
 
-  test('缺少语义锚点 → 校验失败', async () => {
+  test('缺少语义锚点 → 软校验（产物通过但记录提醒）', async () => {
     const workflow = await workflowService.loadCampaignWorkflow('test-2')
     const step = workflow.steps.find((s) => s.id === 'market_analysis')!
     writeArtifact(
@@ -295,8 +295,9 @@ describe('CampaignArtifactValidator', () => {
       '这是一段没有关键词的内容，字数应该够三百字。'.repeat(20),
     )
     const result = await validator.validateStepArtifacts('test-2', 'market_analysis', step)
-    expect(result.valid).toBe(false)
-    expect(result.missing.some((m) => m.includes('语义锚点'))).toBe(true)
+    expect(result.valid).toBe(true)
+    expect(result.missing.some((m) => m.includes('语义锚点'))).toBe(false)
+    expect(result.unmetRequirements.length).toBeGreaterThan(0)
   })
 
   test('缺少必需产物文件 → 校验失败', async () => {
@@ -357,5 +358,87 @@ describe('CampaignArtifactValidator', () => {
     const result = await workflowService.completeStep('test-2', 'market_analysis', messages)
     expect(result.success).toBe(true)
     expect(result.workflow.steps[0]?.status).toBe('completed')
+  })
+
+  // 回归护栏：按【修复后 skill 落盘规范】构造市场/用户/品牌DNA/品牌核实四步合格产物，
+  // 必须全部通过校验（对应真实缺陷：market-analysis 无工具产物字数不足、user-analysis 缺
+  // requiredFiles、brand-dna 缺产品服务/产品现状锚点、brand-fact-check 缺必备文件）。
+  test('回归：四步合格产物（市场/用户/品牌DNA/品牌核实）全部通过校验', async () => {
+    const workflow = await workflowService.loadCampaignWorkflow('test-4step')
+
+    const market = [
+      '# 市场分析',
+      '## 市场规模',
+      '市场规模：本品类市场规模达到 120 亿元，年增速 22%，渗透率持续提升，市场容量不断扩张，大盘整体稳健增长，细分赛道中高端占比持续抬升，未来三年有望保持双位数增长。',
+      '## 品类趋势',
+      '品类趋势：当前处于上升周期，用户偏好明显向品质化、健康化转移，趋势机会不断涌现，平台流量红利叠加政策驱动，品牌应抓住窗口期建立先发优势，跟上偏好变化节奏。',
+      '## 品类痛点',
+      '品类痛点：用户当前未被满足的需求是更便捷、更透明的解决方案，行业普遍存在信息不对称问题，存在明显的空白切入点，亟需通过产品创新与服务升级解决实际痛点。',
+      '## 数据来源',
+      '艾瑞咨询、36氪、蝉妈妈（部分为推算/待核实）。',
+    ].join('\n\n')
+    writeArtifact('test-4step', 'market-analysis', 'market-analysis.md', market)
+
+    const taPortrait = [
+      '## 人口统计',
+      '年龄 25-35 岁，性别以女性为主（70%），月收入 1-3 万，一二线城市，地域华东华南，学历本科以上，职业为白领。',
+      '## 兴趣偏好',
+      '兴趣集中在品质生活、美食探店，偏好精致生活方式，消费观为愿意为体验付费。',
+      '## 痛点需求',
+      '痛点：忙没时间做功课、怕踩雷；需求是高效可靠的决策方案，购买动机为悦己与分享。',
+    ].join('\n\n')
+    const searchHabits = [
+      '## 搜索平台',
+      '主要在小红书、抖音、B站、百度搜索。',
+      '## 搜索场景',
+      '种草前搜索攻略、决策中搜索测评、使用后搜索售后。',
+      '## 搜索关键词',
+      '核心词、长尾词、竞品词。',
+    ].join('\n\n')
+    const consumerInsight = [
+      '## 消费者洞察',
+      'Observation：用户在平台高频收藏“高级感”“不踩雷”笔记；Insight：她们不缺商品，缺“体面又省心”的身份安全感。',
+      '## 传播切入点',
+      '以“每天多睡 20 分钟也能选对”作为内容主轴。',
+    ].join('\n\n')
+    writeArtifact('test-4step', 'user-analysis', 'ta-portrait.md', taPortrait)
+    writeArtifact('test-4step', 'user-analysis', 'search-habits.md', searchHabits)
+    writeArtifact('test-4step', 'user-analysis', 'consumer-insight.md', consumerInsight)
+
+    const brandDna = [
+      '# 品牌DNA',
+      '## 品牌历史',
+      '品牌创立于 2015 年，从区域市场逐步走向全国，历经多轮产品迭代与渠道扩张，积累了一定的品牌传承与口碑沉淀，形成以品质为核心的经营理念。',
+      '## 产品/服务',
+      '核心产品线覆盖多款差异化产品，功能卖点突出，价格带覆盖中端与高端，产品线结构合理，主打品质与体验，产品服务经过多轮迭代持续优化。',
+      '## 品牌核心价值',
+      '核心价值是让用户省心的品质选择，附加价值是悦己与分享。',
+      '## 产品现状',
+      '产品力处于行业中上，供应链稳定可控，价格带与目标客群匹配，SKU 数量适中，产品诊断显示供应链效率仍有提升空间。',
+      '## 差异化优势',
+      '相比竞品，独特性在于更透明的信息与更省心的服务闭环。',
+      '## 品牌阶段 / 核心问题 / 核心目标',
+      '品牌处于成长期，核心问题是品牌认知不足，核心目标是破圈拉新，首要提升认知度与复购。',
+    ].join('\n\n')
+    writeArtifact('test-4step', 'brand-dna', 'brand-dna.md', brandDna)
+
+    const brandFactCheck = [
+      '# 品牌信息核实',
+      '## 核实结论',
+      '经公开网络搜索对品牌DNA 提取的关键信息逐条核对：品牌创立时间、发展历程、核心产品线等基本信息基本确认属实；而部分价格带区间、供应链合作方、门店数量等经营细节无法通过公开渠道完全确认，需向品牌方进一步求证补充。',
+      '## 搜索来源',
+      '本次核实使用的搜索查询来源包括：品牌官方网站（About 页与产品页）、百度百科品牌词条、36氪与界面新闻的相关报道、企查查工商信息、社交媒体官方账号简介等，均已列出查询词与参考链接。',
+      '## 差异项',
+      '搜索与品牌DNA 产物逐条对比后发现以下差异项：一是品牌创立时间在官方与第三方报道中存在一处口径不一致，属于明显矛盾点；二是价格带区间与公开价格信息略有偏差，区间上沿或下沿不一致；三是供应链合作方名称拼写存在出入，需逐一与品牌方核实。',
+      '## 风险提示',
+      '由于多维度关键信息存在无法核实或口径差异，明确提示：用户提供的信息可能存在误差，建议在后续步骤中补充或修正，尤其是创立时间、价格带与供应链等会直接影响品牌定位与传播断言的事实性信息。',
+    ].join('\n\n')
+    writeArtifact('test-4step', 'brand-fact-check', 'brand-fact-check.md', brandFactCheck)
+
+    for (const stepId of ['market_analysis', 'user_analysis', 'brand_dna', 'brand_fact_check'] as const) {
+      const step = workflow.steps.find((s) => s.id === stepId)!
+      const result = await validator.validateStepArtifacts('test-4step', stepId, step)
+      expect(result.valid).toBe(true)
+    }
   })
 })

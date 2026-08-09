@@ -27,6 +27,12 @@ export function CampaignCreateDialog({ open, onOpenChange, onCreated }: Campaign
   const [durationMonths, setDurationMonths] = React.useState('3')
   const [targetCity, setTargetCity] = React.useState('')
   const [targetAudience, setTargetAudience] = React.useState('')
+  const [projectPath, setProjectPath] = React.useState('')
+
+  const handlePickFolder = async () => {
+    const result = await window.electronAPI.openFolderDialog()
+    if (result) setProjectPath(result.path)
+  }
 
   // 弹窗关闭时重置表单
   React.useEffect(() => {
@@ -37,6 +43,7 @@ export function CampaignCreateDialog({ open, onOpenChange, onCreated }: Campaign
       setDurationMonths('3')
       setTargetCity('')
       setTargetAudience('')
+      setProjectPath('')
     }
   }, [open])
 
@@ -61,6 +68,7 @@ export function CampaignCreateDialog({ open, onOpenChange, onCreated }: Campaign
       name: name.trim(),
       brand: brand.trim(),
       platform,
+      projectPath: projectPath.trim() || undefined,
       budget: budgetNum,
       durationMonths: months,
       targetCity: targetCity.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
@@ -170,6 +178,23 @@ export function CampaignCreateDialog({ open, onOpenChange, onCreated }: Campaign
               placeholder="25-35岁沪杭都市女性，追求品质生活"
               className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring"
             />
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">本地项目文件夹（可选）</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={projectPath}
+                onChange={(e) => setProjectPath(e.target.value)}
+                placeholder="工作流产物将存放于该文件夹的 campaign-{id}/ 下"
+                className="flex-1 px-3 py-2 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+              <Button variant="outline" size="sm" className="shrink-0" onClick={() => void handlePickFolder()} type="button">
+                选择
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1">留空则默认存放于内部隔离目录</p>
           </div>
         </div>
 

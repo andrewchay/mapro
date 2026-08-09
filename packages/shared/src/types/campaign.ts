@@ -58,6 +58,8 @@ export interface Campaign {
   name: string
   /** 品牌名 */
   brand: string
+  /** 用户指定的本地项目文件夹路径（可选，工作流产物存放于此目录的 campaign-{id}/ 下） */
+  projectPath?: string
   /** 投放平台 */
   platform: CampaignPlatform
   /** 总预算（元） */
@@ -87,6 +89,8 @@ export interface CreateCampaignInput {
   name: string
   brand: string
   platform?: CampaignPlatform
+  /** 用户指定的本地项目文件夹路径（可选） */
+  projectPath?: string
   budget?: number
   durationMonths?: number
   targetCity?: string[]
