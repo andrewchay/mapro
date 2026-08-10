@@ -6,7 +6,7 @@
  */
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, CAMPAIGN_IPC_CHANNELS, KOL_DATA_IPC_CHANNELS, CONTENT_AUDIT_IPC_CHANNELS, CONTENT_TRACKING_IPC_CHANNELS, PHASE_REPORT_IPC_CHANNELS, AB_TEST_IPC_CHANNELS } from '@ma-proma/shared'
+import { IPC_CHANNELS, CHANNEL_IPC_CHANNELS, CHAT_IPC_CHANNELS, AGENT_IPC_CHANNELS, ENVIRONMENT_IPC_CHANNELS, INSTALLER_IPC_CHANNELS, PROXY_IPC_CHANNELS, GITHUB_RELEASE_IPC_CHANNELS, SYSTEM_PROMPT_IPC_CHANNELS, MEMORY_IPC_CHANNELS, CHAT_TOOL_IPC_CHANNELS, FEISHU_IPC_CHANNELS, DINGTALK_IPC_CHANNELS, WECHAT_IPC_CHANNELS, CAMPAIGN_IPC_CHANNELS, KOL_DATA_IPC_CHANNELS, CONTENT_AUDIT_IPC_CHANNELS, CONTENT_TRACKING_IPC_CHANNELS, PHASE_REPORT_IPC_CHANNELS, AB_TEST_IPC_CHANNELS, VIDEO_ASSET_IPC_CHANNELS } from '@ma-proma/shared'
 import { USER_PROFILE_IPC_CHANNELS, SETTINGS_IPC_CHANNELS, SCRATCH_PAD_IPC_CHANNELS, APP_ICON_IPC_CHANNELS, DOCK_BADGE_IPC_CHANNELS, STORAGE_IPC_CHANNELS } from '../types'
 import type {
   RuntimeStatus,
@@ -1022,6 +1022,11 @@ export interface ElectronAPI {
   updateCampaignWorkflowStep: (input: UpdateWorkflowStepInput) => Promise<CampaignWorkflow>
   /** 重置 Campaign 工作流 */
   resetCampaignWorkflow: (campaignId: string) => Promise<CampaignWorkflow>
+
+  // ===== 视频素材 =====
+
+  /** 列出 Campaign 的广告视频素材 */
+  listVideoAssets: (campaignId: string) => Promise<import('../main/lib/video-asset-service').VideoAssetEntry[]>
 
   // ===== KOL 数据管理 =====
 
@@ -2311,6 +2316,12 @@ const electronAPI: ElectronAPI = {
 
   resetCampaignWorkflow: (campaignId: string) => {
     return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.RESET_WORKFLOW, campaignId)
+  },
+
+  // ===== 视频素材 =====
+
+  listVideoAssets: (campaignId: string) => {
+    return ipcRenderer.invoke(VIDEO_ASSET_IPC_CHANNELS.LIST, campaignId)
   },
 
   // ===== KOL 数据管理 =====

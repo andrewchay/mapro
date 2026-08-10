@@ -10,7 +10,8 @@ import { useSetAtom } from 'jotai'
 import { ContentTrackingManager } from './ContentTrackingManager'
 import { PhaseReviewPanel } from './PhaseReviewPanel'
 import { ABTestPanel } from './ABTestPanel'
-import { ArrowLeft, Calendar, MapPin, Users, DollarSign, Plus, UserCheck, FileText, Rocket, ShieldCheck, BarChart3, TrendingUp, FlaskConical } from 'lucide-react'
+import { VideoAssetPanel } from './VideoAssetPanel'
+import { ArrowLeft, Calendar, MapPin, Users, DollarSign, Plus, UserCheck, FileText, Rocket, ShieldCheck, BarChart3, TrendingUp, FlaskConical, Clapperboard } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -375,6 +376,10 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
                   <FlaskConical className="w-3.5 h-3.5" />
                   AB 测试
                 </TabsTrigger>
+                <TabsTrigger value="video-assets" className="text-xs gap-1">
+                  <Clapperboard className="w-3.5 h-3.5" />
+                  视频素材
+                </TabsTrigger>
               </TabsList>
               <Button size="sm" variant="outline" onClick={() => setImportDialogOpen(true)}>
                 <Plus size={14} className="mr-1" />
@@ -472,6 +477,13 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
               <ABTestPanel
                 campaignId={campaign.id}
                 currentPhase={campaign.currentPhase}
+              />
+            </TabsContent>
+
+            <TabsContent value="video-assets" className="mt-0">
+              <VideoAssetPanel
+                campaignId={campaign.id}
+                onSendToAssistant={onSendToAssistant}
               />
             </TabsContent>
           </Tabs>
