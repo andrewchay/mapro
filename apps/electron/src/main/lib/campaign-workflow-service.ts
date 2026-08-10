@@ -666,14 +666,15 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
 3. **引擎选择**：
    - 人物出镜 / 抖音内容 → Seedance（字节生态优化）
    - 大运动 / 物理特效 → MiniMax H3
-4. **生成参数**：为每个镜头提供 video prompt 和（可选）首帧图 prompt
+4. **一键流水线（推荐）**：
+   - 调用内置工具 \`video_pipeline\`，传入产品信息/卖点/平台/时长/引擎，自动完成 分镜→生成→拼接成片
+   - 产物自动落到当前工作区的 \`video-assets/\` 目录（raw=分镜片段, final=成片）
 
 执行要求：
-1. 使用 ma-video-creative skill 生成视频创意方案与分镜脚本
-2. 调用 video-seedance-tool / video-minimax-tool 生成视频（如 API 已配置）
-3. 产出必须保存到：\`video-assets/\`
-4. 文件命名建议：\`video-assets.md\`、\`storyboard.json\`（每镜附 prompt）
-5. 完成标准（校验时会检查）：
+1. 优先调用 \`video_pipeline\` 工具一键生成；若需精细控制可先用 ma-video-creative 生成分镜脚本后再逐镜生成
+2. 产物必须保存到：\`video-assets/\`
+3. 文件命名建议：\`video-assets.md\`（记录创意方向/引擎/生成参数）、\`raw/\`、\`final/\`
+4. 完成标准（校验时会检查）：
    - video-assets.md 必须包含创意方向、分镜脚本、平台适配、引擎选择、生成参数（至少300字）
 
 前置产物：\`creative-concept/\`、\`platform-matrix/\` 目录中的文件
