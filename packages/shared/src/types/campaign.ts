@@ -362,6 +362,66 @@ export type CampaignWorkflowStepId =
   | 'add_to_pool'
   | 'generate_briefs'
   | 'ab_test'
+  | 'generate_video_assets'  // 新增：生成视频素材
+
+/** 视频素材类型 */
+export type VideoAssetType = 'seedance' | 'minimax-h3' | 'mixed'
+
+/** 视频素材记录 */
+export interface CampaignVideoAsset {
+  /** 唯一标识 */
+  id: string
+  /** Campaign ID */
+  campaignId: string
+  /** 视频名称 */
+  name: string
+  /** 视频类型 */
+  type: VideoAssetType
+  /** 投放平台 */
+  platform: CampaignPlatform
+  /** 时长（秒） */
+  duration: number
+  /** 分镜脚本 */
+  storyboard: string  // JSON string of Storyboard
+  /** 视频文件路径 */
+  videoPath?: string
+  /** 首帧图路径 */
+  firstFramePath?: string
+  /** 字幕文件路径 */
+  subtitlePath?: string
+  /** 状态 */
+  status: 'pending' | 'generating' | 'completed' | 'failed'
+  /** 生成引擎 */
+  engine: string
+  /** 生成参数 */
+  generationParams: string  // JSON string
+  /** 创建时间 */
+  createdAt: number
+  /** 更新时间 */
+  updatedAt: number
+}
+
+/** 创建视频素材输入 */
+export interface CreateVideoAssetInput {
+  campaignId: string
+  name: string
+  platform: CampaignPlatform
+  duration: number
+  product: string
+  sellingPoints: string[]
+  targetAudience: string
+  style?: string
+}
+
+/** 视频素材 IPC 通道 */
+export const VIDEO_ASSET_IPC_CHANNELS = {
+  LIST: 'videoAsset:list',
+  GET: 'videoAsset:get',
+  CREATE: 'videoAsset:create',
+  GENERATE: 'videoAsset:generate',
+  UPDATE_STATUS: 'videoAsset:updateStatus',
+  DELETE: 'videoAsset:delete',
+} as const
 
 /** 工作流步骤状态 */
 export type CampaignWorkflowStepStatus = 'pending' | 'in_progress' | 'completed' | 'skipped' | 'failed'
@@ -410,6 +470,8 @@ export interface CampaignWorkflow {
   currentStepIndex: number
   /** 所有步骤 */
   steps: CampaignWorkflowStep[]
+  /** 视频素材列表 */
+  videoAssets?: CampaignVideoAsset[]
   /** 创建时间 */
   createdAt: number
   /** 更新时间 */

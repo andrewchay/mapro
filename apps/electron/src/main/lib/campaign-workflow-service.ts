@@ -54,6 +54,7 @@ const ARTIFACT_DIRS = [
   'kol-search',
   'briefs',
   'ab-test',
+  'video-assets',
   '.context',
 ]
 
@@ -72,6 +73,7 @@ const STEP_DIR_MAP: Record<CampaignWorkflowStepId, string> = {
   add_to_pool: 'kol-search',
   generate_briefs: 'briefs',
   ab_test: 'ab-test',
+  generate_video_assets: 'video-assets',
 }
 
 // =====================================================================
@@ -635,6 +637,48 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
 前置产物：\`creative-concept/\`、\`platform-matrix/\`、\`kol-pyramid/\` 目录中的文件
 完成后，请返回 "已完成：投放测试、阶段复盘与放量决策"并附上产物摘要。`,
   },
+  {
+    id: 'generate_video_assets',
+    title: '生成广告视频素材',
+    description: '基于创意概念和文案，生成可投放的多平台广告视频（支持 Seedance / MiniMax H3）',
+    toolName: 'ma-video-creative',
+    minArtifactLength: 300,
+    requiredFiles: ['video-assets.md'],
+    artifactRequirements: [
+      { name: '创意方向', aliases: ['创意方向', '视频创意', '脚本', '分镜'] },
+      { name: '分镜脚本', aliases: ['分镜', 'storyboard', '镜头', '景', 'scene'] },
+      { name: '平台适配', aliases: ['平台', 'aspect_ratio', '尺寸', '分辨率', '抖音', '小红书'] },
+      { name: '生成引擎', aliases: ['Seedance', 'MiniMax', '引擎', '生成方式', 'H3'] },
+      { name: '生成参数', aliases: ['prompt', '提示词', '时长', 'duration', '首帧'] },
+    ],
+    agentPrompt: `## 步骤 14: 生成广告视频素材
+
+目标：基于创意概念、品牌 DNA 和达人 Brief，为 Campaign 生成可投放的多平台广告视频。
+
+执行框架：
+1. **视频创意脚本**：
+   - 基于 Big Idea 拆解为 5-30 秒的短视频脚本
+   - 单镜不超过 10 秒（受 AI 视频生成引擎限制）
+   - 每个镜头包含：画面描述、旁白、字幕、首帧提示词
+2. **平台适配**：
+   - 根据投放平台选择宽高比（小红书 3:4 / 抖音 9:16 / B站 16:9）
+   - 前 3 秒必须有强 Hook
+3. **引擎选择**：
+   - 人物出镜 / 抖音内容 → Seedance（字节生态优化）
+   - 大运动 / 物理特效 → MiniMax H3
+4. **生成参数**：为每个镜头提供 video prompt 和（可选）首帧图 prompt
+
+执行要求：
+1. 使用 ma-video-creative skill 生成视频创意方案与分镜脚本
+2. 调用 video-seedance-tool / video-minimax-tool 生成视频（如 API 已配置）
+3. 产出必须保存到：\`video-assets/\`
+4. 文件命名建议：\`video-assets.md\`、\`storyboard.json\`（每镜附 prompt）
+5. 完成标准（校验时会检查）：
+   - video-assets.md 必须包含创意方向、分镜脚本、平台适配、引擎选择、生成参数（至少300字）
+
+前置产物：\`creative-concept/\`、\`platform-matrix/\` 目录中的文件
+完成后，请返回 "已完成：广告视频素材生成"并附上产物摘要。`,
+  },
 ]
 
 // =====================================================================
@@ -773,6 +817,7 @@ function getDirDescription(dir: string): string {
     'kol-search': '候选达人搜索结果',
     'briefs': 'KOL 个性化 Brief',
     'ab-test': 'A/B 测试设计方案',
+    'video-assets': '广告视频素材（分镜脚本/生成参数/视频产物）',
   }
   return desc[dir] ?? '产物目录'
 }
@@ -829,6 +874,7 @@ kol-pyramid/          — KOL 金字塔
 kol-search/           — 达人搜索
 briefs/               — KOL Briefs
 ab-test/              — A/B 测试
+video-assets/         — 广告视频（创意/分镜/生成参数）
 \`\`\`
 
 ## 历史记录

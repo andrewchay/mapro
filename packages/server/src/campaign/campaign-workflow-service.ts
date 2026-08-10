@@ -60,6 +60,7 @@ export const STEP_DIR_MAP: Record<CampaignWorkflowStepId, string> = {
   add_to_pool: 'kol-search',
   generate_briefs: 'briefs',
   ab_test: 'ab-test',
+  generate_video_assets: 'video-assets',
 }
 
 // =====================================================================

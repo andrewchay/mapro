@@ -1,7 +1,7 @@
 /**
  * Campaign 工作流全链路 E2E 测试
  *
- * 模拟一个真实 Campaign 从创建到 14 步全部完成的完整执行路径，验证步骤间状态机
+ * 模拟一个真实 Campaign 从创建到 15 步全部完成的完整执行路径，验证步骤间状态机
  * 推进、产物校验、历史记录同步、候选池导入等全链路环节的准确性。
  *
  * 覆盖的服务层链路：
@@ -115,6 +115,7 @@ const STEP_DIR: Record<CampaignWorkflowStepId, string> = {
   add_to_pool: 'kol-search',
   generate_briefs: 'briefs',
   ab_test: 'ab-test',
+  generate_video_assets: 'video-assets',
 }
 
 // ===== 每步合格产物内容（覆盖全部语义锚点 + 字数达标） =====
@@ -632,6 +633,30 @@ Go / No-go 门槛：
 - 内容同质化：控制同风格内容占比不超过 60%`,
     },
   ],
+  generate_video_assets: {
+    filename: 'video-assets.md',
+    content: `# 广告视频素材
+
+## 创意方向
+基于 Big Idea "每一口都新鲜"，为鲜切水果设计 15 秒小米红书种草视频。
+视频创意采用场景化叙事：忙碌的上班族回到家，打开鲜切鲜果盒，
+疲惫的眼神瞬间明亮。画面风格清新自然、暖色调，传递便捷与健康的品牌态度。
+
+## 分镜脚本
+镜头 1（0-3s）：特写——都市女性回到家的疲惫面容，自然光从窗户进来。
+镜头 2（3-8s）：产品展示——手部特写打开鲜切水果盒，质地水润，水滴在果肉上。
+镜头 3（8-12s）：使用场景——尝一口鲜果，露出满意的微笑。
+镜头 4（12-15s）：CTA——产品摆放在桌面，左下角购物按钮弹出。
+
+## 平台适配
+平台：小红书。宽高比 3:4，分辨率 1080x1440。前 3 秒用疲惫情绪做 Hook。
+
+## 生成引擎
+人物出镜+小红书 → Seedance（字节生态优化）。引擎：seedance。
+
+## 生成参数
+镜头 1 prompt: a tired young woman coming home, soft natural light, warm tone.\n镜头 3 prompt: close-up of fresh cut fruit in a box, water droplets, appetizing.`,
+  },
 }
 
 describe('Campaign 工作流全链路 E2E 测试', () => {
@@ -737,17 +762,17 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     expect(step?.outputSummary).toBe(summary)
 
     // 5. 进度递增验证
-    const expectedProgress = Math.round(((stepIndex + 1) / 14) * 100)
+    const expectedProgress = Math.round(((stepIndex + 1) / 15) * 100)
     expect(workflowService.getWorkflowProgress(campaignId)).toBe(expectedProgress)
   }
 
   // ===== 前置：Campaign 创建 + 工作流初始化 =====
 
-  it('前置: Campaign 创建成功 + 工作流初始化为 14 步 pending', () => {
+  it('前置: Campaign 创建成功 + 工作流初始化为 15 步 pending', () => {
     const workflow = workflowService.loadCampaignWorkflow(campaignId)
 
     expect(workflow.campaignId).toBe(campaignId)
-    expect(workflow.steps).toHaveLength(14)
+    expect(workflow.steps).toHaveLength(15)
     expect(workflow.currentStepIndex).toBe(-1)
     expect(workflow.steps.every((s) => s.status === 'pending')).toBe(true)
     expect(workflowService.getWorkflowProgress(campaignId)).toBe(0)
@@ -756,14 +781,14 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${campaignId}`)
     for (const dir of ['market-analysis', 'competitor-analysis', 'user-analysis', 'brand-dna',
       'brand-fact-check', 'brand-concept', 'goal-setting', 'creative-concept', 'platform-matrix',
-      'kol-pyramid', 'kol-search', 'briefs', 'ab-test', '.context']) {
+      'kol-pyramid', 'kol-search', 'briefs', 'ab-test', 'video-assets', '.context']) {
       expect(existsSync(join(workspaceDir, dir))).toBe(true)
     }
     expect(existsSync(join(workspaceDir, '.context', 'todo.md'))).toBe(true)
     expect(existsSync(join(workspaceDir, '.context', 'campaign.md'))).toBe(true)
   })
 
-  // ===== 14 步顺序执行 =====
+  // ===== 15 步顺序执行 =====
 
   it('步骤1 market_analysis: 市场分析', () => {
     runStep('market_analysis', 0, '已完成：市场分析')
@@ -850,9 +875,13 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     runStep('ab_test', 13, '已完成：投放测试、阶段复盘与放量决策')
   })
 
+  it('步骤15 generate_video_assets: 生成广告视频素材', () => {
+    runStep('generate_video_assets', 14, '已完成：广告视频素材生成')
+  })
+
   // ===== 终态验证 =====
 
-  it('终态: 14 步全完成 → isWorkflowComplete=true, progress=100', () => {
+  it('终态: 15 步全完成 → isWorkflowComplete=true, progress=100', () => {
     expect(workflowService.isWorkflowComplete(campaignId)).toBe(true)
     expect(workflowService.getWorkflowProgress(campaignId)).toBe(100)
 
@@ -862,14 +891,14 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     expect(workflow.steps.every((s) => s.outputSummary !== undefined)).toBe(true)
   })
 
-  it('终态: history.md 累积 14 条完成记录', () => {
+  it('终态: history.md 累积 15 条完成记录', () => {
     const historyPath = join(TEST_DIR, 'agent-workspaces', `campaign-${campaignId}`, '.context', 'history.md')
     expect(existsSync(historyPath)).toBe(true)
 
     const content = readFileSync(historyPath, 'utf-8')
     expect(content).toContain('Campaign 执行历史')
     const completedCount = (content.match(/✅ 完成/g) || []).length
-    expect(completedCount).toBe(14)
+    expect(completedCount).toBe(15)
     // 每步都应记录步骤 ID
     for (const stepId of Object.keys(STEP_ARTIFACTS) as CampaignWorkflowStepId[]) {
       expect(content).toContain(stepId)
@@ -884,9 +913,9 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
     expect(content).not.toContain('## ⏳ 待完成')
     expect(content).not.toContain('## 🔵 当前步骤')
 
-    // 14 个步骤全部勾选
+    // 15 个步骤全部勾选
     const checkedCount = (content.match(/- \[x\]/g) || []).length
-    expect(checkedCount).toBe(14)
+    expect(checkedCount).toBe(15)
   })
 
   it('终态: 候选池保留 3 个 KOL 且状态为 candidate', () => {
@@ -903,10 +932,10 @@ describe('Campaign 工作流全链路 E2E 测试', () => {
 
   // ===== 回归：重置工作流 =====
 
-  it('回归: 重置工作流恢复 14 步 pending 初始状态', () => {
+  it('回归: 重置工作流恢复 15 步 pending 初始状态', () => {
     const workflow = workflowService.resetWorkflow(campaignId)
 
-    expect(workflow.steps).toHaveLength(14)
+    expect(workflow.steps).toHaveLength(15)
     expect(workflow.steps.every((s) => s.status === 'pending')).toBe(true)
     expect(workflow.steps.every((s) => s.completedAt === undefined)).toBe(true)
     expect(workflow.currentStepIndex).toBe(-1)
