@@ -148,6 +148,21 @@ interface GroupAuditStandard {
   updatedAt: number
 }
 
+/**
+ * 从文本中提取飞书云文档链接的 document_id
+ *
+ * 支持 feishu.cn 与 larksuite.com 域名下的 docx 链接（群内分享云文档通常以纯文本链接形式到达）：
+ *   https://ycnrbets30wp.feishu.cn/docx/C5pZd6lqToY4QWxceTtcGV1hnqh
+ * 返回 null 表示文本中不含云文档链接。
+ */
+function extractDocxDocumentId(text: string): string | null {
+  const match = text.match(/(?:https?:\/\/)?[\w.-]*feishu\.cn\/docx\/([A-Za-z0-9_-]+)/i)
+  if (match?.[1]) return match[1]
+  const larkMatch = text.match(/(?:https?:\/\/)?[\w.-]*larksuite\.com\/docx\/([A-Za-z0-9_-]+)/i)
+  if (larkMatch?.[1]) return larkMatch[1]
+  return null
+}
+
 // ===== Bridge =====
 
 class FeishuBridge {
@@ -902,6 +917,18 @@ class FeishuBridge {
         // 群内所有文件（云文档/pdf/docx 等）无论是否 @Bot 都入库到会话区文件
         if (messageType === 'file' || messageType === 'docx') {
           await this.archiveGroupFile(chatId, messageId, messageType, message.content as string)
+        } else if (messageType === 'text') {
+          // 文本消息含云文档链接：转成 docx 类型走 archiveGroupFile 确定性入库（读取失败静默降级）
+          try {
+            const parsed = JSON.parse(message.content as string) as { text?: string }
+            const linkText = parsed.text ?? ''
+            const docLinkId = extractDocxDocumentId(linkText)
+            if (docLinkId) {
+              await this.archiveGroupFile(chatId, messageId, 'docx', JSON.stringify({ document_id: docLinkId, doc_name: '飞书云文档' }))
+            }
+          } catch {
+            // 解析失败忽略，不影响后续流程
+          }
         }
         return
       }
@@ -1018,6 +1045,23 @@ class FeishuBridge {
         console.error('[飞书 Bridge] 解析云文档消息失败:', error)
         await this.sendTextMessage(chatId, '云文档解析失败，请重试。')
         return
+      }
+    }
+
+    // 群内分享云文档通常以纯文本链接（feishu.cn/docx/{id}）形式到达，而非 docx 消息类型：
+    // 尝试从文本中提取 document_id 并读取内容，成功则注入 docxDraft 走确定性落盘；
+    // 读取失败（无读取权限/文档不可访问）时降级——保留链接文本，由 Agent 通过 CDP 浏览器读取。
+    if (!docxDraft && text) {
+      const docLinkId = extractDocxDocumentId(text)
+      if (docLinkId) {
+        const docContent = await this.fetchFeishuDocxContent(docLinkId)
+        if (docContent) {
+          text = `${text}\n\n（群成员分享了云文档「飞书云文档」，以下是文档内容）\n\n${docContent}`
+          docxDraft = { name: '飞书云文档', content: docContent }
+          console.log(`[飞书 Bridge] 已识别文本中的云文档链接并读取内容 (${docContent.length} 字)`)
+        } else {
+          console.warn(`[飞书 Bridge] 云文档链接 ${docLinkId} 读取失败，降级由 Agent 通过 CDP 浏览器读取`)
+        }
       }
     }
 
@@ -1931,6 +1975,10 @@ class FeishuBridge {
       const channelId = this.botConfig.defaultChannelId || latestSettings.agentChannelId || binding.channelId
       const modelId = this.botConfig.defaultModelId || latestSettings.agentModelId || binding.modelId
 
+      // 稿件审核消息：注入 mentionedSkills 让编排层提示 Agent 主动调用 ma-draft-review Skill，
+      // 使完整 SKILL 正文（含 Step 2.5 落盘要求）进入 Agent 上下文——与 bridge 确定性落盘构成双保险
+      const isDraftMsg = this.isDraftReviewMessage(userText, hasAnyAttachment || !!docxDraft)
+
       const input: AgentSendInput = {
         sessionId: binding.sessionId,
         userMessage: agentMessage,
@@ -1940,6 +1988,7 @@ class FeishuBridge {
         permissionModeOverride: 'bypassPermissions',
         isHeadless: true,
         ...(customMcpServers && { customMcpServers }),
+        ...(isDraftMsg ? { mentionedSkills: ['ma-draft-review'] } : {}),
       }
 
       runAgentHeadless(input, {
