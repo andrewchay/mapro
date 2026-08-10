@@ -1914,6 +1914,13 @@ class FeishuBridge {
         // 注入本群审核口径 + 已落盘单达人 brief（仅稿件审核特征消息；由系统确定性注入，
         // 不依赖 Agent 从 SKILL 记忆或主动读文件，审核判定最高优先依据）
         if (this.isDraftReviewMessage(userText, hasAnyAttachment || !!docxDraft)) {
+          // 注入工作区根绝对路径：Agent 兜底落盘（SKILL Step 2.5 版本存档 / Step 3 brief 命中落盘）必须以该路径为唯一根基准，
+          // 与 bridge 确定性落盘目录一致（Agent 的 <working_directory> 是会话目录，SKILL 相对路径 workspace-files/ 会解析到会话目录、导致工作区看不到）
+          if (workspace) {
+            contextParts.push(
+              `[工作区根路径: ${getWorkspaceFilesDir(workspace.slug)}]（本群所有落盘以该绝对路径为唯一根基准：draft-archives/、draft-review-state.jsonl、briefs/；禁止使用相对路径 workspace-files/ 落到会话目录）`,
+            )
+          }
           const standard = this.getAuditStandard(chatId)
           contextParts.push(`[本群审核口径: ${standard.content}]（审核判定时本口径优先于 brief 旧措辞）`)
           // 审核硬约束（与 ma-draft-review SKILL Step 6/格式细节一致，系统确定性注入避免 Agent 自由发挥）：
