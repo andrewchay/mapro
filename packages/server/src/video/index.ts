@@ -10,3 +10,5 @@
 export * from './storyboard-engine'
 export * from './video-generation-service'
 export * from './video-composition-service'
+export * from './video-pipeline-orchestrator'
+export * from './frame-generator'
