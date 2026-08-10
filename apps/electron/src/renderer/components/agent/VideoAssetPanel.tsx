@@ -6,7 +6,7 @@
  */
 
 import * as React from 'react'
-import { Clapperboard, RefreshCw, FolderOpen, Loader2, ExternalLink } from 'lucide-react'
+import { Clapperboard, RefreshCw, FolderOpen, Loader2, ExternalLink, Trash2, PencilLine, Check, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -52,6 +52,8 @@ export function VideoAssetPanel({ campaignId, onSendToAssistant }: VideoAssetPan
   const [assets, setAssets] = React.useState<VideoAssetEntry[]>([])
   const [loading, setLoading] = React.useState(true)
   const [expanded, setExpanded] = React.useState<string | null>(null)
+  const [editingName, setEditingName] = React.useState<string | null>(null)
+  const [draftName, setDraftName] = React.useState('')
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -83,6 +85,50 @@ export function VideoAssetPanel({ campaignId, onSendToAssistant }: VideoAssetPan
       await window.electronAPI.openFile(path)
     } catch {
       toast.error('无法打开文件')
+    }
+  }
+
+  const handleDelete = async (asset: VideoAssetEntry) => {
+    try {
+      const ok = await window.electronAPI.deleteVideoAsset(campaignId, asset.path)
+      if (ok) {
+        setAssets((prev) => prev.filter((a) => a.path !== asset.path))
+        toast.success('已删除视频素材')
+      } else {
+        toast.error('删除失败')
+      }
+    } catch {
+      toast.error('删除失败')
+    }
+  }
+
+  const startRename = (asset: VideoAssetEntry) => {
+    setEditingName(asset.path)
+    setDraftName(asset.name.replace(/\.[^.]+$/, ''))
+  }
+
+  const commitRename = async () => {
+    if (!editingName) return
+    const target = editingName
+    try {
+      const res = await window.electronAPI.renameVideoAsset(campaignId, target, draftName)
+      if (res.success && res.path) {
+        setAssets((prev) =>
+          prev.map((a) =>
+            a.path === target
+              ? { ...a, name: res.path!.split('/').pop() ?? a.name, path: res.path! }
+              : a,
+          ),
+        )
+        toast.success('已重命名')
+      } else {
+        toast.error(res.error ?? '重命名失败')
+      }
+    } catch (e) {
+      toast.error('重命名失败')
+    } finally {
+      setEditingName(null)
+      setDraftName('')
     }
   }
 
@@ -155,9 +201,30 @@ export function VideoAssetPanel({ campaignId, onSendToAssistant }: VideoAssetPan
                   {/* 素材信息 */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium truncate" title={asset.name}>
-                        {asset.name}
-                      </span>
+                      {editingName === asset.path ? (
+                        <>
+                          <input
+                            autoFocus
+                            value={draftName}
+                            onChange={(e) => setDraftName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') void commitRename()
+                              if (e.key === 'Escape') { setEditingName(null); setDraftName('') }
+                            }}
+                            className="text-sm bg-background border border-border rounded px-1.5 py-0.5 w-40 focus:outline-none focus:border-primary"
+                          />
+                          <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-emerald-600" onClick={() => void commitRename()}>
+                            <Check size={13} />
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" onClick={() => { setEditingName(null); setDraftName('') }}>
+                            <X size={13} />
+                          </Button>
+                        </>
+                      ) : (
+                        <span className="text-sm font-medium truncate" title={asset.name}>
+                          {asset.name}
+                        </span>
+                      )}
                       {engine && (
                         <span className={cn('text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0', engine.tone)}>
                           {engine.label}
@@ -190,6 +257,24 @@ export function VideoAssetPanel({ campaignId, onSendToAssistant }: VideoAssetPan
                       >
                         <ExternalLink size={12} className="mr-1" />
                         打开
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs text-muted-foreground hover:text-primary"
+                        onClick={() => startRename(asset)}
+                      >
+                        <PencilLine size={12} className="mr-1" />
+                        重命名
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs text-muted-foreground hover:text-red-600"
+                        onClick={() => void handleDelete(asset)}
+                      >
+                        <Trash2 size={12} className="mr-1" />
+                        删除
                       </Button>
                     </div>
                   </div>

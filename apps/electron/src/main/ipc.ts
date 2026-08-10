@@ -170,6 +170,8 @@ import {
 } from './lib/campaign-workflow-service'
 import {
   listVideoAssets,
+  deleteVideoAsset,
+  renameVideoAsset,
 } from './lib/video-asset-service'
 import {
   listChannels,
@@ -4054,6 +4056,30 @@ export function registerIpcHandlers(): void {
     VIDEO_ASSET_IPC_CHANNELS.LIST,
     async (_, campaignId: string): Promise<import('./lib/video-asset-service').VideoAssetEntry[]> => {
       return listVideoAssets(campaignId)
+    }
+  )
+
+  ipcMain.handle(
+    VIDEO_ASSET_IPC_CHANNELS.DELETE,
+    async (_, campaignId: string, filePath: string): Promise<boolean> => {
+      try {
+        return await deleteVideoAsset(campaignId, filePath)
+      } catch (e) {
+        console.error('[视频素材] 删除失败:', e)
+        return false
+      }
+    }
+  )
+
+  ipcMain.handle(
+    VIDEO_ASSET_IPC_CHANNELS.RENAME,
+    async (_, campaignId: string, filePath: string, newName: string): Promise<{ success: boolean; path?: string; error?: string }> => {
+      try {
+        const p = await renameVideoAsset(campaignId, filePath, newName)
+        return { success: !!p, path: p ?? undefined }
+      } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : String(e) }
+      }
     }
   )
 }

@@ -6,7 +6,7 @@
  */
 
 import { existsSync, readdirSync, statSync } from 'node:fs'
-import { join, basename, extname, resolve } from 'node:path'
+import { join, basename, dirname, extname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { listAgentWorkspaces } from './agent-workspace-manager'
 import { getAgentWorkspacePath } from './config-paths'
@@ -136,3 +136,65 @@ export function formatDuration(seconds: number): string {
 }
 
 export { basename }
+
+// ============================================================
+// 写操作：删除 / 重命名
+// ============================================================
+
+/**
+ * 校验路径是否位于该 Campaign 的 video-assets 目录内（防路径穿越）
+ * @returns 合法的规范绝对路径，否则抛出 Error
+ */
+function assertInsideVideoAssets(campaignId: string, filePath: string): string {
+  const assetsRoot = join(getCampaignArtifactsRoot(campaignId), 'video-assets')
+  const resolved = resolve(filePath)
+  if (!resolved.startsWith(assetsRoot)) {
+    throw new Error('路径不在 video-assets 目录内')
+  }
+  return resolved
+}
+
+/**
+ * 删除一个视频素材文件
+ * @returns 是否删除成功
+ */
+export async function deleteVideoAsset(campaignId: string, filePath: string): Promise<boolean> {
+  const target = assertInsideVideoAssets(campaignId, filePath)
+  const { unlink } = await import('node:fs/promises')
+  if (!existsSync(target)) return false
+  try {
+    await unlink(target)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 重命名一个视频素材文件（仅改文件名，不移动子目录）
+ * @returns 新路径；文件不存在返回 null
+ */
+export async function renameVideoAsset(
+  campaignId: string,
+  filePath: string,
+  newName: string,
+): Promise<string | null> {
+  const target = assertInsideVideoAssets(campaignId, filePath)
+  const { rename } = await import('node:fs/promises')
+
+  // 只允许重命名文件名（同一目录内），新名称去空白且不能含路径分隔符
+  const clean = newName.trim()
+  if (!clean || clean.includes('/') || clean.includes('\\')) {
+    throw new Error('新文件名不合法')
+  }
+  const oldExt = extname(target)
+  // 若用户没带扩展名，自动补原扩展名
+  const finalName = extname(clean) ? clean : `${clean}${oldExt}`
+  const newPath = join(dirname(target), finalName)
+
+  if (!existsSync(target)) return null
+  if (existsSync(newPath)) throw new Error('同名文件已存在')
+
+  await rename(target, newPath)
+  return newPath
+}

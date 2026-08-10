@@ -1027,6 +1027,10 @@ export interface ElectronAPI {
 
   /** 列出 Campaign 的广告视频素材 */
   listVideoAssets: (campaignId: string) => Promise<import('../main/lib/video-asset-service').VideoAssetEntry[]>
+  /** 删除视频素材 */
+  deleteVideoAsset: (campaignId: string, filePath: string) => Promise<boolean>
+  /** 重命名视频素材 */
+  renameVideoAsset: (campaignId: string, filePath: string, newName: string) => Promise<{ success: boolean; path?: string; error?: string }>
 
   // ===== KOL 数据管理 =====
 
@@ -2322,6 +2326,14 @@ const electronAPI: ElectronAPI = {
 
   listVideoAssets: (campaignId: string) => {
     return ipcRenderer.invoke(VIDEO_ASSET_IPC_CHANNELS.LIST, campaignId)
+  },
+
+  deleteVideoAsset: (campaignId: string, filePath: string) => {
+    return ipcRenderer.invoke(VIDEO_ASSET_IPC_CHANNELS.DELETE, campaignId, filePath)
+  },
+
+  renameVideoAsset: (campaignId: string, filePath: string, newName: string) => {
+    return ipcRenderer.invoke(VIDEO_ASSET_IPC_CHANNELS.RENAME, campaignId, filePath, newName)
   },
 
   // ===== KOL 数据管理 =====

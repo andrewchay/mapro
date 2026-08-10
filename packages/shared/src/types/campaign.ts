@@ -416,11 +416,8 @@ export interface CreateVideoAssetInput {
 /** 视频素材 IPC 通道 */
 export const VIDEO_ASSET_IPC_CHANNELS = {
   LIST: 'videoAsset:list',
-  GET: 'videoAsset:get',
-  CREATE: 'videoAsset:create',
-  GENERATE: 'videoAsset:generate',
-  UPDATE_STATUS: 'videoAsset:updateStatus',
   DELETE: 'videoAsset:delete',
+  RENAME: 'videoAsset:rename',
 } as const
 
 /** 工作流步骤状态 */
