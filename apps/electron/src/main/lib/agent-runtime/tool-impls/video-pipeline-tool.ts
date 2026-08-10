@@ -97,6 +97,29 @@ interface VideoPipelineInput {
   baseUrl?: string
 }
 
+/**
+ * 解析首帧图生成所需的 Proma Cloud 图片凭据（运行时自动获取）。
+ * 优先级：显式参数 → 环境变量。
+ * 环境变量支持：
+ *   PROMA_CLOUD_API_KEY / PROMA_CLOUD_BASE_URL
+ *   MAPRO_IMAGE_API_KEY / MAPRO_IMAGE_BASE_URL（更通用的别名）
+ * 若都未配置返回 null（此时跳过首帧图，回退为文生视频）。
+ */
+function resolveImageCredentials(p: VideoPipelineInput): { apiKey: string; baseUrl: string } | null {
+  const apiKey =
+    p.apiKey ||
+    process.env.PROMA_CLOUD_API_KEY ||
+    process.env.MAPRO_IMAGE_API_KEY ||
+    ''
+  const baseUrl =
+    p.baseUrl ||
+    process.env.PROMA_CLOUD_BASE_URL ||
+    process.env.MAPRO_IMAGE_BASE_URL ||
+    ''
+  if (!apiKey || !baseUrl) return null
+  return { apiKey, baseUrl }
+}
+
 export async function executeVideoPipelineTool(
   input: unknown,
   ctx: ToolContext,
@@ -134,18 +157,31 @@ export async function executeVideoPipelineTool(
     const storyboard: Storyboard = generateStoryboard(videoInput)
 
     // 2. 可选：为首帧帧图生成（供 image_to_video 镜头）
-    const framesDir = p.assetsRoot + '/video-assets/frames'
-    if (p.generateFrames !== false && p.apiKey && p.baseUrl) {
+    //    凭据运行时自动获取：显式参数 → 环境变量。无凭据则跳过首帧图，回退为文生视频。
+    const imageCreds = resolveImageCredentials(p)
+    let framesNotes = '未生成首帧图'
+    if (p.generateFrames !== false && imageCreds) {
+      const framesDir = p.assetsRoot + '/video-assets/frames'
       const frameRequests = storyboard.shots
         .filter((s) => s.generationMethod === 'image_to_video')
         .map((s) => ({ shotId: s.shotId, prompt: s.firstFramePrompt }))
       if (frameRequests.length > 0) {
-        await generateFrames(frameRequests, framesDir, {
-          apiKey: p.apiKey,
-          baseUrl: p.baseUrl,
+        const results = await generateFrames(frameRequests, framesDir, {
+          apiKey: imageCreds.apiKey,
+          baseUrl: imageCreds.baseUrl,
           concurrency: 2,
         })
+        const ok = results.filter((r) => r.success).length
+        if (ok > 0) {
+          framesNotes = `首帧图生成成功 ${ok}/${frameRequests.length} 张（${framesDir}）`
+        } else {
+          framesNotes = `首帧图生成失败 ${ok}/${frameRequests.length}`
+        }
       }
+    } else if (p.generateFrames !== false && !imageCreds) {
+      framesNotes = '无 Proma Cloud 图片凭据（未配置 PROMA_CLOUD_API_KEY/BASE_URL），已跳过首帧图，回退为文生视频' +
+        '。如需提升画面一致性，可先调用 mcp__proma-cloud__get_credentials 获取凭据' +
+        '（或将 key/base url 配到环境变量 PROMA_CLOUD_*）后重试。'
     }
 
     // 3. 逐镜生成 + 拼接成片
@@ -176,7 +212,8 @@ export async function executeVideoPipelineTool(
       content:
         `✅ 视频成片生成完成\n\n` +
         `成片路径：${pipelineResult.finalVideoPath}\n` +
-        `分镜片段数：${pipelineResult.rawVideoPaths.length}\n\n` +
+        `分镜片段数：${pipelineResult.rawVideoPaths.length}\n` +
+        `首帧图：${framesNotes}\n\n` +
         `分镜详情：\n${shotsInfo}`,
       isError: false,
     }
