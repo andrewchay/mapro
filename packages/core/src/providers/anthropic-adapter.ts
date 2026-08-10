@@ -290,6 +290,15 @@ export class AnthropicAdapter implements ProviderAdapter {
    * - User-Agent 必须是真实 coding agent 身份（如 KimiCLI/1.3）
    */
   private buildHeaders(apiKey: string): Record<string, string> {
+    // 防御：API Key 若含非 ASCII 字符（如复制损坏的 U+FFFD �），undici 转 ByteString(header) 会崩，
+    // 这里提前暴露可读错误，避免底层报“Cannot convert argument to a ByteString”。
+    const badIdx = [...apiKey].findIndex((c) => c.codePointAt(0)! > 255)
+    if (badIdx >= 0) {
+      const ch = String.fromCodePoint(apiKey.codePointAt(badIdx)!)
+      throw new Error(
+        `API Key 包含非法字符（第 ${badIdx + 1} 位「${ch}」，无法转字节），请到 MAPro 设置重新粘贴正确的 API Key（应为纯 ASCII/英文数字）。`,
+      )
+    }
     const base: Record<string, string> = {
       'anthropic-version': '2023-06-01',
       'content-type': 'application/json',

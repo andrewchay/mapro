@@ -41,7 +41,7 @@ import type { ClaudeAgentQueryOptions } from './adapters/claude-agent-adapter'
 import { isPromptTooLongError, isThinkingSignatureError, friendlyErrorMessage, mapSDKErrorToTypedError, extractErrorDetails, shouldKeepChannelOpen } from './adapters/claude-agent-adapter'
 import { ProviderAgnosticAgentAdapter, type ProviderAgnosticAgentQueryOptions } from './adapters/provider-agnostic-agent-adapter'
 import type { PiAgentQueryOptions } from './adapters/pi-agent-adapter'
-import { isTransientNetworkError } from './error-patterns'
+import { isTransientNetworkError, isAuthorizationFailure, isTimeoutLikeError } from './error-patterns'
 import type { AgentEventBus } from './agent-event-bus'
 import { decryptApiKey, getChannelById, listChannels } from './channel-manager'
 import { getAdapter, fetchTitle, normalizeAnthropicBaseUrlForSdk } from '@ma-proma/core'
@@ -158,7 +158,14 @@ function isAutoRetryableCatchError(
   rawErrorMessage?: string,
   stderr?: string,
 ): boolean {
+  // 鉴权类错误（401/403）永不重试：重试只会反复拿同样的错误，而用户真正看到的是“一直在转”。
+  // 即使 extractApiError 未解析出 apiError（例如 adapter 直接 throw 的 JS Error），
+  // 也通过错误文本兜底识别，保证“API Key 无效”能直接透出而不是被吞进重试循环。
+  if (isAuthorizationFailure(rawErrorMessage, stderr)) {
+    return false
+  }
   if (apiError) {
+    if (apiError.statusCode === 401 || apiError.statusCode === 403) return false
     // 529 是 Anthropic 的过载状态码，通常很快恢复；与 429 / 5xx 一并重试。
     if (apiError.statusCode === 429 || apiError.statusCode >= 500) return true
   }
@@ -189,6 +196,9 @@ function isSessionNotFoundError(errorMessage: string, stderr?: string): boolean 
 
 /** 最大自动重试次数 */
 const MAX_AUTO_RETRIES = 25
+
+/** 超时/停滞类错误（ETIMEDOUT 等）连续重试上限：此类重试无意义，超过后直接透出错误 */
+const MAX_TIMEOUT_RETRIES = 3
 
 /** 自动重试累计等待预算（毫秒） */
 const MAX_AUTO_RETRY_WAIT_MS = 5 * 60_000
@@ -1683,13 +1693,21 @@ export class AgentOrchestrator {
         return
       }
 
+      // modelId 兜底：前端/会话可能未传模型（如从 Campaign 按钮触发的 Agent 消息），
+      // 空 model 会让部分 OpenAI 兼容渠道报“you passed .”400。用当前渠道的启用模型补齐。
+      const resolvedModelId =
+        modelId ||
+        channel?.models?.find((m) => m.enabled)?.id ||
+        channel?.models?.[0]?.id ||
+        ''
+
       if (effectiveAgentRuntime === 'pi') {
         await this.runPiAgent({
           sessionId,
           channelId: effectiveChannelId,
           workspaceId,
           userMessage: contextualMessage,
-          modelId,
+          modelId: resolvedModelId,
           provider: channel.provider,
           apiKey,
           baseUrl: channel.baseUrl,
@@ -1709,7 +1727,7 @@ export class AgentOrchestrator {
         channelId: effectiveChannelId,
         workspaceId,
         userMessage: contextualMessage,
-        modelId,
+        modelId: resolvedModelId,
         provider: channel.provider,
         adapterProvider,
         apiKey,
@@ -2213,6 +2231,9 @@ export class AgentOrchestrator {
       let skipNextRetryDelay = false
       let thinkingSignatureRecoveryAttempted = false
       let invisibleRecoveryAttempts = 0
+      // 超时/停滞类错误（ETIMEDOUT 等）连续计数：这类错误表示上游长时间无有效数据，
+      // 无限重试只会让用户看到“一直转圈”。超过上限后直接终止并透出明确错误。
+      let timeoutRetryCount = 0
       const canAutoRetry = (attempt: number): boolean =>
         attempt <= MAX_AUTO_RETRIES && retryDelayElapsedMs < MAX_AUTO_RETRY_WAIT_MS
 
@@ -2585,8 +2606,13 @@ export class AgentOrchestrator {
             continue  // 进入下一次 retry 循环
           }
 
-          // 判断是否可重试
-          if (isAutoRetryableCatchError(apiError, rawErrorMessage, stderrOutput) && canAutoRetry(attempt)) {
+          // 判断是否可重试（超时/停滞类错误限制重试次数，避免“一直转圈”）
+          const isTimeoutLike = isTimeoutLikeError(rawErrorMessage, stderrOutput)
+          if (isTimeoutLike) {
+            timeoutRetryCount += 1
+          }
+          const timeoutRetryExhausted = timeoutRetryCount > MAX_TIMEOUT_RETRIES
+          if (isAutoRetryableCatchError(apiError, rawErrorMessage, stderrOutput) && canAutoRetry(attempt) && !timeoutRetryExhausted) {
             lastRetryableError = apiError
               ? `API Error ${apiError.statusCode}: ${apiError.message}`
               : (error instanceof Error ? error.message : '未知错误')
@@ -2615,9 +2641,30 @@ export class AgentOrchestrator {
 
           let userFacingError: string
           if (apiError) {
-            userFacingError = friendlyErrorMessage(`API 错误 (${apiError.statusCode}):\n${apiError.message}`)
+            // 鉴权类错误透出明确提示，避免用户误以为“能跑但没反应”
+            if (apiError.statusCode === 401 || apiError.statusCode === 403 || isAuthorizationFailure(apiError.message)) {
+              userFacingError =
+                `API Key 无效或未授权（HTTP ${apiError.statusCode}）：${friendlyErrorMessage(apiError.message)}。\n` +
+                `请在 MAPro 设置中检查当前渠道的 API Key 是否正确，或切换到其他渠道/模型后重试。`
+            } else if (timeoutRetryExhausted) {
+              userFacingError =
+                `模型上游长时间无响应（连续 ${MAX_TIMEOUT_RETRIES} 次超时未返回有效数据）。\n` +
+                `请检查网络、当前渠道/模型是否可用，或重新发起尝试。`
+            } else {
+              userFacingError = friendlyErrorMessage(`API 错误 (${apiError.statusCode}):\n${apiError.message}`)
+            }
           } else {
-            userFacingError = friendlyErrorMessage(errorMessage)
+            if (isAuthorizationFailure(errorMessage)) {
+              userFacingError =
+                `API Key 无效或未授权：${friendlyErrorMessage(errorMessage)}。\n` +
+                `请在 MAPro 设置中检查当前渠道的 API Key，或切换到其他渠道/模型后重试。`
+            } else if (timeoutRetryExhausted) {
+              userFacingError =
+                `模型上游长时间无响应（连续 ${MAX_TIMEOUT_RETRIES} 次超时未返回有效数据）。\n` +
+                `请检查网络、当前渠道/模型是否可用，或切换渠道后重新发起。`
+            } else {
+              userFacingError = friendlyErrorMessage(errorMessage)
+            }
           }
 
           // 保存错误消息到 JSONL

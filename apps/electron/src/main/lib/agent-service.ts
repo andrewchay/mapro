@@ -162,10 +162,17 @@ export async function runAgent(
   try {
     await orchestrator.sendMessage(effectiveInput, {
       onError: (error) => {
+        // 把错误规范为含堆栈的字符串，便于在 renderer / 终端精确定位（避免仅收到无堆栈的 message）
+        const e = error as { message?: unknown; stack?: unknown }
+        const errText =
+          e && typeof e === 'object' && 'message' in e
+            ? `${String(e.message)}\n${typeof e.stack === 'string' ? e.stack : ''}`
+            : String(error)
+        console.error('[Agent 服务] Agent 流式错误:', errText)
         if (!webContents.isDestroyed()) {
           webContents.send(AGENT_IPC_CHANNELS.STREAM_ERROR, {
             sessionId: effectiveInput.sessionId,
-            error,
+            error: errText,
           })
         }
       },
@@ -310,11 +317,18 @@ export async function runAgentHeadless(
     await orchestrator.sendMessage(input, {
       onError: (error) => {
         callbacks.onError(error)
+        // 规范为含堆栈的字符串，便于 renderer / 终端精确定位
+        const e = error as { message?: unknown; stack?: unknown }
+        const errText =
+          e && typeof e === 'object' && 'message' in e
+            ? `${String(e.message)}\n${typeof e.stack === 'string' ? e.stack : ''}`
+            : String(error)
+        console.error('[Agent 服务] Agent 流式错误:', errText)
         // 同步到渲染进程
         if (wc && !wc.isDestroyed()) {
           wc.send(AGENT_IPC_CHANNELS.STREAM_ERROR, {
             sessionId: input.sessionId,
-            error,
+            error: errText,
           })
         }
       },

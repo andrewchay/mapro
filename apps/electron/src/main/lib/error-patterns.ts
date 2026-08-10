@@ -16,3 +16,27 @@ export function isTransientNetworkError(message?: string, stderr?: string): bool
     (!!stderr && TRANSIENT_NETWORK_PATTERN.test(stderr))
   )
 }
+
+/**
+ * 鉴权失败模式：命中即视为 API Key/凭据无效，永不自动重试，应直接透出给用户。
+ * 不重试的原因：401/403 重试只会反复拿到同样的错误，反而让用户误以为“一直在转”。
+ */
+export const AUTHORIZATION_FAILURE_PATTERN =
+  /401|403|Unauthoriz|authentication\s*fail|Invalid\s*(?:API\s*Key|key)|api\s*key.*(?:invalid|wrong)|wrong\s*key|token.*(?:invalid|expired)|invalid\s*token|apikey.*(?:invalid|not\s*found)/i
+
+/** 判断错误是否为鉴权类失败（API Key 无效 / 未授权） */
+export function isAuthorizationFailure(message?: string, stderr?: string): boolean {
+  return AUTHORIZATION_FAILURE_PATTERN.test(`${message ?? ''}\n${stderr ?? ''}`)
+}
+
+/**
+ * 超时/停滞类错误模式：上游长时间无有效数据（连接超时、流空闲、挂起等）。
+ * 这类错误连续重试无意义，应限制重试次数后透出明确错误，避免“一直转圈”。
+ */
+export const TIMEOUT_LIKE_PATTERN =
+  /ETIMEDOUT|timed\s*out|timeout|超时|freeze|hang|stall|无有效数据|空闲/i
+
+/** 判断错误是否为超时/停滞类（应限制重试次数） */
+export function isTimeoutLikeError(message?: string, stderr?: string): boolean {
+  return TIMEOUT_LIKE_PATTERN.test(`${message ?? ''}\n${stderr ?? ''}`)
+}

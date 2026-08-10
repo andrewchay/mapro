@@ -207,7 +207,7 @@ export async function streamSSE(options: StreamSSEOptions): Promise<StreamSSERes
       const { done, value } = await readWithStallTimeout()
       if (done) break
 
-      buffer += decoder.decode(value, { stream: true })
+      buffer += decoder.decode(value, { stream: true }).replace(/\uFFFD/g, '')
       const lines = buffer.split('\n')
       // 保留最后一个可能不完整的行
       buffer = lines.pop() || ''
