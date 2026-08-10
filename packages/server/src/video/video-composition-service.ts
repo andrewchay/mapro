@@ -1,6 +1,7 @@
 import { writeFile, rm, readFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { join } from 'node:path'
 
 const execFileAsync = promisify(execFile)
 
@@ -471,6 +472,161 @@ function formatSize(bytes: number): string {
   }
 
   return `${size.toFixed(2)} ${units[unitIndex]}`;
+}
+
+// ============================================================
+// 终版渲染（字幕 burn-in + BGM + 多平台导出）
+// ============================================================
+
+/**
+ * 检查 ffmpeg 是否内置指定滤镜（如 subtitles/drawtext）
+ */
+async function hasFilter(filterName: string): Promise<boolean> {
+  try {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const execFileAsync = promisify(execFile);
+    const { stdout } = await execFileAsync("ffmpeg", ["-filters"]);
+    return new RegExp(`^ *\.{1,2} *${filterName}`).test(stdout);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 终版渲染：把多个分镜片段合成交付成片（字幕 burn-in + BGM + 多平台导出）。
+ *
+ * 采用分阶段方法（比单个巨型 filter_complex 更稳健）：
+ *   Stage 1: 拼接分镜（scale+pad 统一分辨率、re-encode）→ tmp.concat.mp4
+ *   Stage 2: 字幕 burn-in 到画面 → tmp.sub.mp4（可选，依赖 ffmpeg 带 libass）
+ *   Stage 3: BGM 混入音轨 → 最终成片（可选）
+ */
+export async function renderFinalVideo(
+  config: VideoCompositionConfig
+): Promise<CompositionResult> {
+  try {
+    const validationError = validateInputs(config);
+    if (validationError) return { success: false, error: validationError };
+
+    if (!(await checkFFmpeg())) {
+      return { success: false, error: "FFmpeg 未安装，请先安装 FFmpeg: https://ffmpeg.org/download.html" };
+    }
+
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const { tmpdir } = await import("node:os");
+    const { randomBytes } = await import("node:crypto");
+    const execFileAsync = promisify(execFile);
+
+    const format = config.outputFormat || DEFAULT_OUTPUT_FORMAT;
+    const [width, height] = format.resolution.split("x");
+    const tag = randomBytes(4).toString("hex");
+    const tmpRoot = tmpdir();
+    const concatPath = join(tmpRoot, `mapro-concat-${tag}.mp4`);
+    const subPath = join(tmpRoot, `mapro-sub-${tag}.mp4`);
+    const finalPath = config.outputPath;
+
+    // ── Stage 0: 生成 concat 文件列表 ──
+    const concatFile = join(tmpRoot, `mapro-concat-list-${tag}.txt`);
+    const concatPayload = config.inputVideos.map((p) => `file '${p}'`).join("\n");
+    await writeFile(concatFile, concatPayload);
+
+    // ── Stage 1: 拼接并统一分辨率（re-encode）──
+    // scale + pad 到目标分辨率，避免不同尺寸分镜拼接时报错
+    const vfFilter =
+      `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,` +
+      `setsar=1,fps=${format.fps ?? 30}`;
+    await execFileAsync(
+      "ffmpeg",
+      [
+        "-y", "-f", "concat", "-safe", "0", "-i", concatFile,
+        "-vf", vfFilter,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-b:v", format.videoBitrate ?? "5000k",
+        "-r", String(format.fps ?? 30),
+        "-pix_fmt", "yuv420p",
+        concatPath,
+      ],
+      { timeout: 5 * 60_000 },
+    );
+
+    // ── Stage 2: 字幕 burn-in（可选，需 ffmpeg 内置 libass/subtitles 滤镜）──
+    let current = concatPath;
+    if (config.subtitlePath) {
+      const subtitlesAvailable = await hasFilter("subtitles");
+      if (!subtitlesAvailable) {
+        // 环境缺少 libass，无法 burn-in；降级为保留字幕文件并由调用方决定
+        console.warn("[renderFinalVideo] 当前 ffmpeg 无 subtitles 滤镜，跳过字幕 burn-in（字幕文件仍保留为 .srt）");
+      } else {
+        await execFileAsync(
+          "ffmpeg",
+          [
+            "-y", "-i", concatPath,
+            "-vf",
+            `subtitles='${config.subtitlePath}':force_style='FontSize=22,PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,BorderStyle=1,Outline=2,Alignment=2'`,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "copy",
+            subPath,
+          ],
+          { timeout: 5 * 60_000 },
+        );
+        current = subPath;
+      }
+    }
+
+    // ── Stage 3: BGM 混入 + 最终编码（可选）──
+    if (config.bgmPath) {
+      // 默认 BGM 压低到 20% 音量铺底（concat 已含音轨，直接混入）
+      await execFileAsync(
+        "ffmpeg",
+        [
+          "-y", "-i", current, "-i", config.bgmPath,
+          "-filter_complex",
+          "[1:a]volume=0.2[bgm];[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[outa]",
+          "-map", "0:v", "-map", "[outa]",
+          "-c:v", "copy",
+          "-c:a", "aac", "-b:a", format.audioBitrate ?? "128k",
+          finalPath,
+        ],
+        { timeout: 5 * 60_000 },
+      );
+    } else {
+      // 无 BGM：直接复制字幕后的文件（Stage 2 已含 burn-in）到最终路径
+      const { copyFileSync } = await import("node:fs");
+      copyFileSync(current, finalPath);
+    }
+
+    // 清理临时文件
+    await cleanup(concatFile);
+    await cleanup(concatPath);
+    await cleanup(subPath);
+
+    const videoInfo = await getVideoInfo(finalPath);
+    return { success: true, outputPath: finalPath, videoInfo };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * BGM 音乐匹配建议（简易规则：按平台给 BGM 类型建议）
+ */
+// ============================================================
+// 平台适配输出
+// ============================================================
+
+/**
+ * BGM 音乐匹配建议（简易规则：按视频节奏/平台给 BGM 类型建议）
+ */
+export function suggestBgm(platform: string, emotionalArc?: string[]): { type: string; mood: string; bpm: string } {
+  const map: Record<string, { type: string; mood: string; bpm: string }> = {
+    douyin: { type: "电子/卡点", mood: "快节奏、强节拍", bpm: "120-140" },
+    xiaohongshu: { type: "软流行/轻快", mood: "自然、有温度", bpm: "90-110" },
+    bilibili: { type: "背景铺底", mood: "不抢主体、留白", bpm: "80-100" },
+    weibo: { type: "流行/氛围", mood: "时尚、精致", bpm: "100-120" },
+  };
+  const base = map[platform] ?? map.xiaohongshu!;
+  return base;
 }
 
 // ============================================================
