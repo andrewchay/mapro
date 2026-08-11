@@ -116,6 +116,16 @@ interface DraftReviewStateRecord {
   ts: number
 }
 
+/** 稿件审核反馈 CSV 待写入记录（session 完成时与 bot 回复一并落盘到工作区 draft-review-feedback.csv） */
+interface PendingDraftFeedback {
+  /** 达人名 */
+  influencer: string
+  /** 稿件文字部分（docx 内容 / 文件抽取文本 / 消息文本，兜底从归档补全） */
+  textPart: string
+  /** 稿件图片部分（飞书图片附件文件名列表，无则空） */
+  imagePart: string
+}
+
 /**
  * 群角色名单（用户手动维护，按群隔离）
  *
@@ -195,6 +205,8 @@ class FeishuBridge {
   private pendingImages = new Map<string, FeishuImageAttachment[]>()
   /** chatId → 待合并的文件（纯文件消息暂存，等待后续文本一起发送） */
   private pendingFiles = new Map<string, FeishuFileAttachment[]>()
+  /** sessionId → 待写入 CSV 的稿件审核反馈（稿件信息在 handleUserMessage 收集，bot 回复在 session 完成时写入工作区 CSV） */
+  private pendingDraftFeedback = new Map<string, PendingDraftFeedback>()
 
   /** chatId → 最近收到的用户消息 ID（用于群聊 thread reply） */
   private lastUserMessageId = new Map<string, string>()
@@ -354,6 +366,7 @@ class FeishuBridge {
     this.lastNicknameFetchAt.clear()
     this.groupRoleCache.clear()
     this.auditStandardCache.clear()
+    this.pendingDraftFeedback.clear()
     this.defaultNotifyChatId = null
     this.botOpenId = null
 
@@ -771,6 +784,78 @@ class FeishuBridge {
     } catch (error) {
       console.warn(`[飞书 Bridge] 稿件入库失败:`, error)
       return Promise.resolve(null)
+    }
+  }
+
+  /**
+   * 读取指定达人的最新归档全文（draft-archives/{达人名}/{达人名}_v{N}.md，N 最大）
+   *
+   * 用于 CSV"稿件文字部分"兜底：bridge 未能读到稿件正文（如云文档 API 读取降级）时，
+   * 从 Agent 兜底落盘的归档补全文字内容。
+   */
+  private readLatestDraftArchive(workspaceSlug: string, influencer: string): string | null {
+    if (!influencer || influencer === '未命名') return null
+    const dir = join(getWorkspaceFilesDir(workspaceSlug), 'draft-archives', influencer)
+    if (!existsSync(dir)) return null
+    let files: string[]
+    try {
+      files = readdirSync(dir).filter((f) => f.endsWith('.md'))
+    } catch {
+      return null
+    }
+    if (files.length === 0) return null
+    const versionOf = (f: string) => {
+      const m = f.match(/_v(\d+)\.md$/)
+      return m ? Number(m[1]) : 0
+    }
+    files.sort((a, b) => versionOf(b) - versionOf(a))
+    const latest = files[0]
+    if (!latest) return null
+    try {
+      return readFileSync(join(dir, latest), 'utf-8')
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * 稿件审核反馈 CSV 落盘：session 完成时把（达人名称/稿件文字/稿件图片/bot 回复）追加到工作区 CSV
+   *
+   * - 文件路径：{工作区根}/draft-review-feedback.csv（绝对路径，与 bridge 其余落盘基准一致）
+   * - 表头：达人名称,稿件文字部分,稿件图片部分,bot回复审核内容（首次创建时写入，含 UTF-8 BOM 保证 Excel 中文不乱码）
+   * - 稿件文字部分兜底：bridge 未读到正文（云文档 API 降级，仅有链接文本）时从 draft-archives 最新归档补全
+   */
+  private recordDraftFeedbackCsv(sessionId: string, reply: string): void {
+    const pending = this.pendingDraftFeedback.get(sessionId)
+    this.pendingDraftFeedback.delete(sessionId)
+    if (!pending || !reply.trim()) return
+
+    const chatId = this.sessionToChat.get(sessionId)
+    const binding = chatId ? this.chatBindings.get(chatId) : undefined
+    const ws = binding?.workspaceId ? getAgentWorkspace(binding.workspaceId) : undefined
+    if (!ws) return
+
+    // 稿件文字部分兜底：bridge 未读到正文（如云文档 API 读取降级，仅有链接文本）时，从 Agent 兜底落盘的归档读取全文
+    let textPart = pending.textPart
+    const looksLikePlaceholder = !textPart || textPart.length < 30 || /https?:\/\//.test(textPart)
+    if (looksLikePlaceholder) {
+      const archived = this.readLatestDraftArchive(ws.slug, pending.influencer)
+      if (archived) textPart = archived
+    }
+
+    const csvPath = join(getWorkspaceFilesDir(ws.slug), 'draft-review-feedback.csv')
+    const escapeCsvField = (value: string): string => {
+      const s = value ?? ''
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const line = `${escapeCsvField(pending.influencer)},${escapeCsvField(textPart)},${escapeCsvField(pending.imagePart)},${escapeCsvField(reply)}\n`
+    try {
+      const firstWrite = !existsSync(csvPath)
+      // 首次写入加 UTF-8 BOM（Excel 打开中文不乱码）+ 表头行
+      appendFileSync(csvPath, `${firstWrite ? '\uFEFF达人名称,稿件文字部分,稿件图片部分,bot回复审核内容\n' : ''}${line}`, 'utf-8')
+      console.log(`[飞书 Bridge] 已追加稿件审核反馈 CSV: ${csvPath}`)
+    } catch (error) {
+      console.warn(`[飞书 Bridge] 追加稿件审核反馈 CSV 失败:`, error)
     }
   }
 
@@ -1805,6 +1890,8 @@ class FeishuBridge {
     // 文档类文件（PDF/word/txt 等）额外提取正文文本注入，让 Agent 无需额外工具即可读取文件内容
     const attachedRefs: string[] = []
     const workspace = binding.workspaceId ? getAgentWorkspace(binding.workspaceId) : undefined
+    // 稿件文件抽取文本缓存（首个文档文件，用于审核反馈 CSV"稿件文字部分"）
+    let fileExtractedText = ''
     if (workspace) {
       for (const img of imageAttachments) {
         const savedPath = saveImageToSessionShared(
@@ -1822,6 +1909,7 @@ class FeishuBridge {
           try {
             const docText = await extractTextFromFile(savedPath)
             if (docText && docText.trim().length > 0) {
+              if (!fileExtractedText) fileExtractedText = docText
               attachedRefs.push(`【抽取自 ${file.fileName}】\n${docText.slice(0, 12000)}`)
             }
           } catch (docErr) {
@@ -1988,6 +2076,17 @@ class FeishuBridge {
       // 使完整 SKILL 正文（含 Step 2.5 落盘要求）进入 Agent 上下文——与 bridge 确定性落盘构成双保险
       const isDraftMsg = this.isDraftReviewMessage(userText, hasAnyAttachment || !!docxDraft)
 
+      // 稿件审核反馈 CSV：收集稿件信息（达人名/稿件文字/稿件图片），session 完成时与 bot 回复一并写入工作区 CSV
+      if (isDraftMsg && workspace) {
+        const docName = docxDraft?.name ?? fileAttachments[0]?.fileName ?? ''
+        const influencer = this.extractInfluencerName(userText, docName)
+        const textPart = docxDraft?.content ?? fileExtractedText ?? userText
+        const imagePart = imageAttachments.length > 0
+          ? imageAttachments.map((img) => `feishu-${img.imageKey}.${inferExtension(img.mediaType)}`).join('; ')
+          : ''
+        this.pendingDraftFeedback.set(binding.sessionId, { influencer, textPart, imagePart })
+      }
+
       const input: AgentSendInput = {
         sessionId: binding.sessionId,
         userMessage: agentMessage,
@@ -2079,6 +2178,7 @@ class FeishuBridge {
           this.sendCardMessage(chatId, buildErrorCard(`${prefix}${aMsg.error.message}`)).catch(console.error)
         }
         this.sessionBuffers.delete(sessionId)
+        this.pendingDraftFeedback.delete(sessionId)
       }
     }
 
@@ -2252,6 +2352,9 @@ class FeishuBridge {
     if (chatId) {
       this.sendAgentReply(chatId, result).catch(console.error)
     }
+
+    // 稿件审核反馈 CSV：Agent 完成时把稿件信息 + bot 回复追加到工作区 CSV（绝对路径）
+    this.recordDraftFeedbackCsv(sessionId, cleanedText)
 
     this.sessionBuffers.delete(sessionId)
   }
