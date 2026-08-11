@@ -848,15 +848,32 @@ class FeishuBridge {
       const s = value ?? ''
       return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
     }
-    const line = `${escapeCsvField(pending.influencer)},${escapeCsvField(textPart)},${escapeCsvField(pending.imagePart)},${escapeCsvField(reply)}\n`
+    // 卡类型（红/黄/绿/审核失败）从 bot 回复模板中提取，放第一列
+    const verdict = this.extractDraftVerdict(reply)
+    const line = `${escapeCsvField(verdict)},${escapeCsvField(pending.influencer)},${escapeCsvField(textPart)},${escapeCsvField(pending.imagePart)},${escapeCsvField(reply)}\n`
     try {
       const firstWrite = !existsSync(csvPath)
       // 首次写入加 UTF-8 BOM（Excel 打开中文不乱码）+ 表头行
-      appendFileSync(csvPath, `${firstWrite ? '\uFEFF达人名称,稿件文字部分,稿件图片部分,bot回复审核内容\n' : ''}${line}`, 'utf-8')
+      appendFileSync(csvPath, `${firstWrite ? '\uFEFF红/黄/绿卡,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容\n' : ''}${line}`, 'utf-8')
       console.log(`[飞书 Bridge] 已追加稿件审核反馈 CSV: ${csvPath}`)
     } catch (error) {
       console.warn(`[飞书 Bridge] 追加稿件审核反馈 CSV 失败:`, error)
     }
+  }
+
+  /**
+   * 从 bot 审核回复文本中提取卡类型（红卡/黄卡/绿卡/审核失败）
+   *
+   * 审核回复严格使用三态模板（含"（红卡）/（黄卡）/（绿卡）/审核失败"字样），
+   * 优先匹配括号内卡类型，兜底匹配关键词；无法识别返回空字符串。
+   */
+  private extractDraftVerdict(reply: string): string {
+    if (!reply) return ''
+    if (/（红卡）/i.test(reply) || /红卡/i.test(reply)) return '红卡'
+    if (/（黄卡）/i.test(reply) || /黄卡/i.test(reply)) return '黄卡'
+    if (/（绿卡）/i.test(reply) || /绿卡/i.test(reply)) return '绿卡'
+    if (/审核失败/i.test(reply)) return '审核失败'
+    return ''
   }
 
   /**
