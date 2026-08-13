@@ -113,7 +113,7 @@ function singleLine(text: string): string {
   return (text ?? '').replace(/\r/g, '').replace(/\n/g, '\\n')
 }
 
-/** 加载 draft-review-state.jsonl → {(达人, 版本): ts}（键用 \u0000 分隔避免歧义） */
+/** 加载 draft-review-state.jsonl → {(达人, 版本): ts}（键用 \u0000 分隔避免歧义；达人字段兼容 kol / influencer 两种历史命名） */
 function loadStateTs(statePath: string): Map<string, string> {
   const result = new Map<string, string>()
   if (!existsSync(statePath)) return result
@@ -121,8 +121,9 @@ function loadStateTs(statePath: string): Map<string, string> {
     const s = line.trim()
     if (!s) continue
     try {
-      const rec = JSON.parse(s) as { influencer?: string; version?: number | string; ts?: string }
-      result.set(`${rec.influencer ?? ''}\u0000${String(rec.version ?? '')}`, rec.ts ?? '')
+      const rec = JSON.parse(s) as { influencer?: string; kol?: string; version?: number | string; ts?: string }
+      const influencer = rec.influencer ?? rec.kol ?? ''
+      result.set(`${influencer}\u0000${String(rec.version ?? '')}`, rec.ts ?? '')
     } catch {
       // 忽略损坏行
     }
@@ -198,7 +199,10 @@ function escapeCsvField(value: string): string {
 export function regenerateDraftReviewVizCsv(workspaceFilesDir: string): void {
   try {
     const rawPath = join(workspaceFilesDir, 'draft-review-feedback.csv')
-    if (!existsSync(rawPath)) return
+    if (!existsSync(rawPath)) {
+      console.warn(`[飞书 Bridge] 生成 viz CSV：未找到原始 CSV ${rawPath}`)
+      return
+    }
     const outPath = join(workspaceFilesDir, 'draft-review-feedback-viz.csv')
 
     const raw = readFileSync(rawPath, 'utf-8').replace(/^\uFEFF/, '')
