@@ -38,7 +38,7 @@ import {
 import { getFeishuBotBindingsPath, getWorkspaceFilesDir, getConfigDir } from './config-paths'
 import { writeFileSync, readFileSync, existsSync, readdirSync, mkdirSync, appendFileSync, statSync } from 'node:fs'
 import { basename, extname, join, dirname } from 'node:path'
-import { execFile } from 'node:child_process'
+import { regenerateDraftReviewVizCsv } from './draft-review-csv-viz'
 import { extractTextFromFile, isSupportedDocumentExtension } from './document-parser'
 import {
   inferImageMediaType as inferImageMediaTypeShared,
@@ -960,25 +960,10 @@ class FeishuBridge {
         writeFileSync(csvPath, `${headerLine}\n${dataRows.map((f) => f.map(escapeCsvField).join(',')).join('\n')}\n${line}`, 'utf-8')
       }
       console.log(`[飞书 Bridge] 已追加稿件审核反馈 CSV: ${csvPath}`)
-      this.regenerateVizCsv(ws.slug)
+      regenerateDraftReviewVizCsv(getWorkspaceFilesDir(ws.slug))
     } catch (error) {
       console.warn(`[飞书 Bridge] 追加稿件审核反馈 CSV 失败:`, error)
     }
-  }
-
-  /**
-   * 审核反馈 CSV 落盘成功后，调用工作区根目录的清洗/可视化脚本（normalize_review_feedback.py）
-   *
-   * 该脚本把原始 CSV（@谁,达人,正文,图片,回复）转换为结构化 viz CSV
-   * （审核结论/版本/时间/条目统计/标题/标签/单行化），供 Excel 透视分析。
-   * 脚本缺失或执行失败时仅警告，不阻塞主流程。
-   */
-  private regenerateVizCsv(workspaceSlug: string): void {
-    const vizScript = join(getWorkspaceFilesDir(workspaceSlug), 'normalize_review_feedback.py')
-    if (!existsSync(vizScript)) return
-    execFile('python3', [vizScript], { timeout: 30000 }, (err) => {
-      if (err) console.warn(`[飞书 Bridge] 生成 viz CSV 失败:`, err.message)
-    })
   }
 
   /**
