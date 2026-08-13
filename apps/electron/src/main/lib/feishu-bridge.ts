@@ -879,10 +879,11 @@ class FeishuBridge {
   }
 
   /**
-   * 稿件审核反馈 CSV 落盘：session 完成时把（达人名称/稿件文字/稿件图片/bot 回复）追加到工作区 CSV
+   * 稿件审核反馈 CSV 落盘：session 完成时把（卡类型/@谁/达人名称/稿件文字/稿件图片/bot 回复）追加到工作区 CSV
    *
    * - 文件路径：{工作区根}/draft-review-feedback.csv（绝对路径，与 bridge 其余落盘基准一致）
-   * - 表头：达人名称,稿件文字部分,稿件图片部分,bot回复审核内容（首次创建时写入，含 UTF-8 BOM 保证 Excel 中文不乱码）
+   * - 表头：红/黄/绿卡,@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容（首次创建时写入，含 UTF-8 BOM 保证 Excel 中文不乱码）
+   * - @谁 列：审核模板开头"@姓名"（bot 实际 @ 的接收人）；旧格式文件自动迁移为 6 列
    * - 稿件文字部分兜底：bridge 未读到正文（云文档 API 降级，仅有链接文本）时从 draft-archives 最新归档补全
    */
   private recordDraftFeedbackCsv(sessionId: string, reply: string): void {
@@ -925,13 +926,31 @@ class FeishuBridge {
       const s = value ?? ''
       return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
     }
-    // 卡类型（红/黄/绿/审核失败）从 bot 回复模板中提取，放第一列
+    // 卡类型（红/黄/绿/审核失败）+ 回复中 @ 的接收人（审核模板开头 @姓名），分别放第 1、2 列
     const verdict = this.extractDraftVerdict(reply)
-    const line = `${escapeCsvField(verdict)},${escapeCsvField(influencer)},${escapeCsvField(textPart)},${escapeCsvField(imagePart)},${escapeCsvField(reply)}\n`
+    const mentioned = this.extractMentionedName(reply)
+    const line = `${escapeCsvField(verdict)},${escapeCsvField(mentioned)},${escapeCsvField(influencer)},${escapeCsvField(textPart)},${escapeCsvField(imagePart)},${escapeCsvField(reply)}\n`
+    const headerLine = '\uFEFF红/黄/绿卡,@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容'
     try {
-      const firstWrite = !existsSync(csvPath)
-      // 首次写入加 UTF-8 BOM（Excel 打开中文不乱码）+ 表头行
-      appendFileSync(csvPath, `${firstWrite ? '\uFEFF红/黄/绿卡,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容\n' : ''}${line}`, 'utf-8')
+      if (!existsSync(csvPath)) {
+        // 首次写入加 UTF-8 BOM（Excel 打开中文不乱码）+ 表头行
+        appendFileSync(csvPath, `${headerLine}\n${line}`, 'utf-8')
+        console.log(`[飞书 Bridge] 已追加稿件审核反馈 CSV: ${csvPath}`)
+        return
+      }
+      const existing = readFileSync(csvPath, 'utf-8')
+      if ((existing.split('\n', 1)[0] ?? '').includes('@谁')) {
+        appendFileSync(csvPath, line, 'utf-8')
+      } else {
+        // 旧格式（无 @谁 列）迁移：按 RFC4180 解析旧行，在卡类型后插入 @谁（从该行回复字段提取），
+        // 避免新 6 列行与旧 5 列表头错列（引号内换行/逗号不能被 \n 盲拆）
+        const dataRows = this.splitCsvRecords(existing).slice(1).map((fields) => {
+          const replyField = fields[4] ?? ''
+          const m = this.extractMentionedName(replyField)
+          return [fields[0] ?? '', m, ...fields.slice(1, 5)]
+        })
+        writeFileSync(csvPath, `${headerLine}\n${dataRows.map((f) => f.map(escapeCsvField).join(',')).join('\n')}\n${line}`, 'utf-8')
+      }
       console.log(`[飞书 Bridge] 已追加稿件审核反馈 CSV: ${csvPath}`)
     } catch (error) {
       console.warn(`[飞书 Bridge] 追加稿件审核反馈 CSV 失败:`, error)
@@ -963,6 +982,64 @@ class FeishuBridge {
     if (!reply) return ''
     const m = reply.match(/达人[：:]\s*([^\n，,。]+)/)
     return m?.[1]?.trim() ?? ''
+  }
+
+  /**
+   * 从 bot 审核回复中提取 @ 的接收人（审核模板开头"@姓名"即本次审核的目标接收人）
+   *
+   * 回复列头部可能混入用户原话（如"新稿件是 X 的初稿…"），只从「📋 稿件审核」模板段起提取，
+   * 确保 @谁 取的是 bot 实际 @ 的成员而非用户消息里的 @。
+   */
+  private extractMentionedName(reply: string): string {
+    if (!reply) return ''
+    const idx = reply.indexOf('📋 稿件审核')
+    const segment = idx >= 0 ? reply.slice(idx) : reply
+    const m = segment.match(/@([^\s@，,。\n]+)/)
+    return m?.[1]?.trim() ?? ''
+  }
+
+  /**
+   * 按 RFC4180 将 CSV 全文拆成逻辑记录（支持引号内逗号/换行/双引号转义）
+   *
+   * 用于旧格式 CSV（无 @谁 列）迁移时正确解析被引号包裹的多行字段，避免按 \n 盲拆破坏正文。
+   */
+  private splitCsvRecords(text: string): string[][] {
+    const records: string[][] = []
+    let field = ''
+    let record: string[] = []
+    let inQuotes = false
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i]
+      if (inQuotes) {
+        if (ch === '"') {
+          if (text[i + 1] === '"') {
+            field += '"'
+            i++
+          } else {
+            inQuotes = false
+          }
+        } else {
+          field += ch
+        }
+      } else if (ch === '"') {
+        inQuotes = true
+      } else if (ch === ',') {
+        record.push(field)
+        field = ''
+      } else if (ch === '\n') {
+        record.push(field)
+        field = ''
+        if (record.some((f) => f !== '')) records.push(record)
+        record = []
+      } else {
+        field += ch
+      }
+    }
+    if (field !== '' || record.length > 0) {
+      record.push(field)
+      if (record.some((f) => f !== '')) records.push(record)
+    }
+    return records
   }
 
   /**
