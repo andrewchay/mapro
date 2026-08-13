@@ -1,85 +1,53 @@
-# 蒲公英搜索 API Payload 参考
+# 蒲公英搜索 API Payload 参考（ma-kol-scraper）
 
-## 小红书蒲公英 Payload
+> 搜索接口：`POST https://pgy.xiaohongshu.com/api/solar/cooperator/blogger/v2`
+> 必须在浏览器 JS 上下文（`page.evaluate(fetch(...))`）中调用，浏览器自动附带 x-s / x-t 签名。
+> 完整 payload 已固化在 `scripts/kol_collector.py` 的 `fetch_search_kols()`。本文件只记录**最常需要调整的字段**。
 
-博客搜索接口 `https://pgy.xiaohongshu.com/api/solar/cooperator/blogger/v2` 的完整 POST payload。
+## 常用筛选字段
 
-所有字段都必须保留（包括空数组和默认值），否则可能触发风控。
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `keyword` | string/null | 搜索关键词（如「探店」「美食」）。不传=不限 |
+| `gender` | string | `"不限"` / `"男"` / `"女"` |
+| `location` | string[] | 博主地域，**纯城市名** `["上海"]`（实测加 `中国 ` 前缀会削弱过滤）；空数组=不限 |
+| `fansLocation` | string[] | 粉丝地域，同 location 纯城市名；空数组=不限 |
+| `fansNumberLower` / `fansNumberUpper` | int | 粉丝量范围（如 10000/50000） |
+| `notePriceLower` / `notePriceUpper` | int | 图文报价范围（元） |
+| `firstIndustry` / `secondIndustry` | string | 一级/二级行业类目。⚠️ 具体取值需从前端筛选 payload 观察，通常为数字编码或中文名；未知时留空，改用 `keyword` + 详情页 `target_tags`（内容标签）过滤 |
+| `tradeType` | string | 交易类型，通常 `"不限"` |
+| `pageNum` / `pageSize` | int | 分页（pageSize 常用 20） |
+| `brandUserId` | string | 关联品牌时传；个人采集留空 |
+| `trackId` | string | 每次请求必须更新，`kolMatch_{uuid4hex}` |
+
+## 如何获取某个筛选项的真实取值（如「美食」类目编码）
+
+当 `firstIndustry` 取值不确定时，按以下方法在前端确认：
+
+1. 用 `page.evaluate` 在蒲公英博主广场页执行：点击页面上「美食」类目筛选项
+2. 通过 `page.on("response")` 捕获 search API 的请求体（`request.post_data`）
+3. 读取 `firstIndustry` / `secondIndustry` 的真实值，回填到 config JSON
 
 ```python
-payload = {
-    "searchType": 1,           # 搜索类型：1=KOL搜索
-    "column": "comprehensiverank",  # 排序列：综合排序
-    "sort": "desc",            # 排序方向
-    "pageNum": 1,              # 页码
-    "pageSize": 20,            # 每页数量
-    "brandUserId": "xxx",      # 品牌用户ID
-    "trackId": f"kolMatch_{uuid.uuid4().hex}",  # 追踪ID
-    "keyword": None,           # 关键词
-    "gender": "女",            # 性别：男/女
-    "location": ["中国 深圳", "中国 广州"],  # 博主地域（format_location_cities 格式化后）
-    "signed": -1,              # 签约状态：-1=不限
-    "featureTags": [],         # 擅长标签
-    "fansAge": 0,              # 粉丝年龄：0=不限
-    "fansGender": 0,           # 粉丝性别：0=不限
-    "fansLocation": ["中国 深圳", "中国 广州"],  # 粉丝地域
-    "fansMaritalStatus": -1,   # 粉丝婚恋状态：-1=不限
-    "fansConsumptionLevel": -1, # 粉丝消费水平：-1=不限
-    "fansChildAgeInfo": [],    # 粉丝子女年龄
-    "fansDevicePrice": [],     # 粉丝手机价格
-    "fansDeviceBrand": [],     # 粉丝手机品牌
-    "accumCommonImpMedinNum30d": [],  # 近30天曝光中位数
-    "readMidNor30": [],        # 近30天阅读中位数
-    "interMidNor30": [],       # 近30天互动中位数
-    "thousandLikePercent30": [],  # 近30天千赞率
-    "noteType": 0,             # 笔记类型：0=不限
-    "notePriceLower": 1000,    # 合作报价下限（元）
-    "notePriceUpper": 5000,    # 合作报价上限（元）
-    "fansNumberLower": 2000,   # 粉丝量下限
-    "fansNumberUpper": 100000, # 粉丝量上限
-    "progressOrderCnt": [],    # 进行中订单数
-    "tradeType": "美妆个护",   # 交易类型/内容类目
-    "tradeReportBrandIdSet": [],  # 排除品牌ID集合
-    "excludedTradeReportBrandId": False,  # 是否排除合作品牌
-    "estimateCpuv30d": [],     # 预估CPUV
-    "inStar": 0,               # 是否星级达人
-    "firstIndustry": "",       # 一级行业
-    "secondIndustry": "",      # 二级行业
-    "newHighQuality": 0,       # 新优质达人
-    "filterIntention": False,  # 筛选意向
-    "flagList": [              # 标记列表
-        {"flagType": "HAS_BRAND_COOP_BUYER_AUTH", "flagValue": "0"},
-        {"flagType": "IS_HIGH_QUALITY", "flagValue": "0"}
-    ],
-    "activityCodes": [],       # 活动编码
-    "excludeLowActive": False, # 排除低活跃
-    "fansNumUp": 0,            # 粉丝增长
-    "excludedTradeReportBrand": False,  # 排除已合作品牌
-    "excludedTradeInviteReportBrand": False,  # 排除已邀约品牌
-    "filterList": [],          # 筛选列表
-    "contentSceneLabel": [],   # 内容场景标签
-}
+def probe_search_payload(main_page):
+    captured = {}
+    def on_req(req):
+        if "cooperator/blogger/v2" in req.url and req.method == "POST":
+            captured["body"] = req.post_data
+    main_page.on("request", on_req)
+    # 让用户/Agent 在页面上点一次「美食」筛选后，打印 captured["body"]
+    return captured
 ```
 
-### 动态替换字段（小红书）
+> 经验：蒲公英的行业枚举通常包含中文一级类目（如「美食」「母婴」「美妆」），但也不排除是数字编码。**先用 keyword + 内容标签过滤是最稳妥路径**，`firstIndustry` 只在确认后可加。
 
-| 字段 | 对应配置 | 说明 |
-|------|---------|------|
-| `brandUserId` | `cfg["brand_user_id"]` | 品牌用户ID，固定值 |
-| `keyword` | `cfg["keyword"]` 或 None | 搜索关键词 |
-| `gender` | `cfg["gender"]` | "男"或"女" |
-| `location` | `format_location_cities(cfg["location_cities"])` | 博主地域列表 |
-| `fansLocation` | `format_location_cities(cfg["fans_location_cities"])` | 粉丝地域列表 |
-| `notePriceLower` | `cfg["note_price_lower"]` | 报价下限（元） |
-| `notePriceUpper` | `cfg["note_price_upper"]` | 报价上限（元） |
-| `fansNumberLower` | `cfg["fans_number_lower"]` | 粉丝量下限 |
-| `fansNumberUpper` | `cfg["fans_number_upper"]` | 粉丝量上限 |
-| `tradeType` | `cfg["trade_type"]` | 交易类型 |
+## 其它关键 API（详情页阶段，采集器已自动监听）
 
-### 接口说明
-
-- **方法**: POST
-- **Content-Type**: application/json
-- **认证**: 浏览器自动带 Cookie（无需手动处理）
-- **调用方式**: `page.evaluate(js_fetch_json(url, method="POST", body=payload))`
-- **翻页**: 递增 `pageNum`，直到返回为空或达到 `max_pages`
+| API | 用途 |
+|-----|------|
+| `GET /api/solar/cooperator/user/blogger/{userId}` | 博主基础信息（名称/地域/粉丝量/报价/标签） |
+| `GET /api/solar/kol/data/{userId}/fans_profile` | 粉丝画像（性别占比/城市 Top5） |
+| `GET /api/solar/kol/data_v3/notes_rate?userId=..&business=0/1&advertiseSwitch=0/1` | 日常/合作笔记表现中位数；`advertiseSwitch=0` 即「仅自然流量」 |
+| `GET /api/solar/kol/data_v2/notes_detail?userId=..&pageNum=..` | 笔记案例列表（含 isAdvertise、曝光/阅读/点赞） |
+| `GET /api/solar/kol/data_v2/kol_content_tags` | 内容标签 |
+| `GET /api/solar/kol/data_v2/kol_feature_tags` | 擅长标签 |
