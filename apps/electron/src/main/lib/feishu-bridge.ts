@@ -879,11 +879,11 @@ class FeishuBridge {
   }
 
   /**
-   * 稿件审核反馈 CSV 落盘：session 完成时把（卡类型/@谁/达人名称/稿件文字/稿件图片/bot 回复）追加到工作区 CSV
+   * 稿件审核反馈 CSV 落盘：session 完成时把（@谁/达人名称/稿件文字/稿件图片/bot 回复）追加到工作区 CSV
    *
    * - 文件路径：{工作区根}/draft-review-feedback.csv（绝对路径，与 bridge 其余落盘基准一致）
-   * - 表头：红/黄/绿卡,@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容（首次创建时写入，含 UTF-8 BOM 保证 Excel 中文不乱码）
-   * - @谁 列：审核模板开头"@姓名"（bot 实际 @ 的接收人）；旧格式文件自动迁移为 6 列
+   * - 表头：@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容（首次创建时写入，含 UTF-8 BOM 保证 Excel 中文不乱码）
+   * - @谁 列：审核模板开头"@姓名"（bot 实际 @ 的接收人）；历史格式（含红/黄/绿卡列）自动迁移为 5 列
    * - 稿件文字部分兜底：bridge 未读到正文（云文档 API 降级，仅有链接文本）时从 draft-archives 最新归档补全
    */
   private recordDraftFeedbackCsv(sessionId: string, reply: string): void {
@@ -926,11 +926,10 @@ class FeishuBridge {
       const s = value ?? ''
       return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
     }
-    // 卡类型（红/黄/绿/审核失败）+ 回复中 @ 的接收人（审核模板开头 @姓名），分别放第 1、2 列
-    const verdict = this.extractDraftVerdict(reply)
+    // @谁 放第 1 列：回复中 @ 的接收人（审核模板开头 @姓名）
     const mentioned = this.extractMentionedName(reply)
-    const line = `${escapeCsvField(verdict)},${escapeCsvField(mentioned)},${escapeCsvField(influencer)},${escapeCsvField(textPart)},${escapeCsvField(imagePart)},${escapeCsvField(reply)}\n`
-    const headerLine = '\uFEFF红/黄/绿卡,@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容'
+    const line = `${escapeCsvField(mentioned)},${escapeCsvField(influencer)},${escapeCsvField(textPart)},${escapeCsvField(imagePart)},${escapeCsvField(reply)}\n`
+    const headerLine = '\uFEFF@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容'
     try {
       if (!existsSync(csvPath)) {
         // 首次写入加 UTF-8 BOM（Excel 打开中文不乱码）+ 表头行
@@ -938,16 +937,24 @@ class FeishuBridge {
         console.log(`[飞书 Bridge] 已追加稿件审核反馈 CSV: ${csvPath}`)
         return
       }
+      // 旧格式迁移：历史文件可能是「红/黄/绿卡,@谁,…」6 列或「红/黄/绿卡,达人名称,…」5 列（无 @谁），
+      // 统一重写为目标 5 列 [@谁,达人,正文,图片,回复]（去掉红/黄/绿卡列、@谁 缺失时从回复提取），
+      // 避免新行与旧表头错列（引号内换行/逗号不能被 \n 盲拆，需 RFC4180 解析）
       const existing = readFileSync(csvPath, 'utf-8')
-      if ((existing.split('\n', 1)[0] ?? '').includes('@谁')) {
+      const records = this.splitCsvRecords(existing)
+      const oldHeader = records[0] ?? []
+      if ((oldHeader[0] ?? '').includes('@谁')) {
         appendFileSync(csvPath, line, 'utf-8')
       } else {
-        // 旧格式（无 @谁 列）迁移：按 RFC4180 解析旧行，在卡类型后插入 @谁（从该行回复字段提取），
-        // 避免新 6 列行与旧 5 列表头错列（引号内换行/逗号不能被 \n 盲拆）
-        const dataRows = this.splitCsvRecords(existing).slice(1).map((fields) => {
+        const hasMention = oldHeader.includes('@谁')
+        const dataRows = records.slice(1).map((fields) => {
+          if (hasMention) {
+            // 红/黄/绿卡,@谁,达人,正文,图片,回复 → 去掉卡列
+            return [fields[1] ?? '', ...fields.slice(2, 6)]
+          }
+          // 红/黄/绿卡,达人,正文,图片,回复 → 从该行回复字段提取 @谁
           const replyField = fields[4] ?? ''
-          const m = this.extractMentionedName(replyField)
-          return [fields[0] ?? '', m, ...fields.slice(1, 5)]
+          return [this.extractMentionedName(replyField), ...fields.slice(1, 5)]
         })
         writeFileSync(csvPath, `${headerLine}\n${dataRows.map((f) => f.map(escapeCsvField).join(',')).join('\n')}\n${line}`, 'utf-8')
       }
@@ -955,21 +962,6 @@ class FeishuBridge {
     } catch (error) {
       console.warn(`[飞书 Bridge] 追加稿件审核反馈 CSV 失败:`, error)
     }
-  }
-
-  /**
-   * 从 bot 审核回复文本中提取卡类型（红卡/黄卡/绿卡/审核失败）
-   *
-   * 审核回复严格使用三态模板（含"（红卡）/（黄卡）/（绿卡）/审核失败"字样），
-   * 优先匹配括号内卡类型，兜底匹配关键词；无法识别返回空字符串。
-   */
-  private extractDraftVerdict(reply: string): string {
-    if (!reply) return ''
-    if (/（红卡）/i.test(reply) || /红卡/i.test(reply)) return '红卡'
-    if (/（黄卡）/i.test(reply) || /黄卡/i.test(reply)) return '黄卡'
-    if (/（绿卡）/i.test(reply) || /绿卡/i.test(reply)) return '绿卡'
-    if (/审核失败/i.test(reply)) return '审核失败'
-    return ''
   }
 
   /**
