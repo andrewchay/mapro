@@ -12,7 +12,7 @@ import { join } from 'node:path'
 const VIZ_HEADER = [
   '@谁', '达人名称', '审核结论', '版本号', '审核时间',
   '必改条数', '争议条数', '可优化条数',
-  '稿件标题', '话题标签', '稿件图片', '稿件文字(单行)', 'bot最终审核意见(单行)',
+  '稿件标题', '话题标签', '稿件图片', '稿件文字', 'bot最终审核意见',
 ]
 
 /** 审核结论：从 bot 回复模板提取 red/yellow/green/fail，无模板标记（旧格式）时按区块结构兜底推断 */
@@ -106,11 +106,6 @@ function extractTags(text: string): string {
     if (/#[^\s#]+/.test(line) && !/^#+\s/.test(line)) return line.trim()
   }
   return ''
-}
-
-/** 多行文本单行化（\n 转义为 \\n，JSON 转义风格） */
-function singleLine(text: string): string {
-  return (text ?? '').replace(/\r/g, '').replace(/\n/g, '\\n')
 }
 
 /** 加载 draft-review-state.jsonl → {(达人, 版本): ts}（键用 \u0000 分隔避免歧义；达人字段兼容 kol / influencer 两种历史命名） */
@@ -231,8 +226,8 @@ export function regenerateDraftReviewVizCsv(workspaceFilesDir: string): void {
         extractTitle(rawText),
         extractTags(rawText),
         image,
-        singleLine(rawText),
-        singleLine(clean),
+        rawText,
+        clean,
       ])
     }
 
