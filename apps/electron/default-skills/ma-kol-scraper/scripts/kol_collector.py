@@ -170,6 +170,10 @@ class KolCollector:
         # ---- v2.4 寻找相似（kolSimilar）模式：以某达人为种子推荐相似达人 ----
         self.similar_user_id = cfg.get("similar_user_id", "") or cfg.get("similarUserId", "")
         self.similar_word = cfg.get("similar_word", "") or cfg.get("similarWord", "")
+        # v2.5 防误判加固：寻找相似模式的匹配依据是种子达人本身，不是关键词/标签；
+        # 强制关闭 strict 搜索（即使 config 误带 strict_search:true 也不生效）
+        if self.similar_user_id:
+            cfg["strict_search"] = False
         self.gender = cfg.get("gender", "不限")
         self.location_cities = format_location_cities(cfg.get("location_cities", []))
         self.fans_location_cities = format_location_cities(cfg.get("fans_location_cities", []))

@@ -1,14 +1,14 @@
 ---
 name: "ma-kol-scraper"
-description: "从蒲公英平台按条件批量采集 KOL 数据并输出 CSV，并内置完整 7 阶段筛选流水线（采集→初筛→删互动<100→top-8采集→沪杭复核+CPM/CPE估算→拆分→4维度打分→清洗）。支持以某达人为种子的「寻找相似」（kolSimilar）扩量模式：先按昵称搜到种子达人，即可批量拉取其相似达人列表并套用同一套筛选流水线。通过 CDP 连接 Chrome，用通用采集器 kol_collector.py + config JSON 采集，用 scripts/ 流水线脚本筛选打分。也可走可选 LLM 圈选校验（kol_screening.py）。当用户提到采集/爬虫/蒲公英/KOL 数据/批量导出达人/达人圈选/达人评分卡/筛选打分/寻找相似/相似达人/以某达人为种子/找同类博主/同类达人/lookalike/达人扩量或类似表述时触发。"
-version: "2.4.1"
+description: "从蒲公英平台按条件批量采集 KOL 数据并输出 CSV，并内置完整 8 阶段筛选流水线（采集→初筛→删互动<100→top-8采集→沪杭复核+CPM/CPE估算→拆分→CPE硬性过滤→4维度打分→清洗）。支持以某达人为种子的「寻找相似」（kolSimilar）扩量模式：先按昵称搜到种子达人，即可批量拉取其相似达人列表并套用同一套筛选流水线。通过 CDP 连接 Chrome，用通用采集器 kol_collector.py + config JSON 采集，用 scripts/ 流水线脚本筛选打分。也可走可选 LLM 圈选校验（kol_screening.py）。当用户提到采集/爬虫/蒲公英/KOL 数据/批量导出达人/达人圈选/达人评分卡/筛选打分/寻找相似/相似达人/以某达人为种子/找同类博主/同类达人/lookalike/达人扩量或类似表述时触发。"
+version: "2.5.0"
 ---
 
-# 蒲公英 KOL 采集 + 完整筛选流水线（v2.3）
+# 蒲公英 KOL 采集 + 完整筛选流水线（v2.5）
 
 ## 设计原则（v2.3 变更）
 
-1. **内置完整 7 阶段筛选流水线**：主采集 → 初筛 → 删互动<100 → top-8 采集 → 沪杭复核+CPM/CPE 估算 → 拆分 → 4 维度打分+清洗。流水线脚本已随 skill 提供（`scripts/`），Agent 按序执行即可，细节见 `references/pipeline.md`。
+1. **内置完整 8 阶段筛选流水线**：主采集 → 初筛 → 删互动<100 → top-8 采集 → 沪杭复核+CPM/CPE 估算 → 拆分 → CPE 硬性过滤（>50 淘汰） → 4 维度打分+清洗。流水线脚本已随 skill 提供（`scripts/`），Agent 按序执行即可，细节见 `references/pipeline.md`。
 2. **严格 a AND b 交叉验证**（v2.3）：内容类目命中 `strict_categories` **且** 主页标签命中 `strict_home_tags` 才通过；纯旅游/纯美妆仅当内容类目不命中任一目标类目才排除。
 3. **4 维度确定性打分**（推荐）：CPE(50) + 点赞率(20) + 赞评比(20) + 爆文率(10)，满分 100，可复现；与 LLM 圈选校验（`kol_screening.py`）**二选一，勿混合计分**。
 4. 其余沿用 v2.1/v2.2：采集与校验分离、相关帖子抽样、规则配置化、不生成独立脚本、Agent 自动执行、WebBridge 不可用于蒲公英（走 CDP + fetch 签名）、登录检查不阻塞。
@@ -32,8 +32,9 @@ version: "2.4.1"
 │   ├── estimate_cpe_cpm.py           ← 阶段5 沪杭复核 + Tweedie 估算 CPM/CPE
 │   ├── split_zero.py                 ← 阶段6 拆分合作0/非0
 │   ├── add_ratio_cols.py             ← 加「阅读与点赞占比(=点赞÷阅读)」「赞评比」列
-│   ├── score_kols.py                 ← 阶段7 4 维度打分（满分100）
-│   └── clean_final.py                ← 阶段7 清洗（删非美食/果切）
+│   ├── filter_cpe.py                 ← 阶段7 CPE 硬性过滤（预估CPE>50 淘汰，打分前）
+│   ├── score_kols.py                 ← 阶段8 4 维度打分（满分100）
+│   └── clean_final.py                ← 阶段8 清洗（删非美食/果切）
 ├── screening_rules.json              ← LLM 校验规则配置（价格带/权重/阈值/提示词，品牌已中性化）
 ├── examples/
 │   ├── config-hanghai-food-tandian.json    ← 沪杭·生活美食探店示例（含 v2.3 字段，推荐）
@@ -113,7 +114,9 @@ version: "2.4.1"
 
 ### Step 2b · 寻找相似模式（以某达人为种子扩量）
 
-当用户说"寻找相似"、"以 XX 达人为种子找同类博主"、"更多操作里的寻找相似"时，走**寻找相似（kolSimilar）模式**：把种子达人的 userId 配进 config（`similar_user_id` + `similar_word`），采集器自动改用 `blogger/v2` 的 kolSimilar 通道拉取相似达人列表，再走同样的详情采集 + 7 阶段流水线。
+> **⚠️ 任务判定（v2.5 防误判）**：当用户说"寻找相似"、"按昵称找相似达人"、"以 XX 达人为种子找同类博主"、"更多操作里的寻找相似"时，**必须一开始就走寻找相似（kolSimilar）模式**，不要准备关键词搜索的 config。config 只需 `similar_user_id` + `similar_word`（+ 筛选参数），**keywords 留空、不配 strict_search / strict_* 字段**——直接照抄 `examples/config-similar-kol.json`。采集器在 similar 模式下会自动强制关闭 strict 搜索。
+
+走**寻找相似（kolSimilar）模式**：把种子达人的 userId 配进 config（`similar_user_id` + `similar_word`），采集器自动改用 `blogger/v2` 的 kolSimilar 通道拉取相似达人列表，再走同样的详情采集 + 完整流水线（阶段2-8）。
 
 **机制**（实测 2026-08-13）：页面"更多操作→寻找相似"实际触发 `POST /api/solar/cooperator/blogger/v2`，trackId 前缀 `kolSimilar_`，payload 携带 `similarUserId` + `similarWord`。返回 `data.total` 即相似达人总数，**分页可拉全量**（pageSize=20）。
 
@@ -163,9 +166,10 @@ python3 <skill>/scripts/kol_collector.py --config <workspace>/workspace-files/co
 | 4 top-8采集 | `top8_extractor.py` | top8.json（曝光/点赞/标题/正文，断点续采） |
 | 5 沪杭复核+估算 | `estimate_cpe_cpm.py` | 最终结果CSV（31列；top8含沪杭→通过；Tweedie 算 CPM/CPE） |
 | 6 拆分 | `split_zero.py` | 合作0 / 合作非0 |
-| 7 打分+清洗 | `add_ratio_cols.py`→`score_kols.py`→`clean_final.py` | 打分名单（38列） |
+| 7 CPE硬性过滤 | `filter_cpe.py` | 打分输入CSV（去掉预估CPE>50，硬性条件，`--max-cpe` 可配） |
+| 8 打分+清洗 | `add_ratio_cols.py`→`score_kols.py`→`clean_final.py` | 打分名单（38列） |
 
-> 各阶段**完整筛选条件、4 维度打分规则、10 条易错点、38 列最终表头、命令行示例**全部在 **`references/pipeline.md`**——执行前务必阅读。
+> 各阶段**完整筛选条件、4 维度打分规则、11 条易错点、38 列最终表头、命令行示例**全部在 **`references/pipeline.md`**——执行前务必阅读。
 
 > **业务规则参数化**：女性占比（`--female-min`）、沪杭复核城市词（`--city-words`）、清洗目标类目/雷区词（`--categories`/`--guoqie-words`）、报价范围（`--price-lo/hi`）均可按 campaign 配置，勿在脚本里写死业务阈值。
 
@@ -226,6 +230,7 @@ python3 <skill>/scripts/kol_collector.py --config <workspace>/workspace-files/co
 
 ## 版本历史
 
+- **v2.5.0**（2026-08-13）：新增**阶段7 CPE 硬性过滤**（`filter_cpe.py`，打分前去掉预估CPE>50，`--max-cpe` 可配，流水线扩为 8 阶段）；**寻找相似防误判**——Step 2b / pipeline 第0章新增任务判定规则（寻找相似任务必须一开始就走 kolSimilar，config 只含 similar 字段，keywords 留空、不配 strict_*），示例 `config-similar-kol.json` 精简为只含 similar 字段，`kol_collector.py` similar 模式强制关闭 strict 搜索。
 - **v2.4.1**（2026-08-13）：同步「寻找相似（kolSimilar）模式」至默认 skill，保留既有增强（抽样默认关闭 / score_kols.py 38 列精简输出 / 打分 5 列可替换接口）。
 - **v2.4.0**（2026-08-13）：新增**寻找相似（kolSimilar）模式**——以某达人为种子批量拉取相似达人（config 配 similar_user_id/similar_word，走 blogger/v2 kolSimilar 通道 + 分页全量；筛选参数 gender/location/报价 对 kolSimilar 生效，可压缩 total）。新增 Step 2b 章节、examples/config-similar-kol.json 示例、版本号。
 - **v2.3.3**（2026-08-13）：明确最终 CSV 末尾打分 5 列（CPE/点赞率/赞评比/爆文率得分+总分）为可替换接口——默认 4 维度确定性打分，改用其他打分方式（如 LLM 校验）时仅替换这 5 列。

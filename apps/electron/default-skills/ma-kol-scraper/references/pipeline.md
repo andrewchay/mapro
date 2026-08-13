@@ -1,10 +1,12 @@
-# 蒲公英 KOL 完整筛选流水线（7 阶段，v2.4）
+# 蒲公英 KOL 完整筛选流水线（8 阶段，v2.5）
 
 > 与 SKILL.md 配套。SKILL.md 是编排总纲，本文档承载完整细节：config 字段、各阶段筛选条件、打分规则、易错点、38 列表头、CDP 监督续采、命令示例。
 
 ## 0. 寻找相似（kolSimilar）模式
 
-当 config 配置了 `similar_user_id`（+ 可选 `similar_word`），采集器自动走**寻找相似**通道，其余流程（详情采集 + 阶段2-7）与常规关键词搜索完全一致。
+> **⚠️ 任务判定（v2.5 防误判）**：用户说「寻找相似」「以 XX 达人为种子找同类博主」「按昵称找相似达人」「更多操作里的寻找相似」→ **必须一开始就走 kolSimilar 通道**，不要准备关键词搜索的 config。config 只需 `similar_user_id` + `similar_word`（+ 筛选参数），**keywords 留空、不配 strict_search / strict_* 字段**（采集器在 similar 模式下会强制关闭 strict 搜索）。完整示例直接照抄 `examples/config-similar-kol.json`。
+
+当 config 配置了 `similar_user_id`（+ 可选 `similar_word`），采集器自动走**寻找相似**通道，其余流程（详情采集 + 阶段2-8）与常规关键词搜索完全一致。
 
 - **接口**：`POST /api/solar/cooperator/blogger/v2`，trackId 前缀 `kolSimilar_`，payload 增加 `similarUserId` / `similarWord`。
 - **分页**：与关键词搜索相同，`pageNum` 递增拉全量（pageSize=20），`data.total` 为相似达人总数。
@@ -12,7 +14,7 @@
 - **粉丝地域（fansLocation）不可用**：按城市名传返回 0，需在阶段2 用 `fans_region_cities`（详情页 fans_profile top5）过滤。
 - **种子 userId 获取**：博主广场按昵称搜索 → 点搜索预测项 → 从 `blogger/v2` 的 `kolSearch_` 响应或详情页 API `/api/solar/cooperator/user/blogger/{uid}` 拿 `userId`。也可直接在页面"更多操作→寻找相似"时从抓包 `kolSimilar_` 请求体读 `similarUserId`。
 
-## 1. config 字段表（v2.4，含示例值）
+## 1. config 字段表（v2.5，含示例值）
 
 | 字段 | 示例 | 说明 |
 |------|------|------|
@@ -51,7 +53,8 @@
 | 4 top-8采集 | `top8_extractor.py` | `python3 top8_extractor.py --csv coop.csv --out top8.json` | top8.json（曝光/点赞/标题/正文，断点续采） |
 | 5 沪杭复核+估算 | `estimate_cpe_cpm.py` | `python3 estimate_cpe_cpm.py --csv 筛选后.csv --pop 采集结果.csv --top8 top8.json --out 最终结果.csv [--city-words 上海 杭州]` | 最终结果CSV（31列；top8 命中任一城市词→通过，可配置） |
 | 6 拆分 | `split_zero.py` | `python3 split_zero.py 最终结果.csv <目录>` | 合作0 / 合作非0 |
-| 7 打分+清洗 | `add_ratio_cols.py` → `score_kols.py` → `clean_final.py` | `score_kols.py --csv 合作非0.csv --out 打分.csv`；`clean_final.py --csv 打分.csv --out 清洗后.csv [--categories 美食 ...] [--guoqie-words 果切 ...]` | 打分名单 + 清洗后名单（38列） |
+| 7 CPE硬性过滤 | `filter_cpe.py` | `python3 filter_cpe.py --csv 合作非0.csv --out 打分输入.csv [--max-cpe 50]` | 去掉预估CPE>50（硬性条件，打分前） |
+| 8 打分+清洗 | `add_ratio_cols.py` → `score_kols.py` → `clean_final.py` | `score_kols.py --csv 打分输入.csv --out 打分.csv`；`clean_final.py --csv 打分.csv --out 清洗后.csv [--categories 美食 ...] [--guoqie-words 果切 ...]` | 打分名单 + 清洗后名单（38列） |
 
 > **业务规则参数化（v2.3）**：女性占比（`--female-min`）、篇数（`--min-notes`）、报价范围（`--price-lo/hi`）、沪杭复核城市词（`--city-words`）、清洗目标类目与雷区词（`--categories`/`--food-words`/`--guoqie-words`）均按 campaign 可配置，不写死。初筛的类目/标签/粉丝地域可用 `--config` 读取 config JSON 的 `strict_*` 字段覆盖默认。
 
@@ -75,6 +78,16 @@
 - `CPM = 报价 ÷ 预估最低曝光 × 1000`；`CPE = 报价 ÷ 预估最低点赞`
 - 报价取图文/视频报价中较小且 >0 的那个（0 视为无此类型报价）
 
+### 阶段7 CPE 硬性过滤（filter_cpe.py，v2.5 新增）
+
+**业务硬性条件**：去掉预估CPE > 50 的达人，不满足直接淘汰（不参与打分）。阈值用 `--max-cpe` 配置；后续新增硬性条件沿用本脚本参数化扩展。
+
+```bash
+python3 filter_cpe.py --csv 合作笔记非0.csv --out 打分输入.csv --max-cpe 50
+```
+- 只读「预估CPE」列，CPE 为空/非数值的保留（不误杀），数值 > 阈值才淘汰
+- 输出保留全部原有列，后续 `add_ratio_cols.py` / `score_kols.py` / `clean_final.py` 改从「打分输入.csv」读取
+
 ## 3. 4 维度打分规则（满分 100，score_kols.py）
 
 | 维度 | 满分 | 规则 |
@@ -88,7 +101,7 @@
 
 > 与 `kol_screening.py`（LLM 四规则校验）**二选一，勿混合计分**。确定性打分可复现，推荐；LLM 校验需配置 LLM + 抽样笔记。
 
-## 4. 易错点（10 条）
+## 4. 易错点（11 条）
 
 1. **改采集器加列必须同步 `HEADERS`**：build_row 加新列漏改 HEADERS → 写入 ValueError 崩溃。
 2. **旧表头 + 新列错位**：HEADERS 修复前已写表头的旧 CSV，追加新数据行列错位、去重失效 → 应清空重采。
@@ -100,6 +113,7 @@
 8. **果切判断**：真果切/果切外卖才排除（西瓜桶果切、`#上海果切#`、点果切外卖）；「鲜切」多是牛肉/凤梨等配料。
 9. **日志缓冲**：重定向输出用 `python3 -u`，否则进度不显示。
 10. **CDP 不稳定**：EPIPE/TargetClosed/内存 → 重启采集器续采（断点续采不丢数据）。
+11. **打分前漏 CPE 硬性过滤**：预估CPE>50 的达人须用 `filter_cpe.py` 在打分前淘汰（硬性条件），勿混进打分名单；CPE 列缺失或全空时先跑阶段5 估算。
 
 ## 5. 38 列最终表头（打分清洗后）
 
