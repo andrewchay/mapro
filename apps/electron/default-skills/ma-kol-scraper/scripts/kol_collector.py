@@ -202,11 +202,11 @@ class KolCollector:
         self.strict_pure_words = cfg.get("strict_pure_words", ["旅游", "旅行", "出行", "美妆"])
         # v2.3：粉丝地域允许城市（详情页 fans_profile top5 判断；为空则回退 target_cities）
         self.fans_region_cities = cfg.get("fans_region_cities", [])
-        # ---- v2.1 新增配置：相关帖子抽样与内容信号 ----
-        self.sample_note_count = cfg.get("sample_note_count", 5)      # 每个 KOL 抽取相关帖子数量
+        # ---- v2.1 新增配置：相关帖子抽样与内容信号（默认关闭，确定性打分流程不采集） ----
+        self.sample_note_count = cfg.get("sample_note_count", 0)      # 每个 KOL 抽取相关帖子数量（0=不抽样）
         self.relevance_keywords = cfg.get("relevance_keywords", [])   # 相关性关键词（如水果→食品/饮料）
-        self.grab_note_text = cfg.get("grab_note_text", True)         # 是否抓抽屉内笔记正文文本
-        self.grab_comments = cfg.get("grab_comments", True)          # 是否抓评论样本（默认开启，成本约每篇+1-2s；设为 false 可提速）
+        self.grab_note_text = cfg.get("grab_note_text", False)        # 是否抓抽屉内笔记正文文本（默认关闭）
+        self.grab_comments = cfg.get("grab_comments", False)          # 是否抓评论样本（默认关闭；开启成本约每篇+1-2s）
         self.notes_samples_file = cfg.get("notes_samples_file", "")  # 抽样笔记 JSON 输出路径（可选）
         # ---- v2.0.3 新增：强制重采指定 userId（修复历史数据时只重跑异常达人） ----
         self.force_redownload_ids = set(cfg.get("force_redownload_ids", []) or [])

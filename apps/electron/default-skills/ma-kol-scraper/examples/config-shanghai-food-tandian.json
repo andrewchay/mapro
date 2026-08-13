@@ -24,10 +24,10 @@
   "coop_note_months": 3,
   "coop_note_pages_max": 10,
   "active_within_days": 0,
-  "sample_note_count": 5,
+  "sample_note_count": 0,
   "relevance_keywords": ["美食", "食品", "饮料"],
-  "grab_note_text": true,
-  "grab_comments": true,
-  "notes_samples_file": "<workspace>/workspace-files/上海美食探店KOL_1w-5w_samples.json",
+  "grab_note_text": false,
+  "grab_comments": false,
+  "notes_samples_file": "",
   "output_file": "<workspace>/workspace-files/上海美食探店KOL_1w-5w.csv"
 }

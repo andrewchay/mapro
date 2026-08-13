@@ -1,7 +1,7 @@
 ---
 name: "ma-kol-scraper"
 description: "从蒲公英平台按条件批量采集 KOL 数据并输出 CSV，并内置完整 7 阶段筛选流水线（采集→初筛→删互动<100→top-8采集→沪杭复核+CPM/CPE估算→拆分→4维度打分→清洗）。通过 CDP 连接 Chrome，用通用采集器 kol_collector.py + config JSON 采集，用 scripts/ 流水线脚本筛选打分。也可走可选 LLM 圈选校验（kol_screening.py）。当用户提到采集/爬虫/蒲公英/KOL 数据/批量导出达人/达人圈选/达人评分卡/筛选打分或类似表述时触发。"
-version: "2.3.0"
+version: "2.3.1"
 ---
 
 # 蒲公英 KOL 采集 + 完整筛选流水线（v2.3）
@@ -186,6 +186,7 @@ python3 <skill>/scripts/kol_collector.py --config <workspace>/workspace-files/co
 
 ## 版本历史
 
+- **v2.3.1**（2026-08-13）：相关帖子抽样/评论明细默认关闭（`sample_note_count=0`、`grab_note_text=false`、`grab_comments=false`），确定性打分流程默认不采集抽样数据；示例 config 同步。
 - **v2.3.0**（2026-08-13）：内置完整 7 阶段筛选流水线（初筛/删互动<100/top-8/沪杭复核估算/拆分/4维度打分/清洗）；新增严格交叉验证（`strict_search`/`strict_categories`/`strict_home_tags`/排除词/母婴）；`fans_region_cities` 粉丝地域沪杭浙；`search_column`/`search_sort` 排序；`skip_drawer_extraction` 跳抽屉提速；互动/评论中位数；纯旅游/纯美妆排除口径修正（类目不命中任一目标类目才排除）。新增 `references/pipeline.md`、流水线脚本、沪杭示例 config。
 - **v2.2.0**（2026-08-02）：评论区画像真正可用（`grab_comments=true`）；CSV 新增「评论样本用户/评论样本文本」。
 - **v2.1.0**（2026-08-01）：相关帖子抽样；校验引擎 `kol_screening.py`（四条规则→评分卡）；`screening_rules.json` 规则配置。
