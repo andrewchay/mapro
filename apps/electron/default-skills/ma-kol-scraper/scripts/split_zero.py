@@ -9,6 +9,7 @@ def main():
         print(__doc__)
         sys.exit(1)
     final, outdir = sys.argv[1], sys.argv[2]
+    os.makedirs(outdir, exist_ok=True)  # 输出目录不存在时自动创建（v2.5.1 修复：此前直接 open 会抛 FileNotFoundError）
     rows = list(csv.DictReader(open(final, encoding="utf-8-sig")))
 
     def is_zero(r):

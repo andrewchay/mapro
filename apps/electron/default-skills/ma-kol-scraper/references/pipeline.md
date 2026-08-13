@@ -42,7 +42,7 @@
 
 > 纯旅游/纯美妆排除口径：**仅当内容类目不命中任一 `strict_categories`、且命中旅游/美妆类目时排除**（混合类目如"美食;出行旅游"、"时尚;出行旅游"保留）。
 
-## 2. 7 阶段流程
+## 2. 8 阶段流程
 
 | 阶段 | 脚本 | 命令 | 产出 |
 |------|------|------|------|
@@ -52,9 +52,11 @@
 | 3 健康筛选 | `filter_interact.py` → `filter_health.py` | `python3 filter_interact.py <coop.csv> <out1> 100`；`python3 filter_health.py --csv <out1> --out <健康.csv> [--lo 1.6 --hi 12]` | 健康 coop 名单（①删互动中位数<100；②删合作笔记点赞率不健康） |
 | 4 top-8采集 | `top8_extractor.py` | `python3 top8_extractor.py --csv coop.csv --out top8.json` | top8.json（曝光/点赞/标题/正文，断点续采） |
 | 5 沪杭复核+估算 | `estimate_cpe_cpm.py` | `python3 estimate_cpe_cpm.py --csv 筛选后.csv --pop 采集结果.csv --top8 top8.json --out 最终结果.csv [--city-words 上海 杭州]` | 最终结果CSV（31列；top8 命中任一城市词→通过，可配置） |
-| 6 拆分 | `split_zero.py` | `python3 split_zero.py 最终结果.csv <目录>` | 合作0 / 合作非0 |
-| 7 CPE硬性过滤 | `filter_cpe.py` | `python3 filter_cpe.py --csv 合作非0.csv --out 打分输入.csv [--max-cpe 50]` | 去掉预估CPE>50（硬性条件，打分前） |
+| 6 拆分 | `split_zero.py` | `mkdir -p <目录> && python3 split_zero.py 最终结果.csv <目录>` | 合作0 / 合作非0（**文件名带输入前缀**：`<目录>/<输入名>_合作笔记非0.csv`） |
+| 7 CPE硬性过滤 | `filter_cpe.py` | `python3 filter_cpe.py --csv <目录>/<输入名>_合作笔记非0.csv --out 打分输入.csv [--max-cpe 50]` | 去掉预估CPE>50（硬性条件，打分前） |
 | 8 打分+清洗 | `add_ratio_cols.py` → `score_kols.py` → `clean_final.py` | `score_kols.py --csv 打分输入.csv --out 打分.csv`；`clean_final.py --csv 打分.csv --out 清洗后.csv [--categories 美食 ...] [--guoqie-words 果切 ...]` | 打分名单 + 清洗后名单（38列） |
+
+> **拆分文件命名约定（v2.5.1）**：`split_zero.py` 输出文件名带输入 CSV 的 base 前缀——`<目录>/<输入名>_合作笔记0.csv` 与 `<目录>/<输入名>_合作笔记非0.csv`（base 取自输入文件名去掉扩展名，**非固定名** `合作笔记非0.csv`）。**后续阶段（7/8）引用必须带前缀**，否则找不到文件。脚本已自动创建输出目录（`makedirs`），手动运行前先 `mkdir -p <输出目录>` 双保险。完整命令示例见 `examples/pipeline_similar.sh`。
 
 > **业务规则参数化（v2.3）**：女性占比（`--female-min`）、篇数（`--min-notes`）、报价范围（`--price-lo/hi`）、沪杭复核城市词（`--city-words`）、清洗目标类目与雷区词（`--categories`/`--food-words`/`--guoqie-words`）均按 campaign 可配置，不写死。初筛的类目/标签/粉丝地域可用 `--config` 读取 config JSON 的 `strict_*` 字段覆盖默认。
 
@@ -101,19 +103,21 @@ python3 filter_cpe.py --csv 合作笔记非0.csv --out 打分输入.csv --max-cp
 
 > 与 `kol_screening.py`（LLM 四规则校验）**二选一，勿混合计分**。确定性打分可复现，推荐；LLM 校验需配置 LLM + 抽样笔记。
 
-## 4. 易错点（11 条）
+## 4. 易错点（13 条）
 
-1. **改采集器加列必须同步 `HEADERS`**：build_row 加新列漏改 HEADERS → 写入 ValueError 崩溃。
-2. **旧表头 + 新列错位**：HEADERS 修复前已写表头的旧 CSV，追加新数据行列错位、去重失效 → 应清空重采。
-3. **报价范围残留**：estimate 报价范围应设 `0~1e7` 且忽略 0 报价（否则 CPM 空）；本次按业务设 500~20000。
-4. **纯旅游/美妆排除口径**：勿用「标签命中即排除」误伤混合类目，应「内容类目不命中任一目标类目才排除」。
-5. **活跃度过滤默认开**：用户未要求时设 `active_within_days=0` 关闭。
-6. **粉丝地域漏浙江**：判断需含浙江 12 城（`fans_region_cities`）。
-7. **沪杭笔记判断**：须在 top-8 用完整标题/正文复核（主采集跳过抽屉无正文，仅凭标题会误杀，如「河坊街挖到宝」无杭州字样）。
-8. **果切判断**：真果切/果切外卖才排除（西瓜桶果切、`#上海果切#`、点果切外卖）；「鲜切」多是牛肉/凤梨等配料。
-9. **日志缓冲**：重定向输出用 `python3 -u`，否则进度不显示。
-10. **CDP 不稳定**：EPIPE/TargetClosed/内存 → 重启采集器续采（断点续采不丢数据）。
-11. **打分前漏 CPE 硬性过滤**：预估CPE>50 的达人须用 `filter_cpe.py` 在打分前淘汰（硬性条件），勿混进打分名单；CPE 列缺失或全空时先跑阶段5 估算。
+1. **拆分输出目录不存在 → FileNotFoundError**：`split_zero.py` 直接 `open(<目录>/<名>)`，目录不存在即崩（如 `道明寺猴相似达人_拆分/...`）。脚本已自动 `makedirs`（v2.5.1），手动运行仍先 `mkdir -p <输出目录>`。
+2. **拆分文件名带 base 前缀**：输出是 `<目录>/<输入名>_合作笔记非0.csv` 而非固定 `合作笔记非0.csv`——后续阶段引用必须带前缀，否则找不到文件（Milch 那次就是目录不存在 + 前缀不符叠加踩坑）。
+3. **改采集器加列必须同步 `HEADERS`**：build_row 加新列漏改 HEADERS → 写入 ValueError 崩溃。
+4. **旧表头 + 新列错位**：HEADERS 修复前已写表头的旧 CSV，追加新数据行列错位、去重失效 → 应清空重采。
+5. **报价范围残留**：estimate 报价范围应设 `0~1e7` 且忽略 0 报价（否则 CPM 空）；本次按业务设 500~20000。
+6. **纯旅游/美妆排除口径**：勿用「标签命中即排除」误伤混合类目，应「内容类目不命中任一目标类目才排除」。
+7. **活跃度过滤默认开**：用户未要求时设 `active_within_days=0` 关闭。
+8. **粉丝地域漏浙江**：判断需含浙江 12 城（`fans_region_cities`）。
+9. **沪杭笔记判断**：须在 top-8 用完整标题/正文复核（主采集跳过抽屉无正文，仅凭标题会误杀，如「河坊街挖到宝」无杭州字样）。
+10. **果切判断**：真果切/果切外卖才排除（西瓜桶果切、`#上海果切#`、点果切外卖）；「鲜切」多是牛肉/凤梨等配料。
+11. **日志缓冲**：重定向输出用 `python3 -u`，否则进度不显示。
+12. **CDP 不稳定**：EPIPE/TargetClosed/内存 → 重启采集器续采（断点续采不丢数据）。
+13. **打分前漏 CPE 硬性过滤**：预估CPE>50 的达人须用 `filter_cpe.py` 在打分前淘汰（硬性条件），勿混进打分名单；CPE 列缺失或全空时先跑阶段5 估算。
 
 ## 5. 38 列最终表头（打分清洗后）
 
