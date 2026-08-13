@@ -936,30 +936,31 @@ class FeishuBridge {
         // 首次写入加 UTF-8 BOM（Excel 打开中文不乱码）+ 表头行
         appendFileSync(csvPath, `${headerLine}\n${line}`, 'utf-8')
         console.log(`[飞书 Bridge] 已追加稿件审核反馈 CSV: ${csvPath}`)
-        return
-      }
-      // 旧格式迁移：历史文件可能是「红/黄/绿卡,@谁,…」6 列或「红/黄/绿卡,达人名称,…」5 列（无 @谁），
-      // 统一重写为目标 5 列 [@谁,达人,正文,图片,回复]（去掉红/黄/绿卡列、@谁 缺失时从回复提取），
-      // 避免新行与旧表头错列（引号内换行/逗号不能被 \n 盲拆，需 RFC4180 解析）
-      const existing = readFileSync(csvPath, 'utf-8')
-      const records = this.splitCsvRecords(existing)
-      const oldHeader = records[0] ?? []
-      if ((oldHeader[0] ?? '').includes('@谁')) {
-        appendFileSync(csvPath, line, 'utf-8')
       } else {
-        const hasMention = oldHeader.includes('@谁')
-        const dataRows = records.slice(1).map((fields) => {
-          if (hasMention) {
-            // 红/黄/绿卡,@谁,达人,正文,图片,回复 → 去掉卡列
-            return [fields[1] ?? '', ...fields.slice(2, 6)]
-          }
-          // 红/黄/绿卡,达人,正文,图片,回复 → 从该行回复字段提取 @谁
-          const replyField = fields[4] ?? ''
-          return [this.extractMentionedName(replyField), ...fields.slice(1, 5)]
-        })
-        writeFileSync(csvPath, `${headerLine}\n${dataRows.map((f) => f.map(escapeCsvField).join(',')).join('\n')}\n${line}`, 'utf-8')
+        // 旧格式迁移：历史文件可能是「红/黄/绿卡,@谁,…」6 列或「红/黄/绿卡,达人名称,…」5 列（无 @谁），
+        // 统一重写为目标 5 列 [@谁,达人,正文,图片,回复]（去掉红/黄/绿卡列、@谁 缺失时从回复提取），
+        // 避免新行与旧表头错列（引号内换行/逗号不能被 \n 盲拆，需 RFC4180 解析）
+        const existing = readFileSync(csvPath, 'utf-8')
+        const records = this.splitCsvRecords(existing)
+        const oldHeader = records[0] ?? []
+        if ((oldHeader[0] ?? '').includes('@谁')) {
+          appendFileSync(csvPath, line, 'utf-8')
+        } else {
+          const hasMention = oldHeader.includes('@谁')
+          const dataRows = records.slice(1).map((fields) => {
+            if (hasMention) {
+              // 红/黄/绿卡,@谁,达人,正文,图片,回复 → 去掉卡列
+              return [fields[1] ?? '', ...fields.slice(2, 6)]
+            }
+            // 红/黄/绿卡,达人,正文,图片,回复 → 从该行回复字段提取 @谁
+            const replyField = fields[4] ?? ''
+            return [this.extractMentionedName(replyField), ...fields.slice(1, 5)]
+          })
+          writeFileSync(csvPath, `${headerLine}\n${dataRows.map((f) => f.map(escapeCsvField).join(',')).join('\n')}\n${line}`, 'utf-8')
+        }
+        console.log(`[飞书 Bridge] 已追加稿件审核反馈 CSV: ${csvPath}`)
       }
-      console.log(`[飞书 Bridge] 已追加稿件审核反馈 CSV: ${csvPath}`)
+      // 无论首次创建还是追加，都重新生成清洗版 viz CSV（含当前工作区全部记录）
       regenerateDraftReviewVizCsv(getWorkspaceFilesDir(ws.slug))
     } catch (error) {
       console.warn(`[飞书 Bridge] 追加稿件审核反馈 CSV 失败:`, error)
