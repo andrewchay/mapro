@@ -1,7 +1,7 @@
 ---
 name: "ma-kol-scraper"
-description: "从蒲公英平台按条件批量采集 KOL 数据并输出 CSV，并内置完整 7 阶段筛选流水线（采集→初筛→删互动<100→top-8采集→沪杭复核+CPM/CPE估算→拆分→4维度打分→清洗）。通过 CDP 连接 Chrome，用通用采集器 kol_collector.py + config JSON 采集，用 scripts/ 流水线脚本筛选打分。也可走可选 LLM 圈选校验（kol_screening.py）。当用户提到采集/爬虫/蒲公英/KOL 数据/批量导出达人/达人圈选/达人评分卡/筛选打分或类似表述时触发。"
-version: "2.3.3"
+description: "从蒲公英平台按条件批量采集 KOL 数据并输出 CSV，并内置完整 7 阶段筛选流水线（采集→初筛→删互动<100→top-8采集→沪杭复核+CPM/CPE估算→拆分→4维度打分→清洗）。支持以某达人为种子的「寻找相似」（kolSimilar）扩量模式：先按昵称搜到种子达人，即可批量拉取其相似达人列表并套用同一套筛选流水线。通过 CDP 连接 Chrome，用通用采集器 kol_collector.py + config JSON 采集，用 scripts/ 流水线脚本筛选打分。也可走可选 LLM 圈选校验（kol_screening.py）。当用户提到采集/爬虫/蒲公英/KOL 数据/批量导出达人/达人圈选/达人评分卡/筛选打分/寻找相似/相似达人/以某达人为种子/找同类博主/同类达人/lookalike/达人扩量或类似表述时触发。"
+version: "2.4.1"
 ---
 
 # 蒲公英 KOL 采集 + 完整筛选流水线（v2.3）
@@ -37,7 +37,8 @@ version: "2.3.3"
 ├── screening_rules.json              ← LLM 校验规则配置（价格带/权重/阈值/提示词，品牌已中性化）
 ├── examples/
 │   ├── config-hanghai-food-tandian.json    ← 沪杭·生活美食探店示例（含 v2.3 字段，推荐）
-│   └── config-shanghai-food-tandian.json   ← 上海美食探店示例（宽松口径）
+│   ├── config-shanghai-food-tandian.json   ← 上海美食探店示例（宽松口径）
+│   └── config-similar-kol.json             ← 寻找相似模式示例（similar_user_id/similar_word 种子扩量）
 └── references/
     ├── payload.md                    ← 搜索 API payload 参考
     ├── collect_maternal_kol.py       ← 历史参考，勿再使用
@@ -103,10 +104,45 @@ version: "2.3.3"
 | `grab_comments` | `false` | 评论明细（可选；确定性打分流程**默认不采集**，留 `false`） |
 | `notes_samples_file` | （留空） | 相关帖子抽样输出（可选；确定性打分流程**默认不采集**，留空） |
 | `force_redownload_ids` | `[]` | 强制重采 userId（搜索搜不到时按昵称 searchType=2 补采） |
+| `similar_user_id` | `"5b6f1a8d5506800001c22fc2"` | **寻找相似模式**：种子达人的 userId。配置后走「寻找相似」而非关键词搜索 |
+| `similar_word` | `"Milchstraße"` | 寻找相似模式的种子昵称（供日志/识别用） |
 | `output_file` | `workspace-files/xx.csv` | 输出 CSV 绝对路径 |
 
 > **字段参数化**：`keywords`/`gender`/`location_cities`/`fans_location_cities`/`target_cities`/`fans_region_cities`/`note_price_lower/upper`/`fans_number_lower/upper`/`strict_categories`/`strict_home_tags`/`strict_exclude_words`/`strict_maternal_words`/`strict_maternal_pass`/`strict_pure_words` 均按 campaign 在 config JSON 配置（每次 campaign 改 config 即可），勿写死进脚本。相关帖子抽样/评论样本（`sample_note_count`/`relevance_keywords`/`grab_note_text`/`grab_comments`/`notes_samples_file`）在确定性打分流程下**默认不采集**。
 > 纯旅游/纯美妆排除：**仅当内容类目不命中任一 `strict_categories`、且命中旅游/美妆类目时排除**。`firstIndustry` 取值需从前端 payload 确认，稳妥用 keyword + strict_categories 过滤。
+
+### Step 2b · 寻找相似模式（以某达人为种子扩量）
+
+当用户说"寻找相似"、"以 XX 达人为种子找同类博主"、"更多操作里的寻找相似"时，走**寻找相似（kolSimilar）模式**：把种子达人的 userId 配进 config（`similar_user_id` + `similar_word`），采集器自动改用 `blogger/v2` 的 kolSimilar 通道拉取相似达人列表，再走同样的详情采集 + 7 阶段流水线。
+
+**机制**（实测 2026-08-13）：页面"更多操作→寻找相似"实际触发 `POST /api/solar/cooperator/blogger/v2`，trackId 前缀 `kolSimilar_`，payload 携带 `similarUserId` + `similarWord`。返回 `data.total` 即相似达人总数，**分页可拉全量**（pageSize=20）。
+
+**⚠️ 关键验证——筛选参数对 kolSimilar 生效**（API 直测）：`similarUserId`/`similarWord` 之外，gender/location/notePriceLower/Upper 等筛选参数**同样生效**，会压缩 total。务必在 config 中配好筛选，避免采到大量无关达人。
+
+| 筛选组合 | total（Milchstraße 种子实测） |
+|---------|------|
+| 无筛选 | 979 |
+| 博主沪杭 | 446 |
+| + 报价500-20000 | 321 |
+| + 性别女 | 371 |
+| **全（女+沪杭+报价）** | **272** |
+
+> 粉丝地域（`fansLocation`）不能用城市名过滤（返回 0），需靠详情页 `fans_profile` 在阶段2 初筛（`screen_v2.py` 的 `fans_region_cities`）判断。
+
+**config 要点**：
+```json
+{
+  "similar_user_id": "5b6f1a8d5506800001c22fc2",
+  "similar_word": "Milchstraße",
+  "gender": "女",
+  "location_cities": ["上海", "杭州"],
+  "note_price_lower": 500,
+  "note_price_upper": 20000,
+  "search_column": "comprehensiverank",
+  "search_sort": "desc"
+}
+```
+完整示例见 `examples/config-similar-kol.json`。采集与后续流水线命令与常规模式完全一致（Step 3 / Step 4）。
 
 ### Step 3 · 主采集（Agent 自动运行）
 
@@ -174,18 +210,24 @@ python3 <skill>/scripts/kol_screening.py --csv ... --samples ... --rules <skill>
 
 - **沪杭·生活美食探店**（推荐示例）：`examples/config-hanghai-food-tandian.json`（含 v2.3 严格筛选字段）
 - **上海美食探店（宽松）**：`examples/config-shanghai-food-tandian.json`
+- **寻找相似模式**：`examples/config-similar-kol.json`（以某达人为种子，填 `similar_user_id` + `similar_word`）
 
 ```bash
 # 环境自检
 python3 <skill>/scripts/kol_collector.py --check --port 9222
-# 复制示例并采集
+# 复制示例并采集（常规关键词）
 cp <skill>/examples/config-hanghai-food-tandian.json <workspace>/workspace-files/config_沪杭探店.json
 python3 <skill>/scripts/kol_collector.py --config <workspace>/workspace-files/config_沪杭探店.json
 # 之后按 references/pipeline.md 执行阶段2-7
+# 寻找相似模式：把 config 里的 similar_user_id/similar_word 填上种子达人即可
+cp <skill>/examples/config-similar-kol.json <workspace>/workspace-files/config_相似达人.json
+python3 <skill>/scripts/kol_collector.py --config <workspace>/workspace-files/config_相似达人.json
 ```
 
 ## 版本历史
 
+- **v2.4.1**（2026-08-13）：同步「寻找相似（kolSimilar）模式」至默认 skill，保留既有增强（抽样默认关闭 / score_kols.py 38 列精简输出 / 打分 5 列可替换接口）。
+- **v2.4.0**（2026-08-13）：新增**寻找相似（kolSimilar）模式**——以某达人为种子批量拉取相似达人（config 配 similar_user_id/similar_word，走 blogger/v2 kolSimilar 通道 + 分页全量；筛选参数 gender/location/报价 对 kolSimilar 生效，可压缩 total）。新增 Step 2b 章节、examples/config-similar-kol.json 示例、版本号。
 - **v2.3.3**（2026-08-13）：明确最终 CSV 末尾打分 5 列（CPE/点赞率/赞评比/爆文率得分+总分）为可替换接口——默认 4 维度确定性打分，改用其他打分方式（如 LLM 校验）时仅替换这 5 列。
 - **v2.3.2**（2026-08-13）：`score_kols.py` 最终输出严格限定 38 列表头（33 列最终结果 + 4 维度打分 5 列），按总分降序，不再带入 userId 等中间列。
 - **v2.3.1**（2026-08-13）：相关帖子抽样/评论明细默认关闭（`sample_note_count=0`、`grab_note_text=false`、`grab_comments=false`），确定性打分流程默认不采集抽样数据；示例 config 同步。

@@ -1,8 +1,18 @@
-# 蒲公英 KOL 完整筛选流水线（7 阶段，v2.3）
+# 蒲公英 KOL 完整筛选流水线（7 阶段，v2.4）
 
 > 与 SKILL.md 配套。SKILL.md 是编排总纲，本文档承载完整细节：config 字段、各阶段筛选条件、打分规则、易错点、38 列表头、CDP 监督续采、命令示例。
 
-## 1. config 字段表（v2.3，含示例值）
+## 0. 寻找相似（kolSimilar）模式
+
+当 config 配置了 `similar_user_id`（+ 可选 `similar_word`），采集器自动走**寻找相似**通道，其余流程（详情采集 + 阶段2-7）与常规关键词搜索完全一致。
+
+- **接口**：`POST /api/solar/cooperator/blogger/v2`，trackId 前缀 `kolSimilar_`，payload 增加 `similarUserId` / `similarWord`。
+- **分页**：与关键词搜索相同，`pageNum` 递增拉全量（pageSize=20），`data.total` 为相似达人总数。
+- **筛选参数对 kolSimilar 生效**：`gender` / `location` / `notePriceLower` / `notePriceUpper` / `fansNumberLower` / `fansNumberUpper` 等会压缩 total（实测 Milchstraße 种子：无筛选 979 → 全筛选 272）。**配置时务必带上筛选**，否则会采到大量无关达人。
+- **粉丝地域（fansLocation）不可用**：按城市名传返回 0，需在阶段2 用 `fans_region_cities`（详情页 fans_profile top5）过滤。
+- **种子 userId 获取**：博主广场按昵称搜索 → 点搜索预测项 → 从 `blogger/v2` 的 `kolSearch_` 响应或详情页 API `/api/solar/cooperator/user/blogger/{uid}` 拿 `userId`。也可直接在页面"更多操作→寻找相似"时从抓包 `kolSimilar_` 请求体读 `similarUserId`。
+
+## 1. config 字段表（v2.4，含示例值）
 
 | 字段 | 示例 | 说明 |
 |------|------|------|

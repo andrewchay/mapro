@@ -167,6 +167,9 @@ class KolCollector:
         self.cfg = cfg
         self.brand_user_id = cfg.get("brand_user_id", "")
         self.keywords = cfg.get("keywords", []) or []
+        # ---- v2.4 寻找相似（kolSimilar）模式：以某达人为种子推荐相似达人 ----
+        self.similar_user_id = cfg.get("similar_user_id", "") or cfg.get("similarUserId", "")
+        self.similar_word = cfg.get("similar_word", "") or cfg.get("similarWord", "")
         self.gender = cfg.get("gender", "不限")
         self.location_cities = format_location_cities(cfg.get("location_cities", []))
         self.fans_location_cities = format_location_cities(cfg.get("fans_location_cities", []))
@@ -424,7 +427,7 @@ class KolCollector:
     # ----- 搜索 API -----
 
     def fetch_search_kols(self, page):
-        """分页拉取搜索列表"""
+        """分页拉取搜索列表。若配置了 similar_user_id，走「寻找相似」模式（trackId=kolSimilar_ + similarUserId/similarWord）。"""
         payload = {
             "searchType": 1, "column": self.search_column, "sort": self.search_sort,
             "pageNum": 1, "pageSize": 20,
@@ -457,6 +460,47 @@ class KolCollector:
         search_keywords = self.keywords if self.keywords else [None]
         all_kols_dict = {}  # userId -> kol
 
+        # ===== 寻找相似（kolSimilar）模式 =====
+        if self.similar_user_id:
+            payload["similarUserId"] = self.similar_user_id
+            payload["similarWord"] = self.similar_word or self.similar_user_id
+            payload["trackId"] = f"kolSimilar_{uuid.uuid4().hex}"
+            payload["pageNum"] = 1
+            payload["searchType"] = 0
+            js_code = js_fetch_json(SEARCH_API, method="POST", body=payload)
+            data = page.evaluate(js_code)
+            if not data or data.get("code") != 0:
+                print(f"  [寻找相似] 无返回或 code={data.get('code') if data else 'None'}")
+                return []
+            total = safe_get(data, "data", "total", default=0) or 0
+            kols = safe_get(data, "data", "kols", default=[]) or []
+            print(f"  [寻找相似] 种子={self.similar_word} total={total} 首页返回={len(kols)}")
+            kols = [k for k in kols if (self.kol_matches_strict_search(k) if self.strict_search else True)]
+            for kol in kols:
+                if kol.get("userId"):
+                    all_kols_dict[kol["userId"]] = kol
+            page_num = 2
+            while page_num <= self.max_pages and len(kols) > 0:
+                payload["pageNum"] = page_num
+                payload["trackId"] = f"kolSimilar_{uuid.uuid4().hex}"
+                js_code = js_fetch_json(SEARCH_API, method="POST", body=payload)
+                data = page.evaluate(js_code)
+                if not data or data.get("code") != 0:
+                    break
+                kols = safe_get(data, "data", "kols", default=[]) or []
+                for kol in kols:
+                    if kol.get("userId"):
+                        all_kols_dict[kol["userId"]] = kol
+                print(f"    [寻找相似] 第{page_num}页 返回={len(kols)} 累计唯一={len(all_kols_dict)}")
+                page_num += 1
+                time.sleep(0.5)
+                if self.max_kols > 0 and len(all_kols_dict) >= self.max_kols:
+                    break
+            all_kols = list(all_kols_dict.values())
+            print(f"  [寻找相似] 共获取 {len(all_kols)} 个唯一相似 KOL")
+            return all_kols
+
+        # ===== 常规关键词搜索模式 =====
         for keyword in search_keywords:
             if keyword is None:
                 payload["keyword"] = None
