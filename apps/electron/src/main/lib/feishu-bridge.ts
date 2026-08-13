@@ -895,15 +895,22 @@ class FeishuBridge {
     const ws = binding?.workspaceId ? getAgentWorkspace(binding.workspaceId) : undefined
     if (!ws) return
 
-    // 稿件信息兜底：bridge 未读到正文/达人名/图片（云文档 API 读取降级、纯文本链接消息、空文件文本）时，
-    // 从 Agent 兜底落盘的 draft-archives 归档补全（Agent 归档目录名即达人名，归档含图片信息行）
-    let influencer = pending.influencer || '未命名'
+    // 达人归属：优先用消息提取的达人名（pending.influencer）；缺失（'未命名'）时以 bot 回复模板中的"达人：X"为准
+    // （三态模板固定输出该行，是本次审核意见的事实归属），二者皆无才保留 '未命名'
+    let influencer = pending.influencer
+    if (!influencer || influencer === '未命名') {
+      influencer = this.extractInfluencerFromReply(reply) || '未命名'
+    }
     let textPart = pending.textPart
     let imagePart = pending.imagePart
     const isPlaceholderText = !textPart || textPart.length < 30 || /https?:\/\//.test(textPart)
-    let archived = influencer === '未命名' || isPlaceholderText
+
+    // 稿件信息兜底：正文/图片缺失时，优先按本次审核归属的达人名精确读取对应归档（draft-archives/{达人名}/），
+    // 杜绝按全局 mtime 扫描把其他达人的归档（正文/达人名）错填到本行（同一工作区多达人时归属错乱）
+    let archived = influencer !== '未命名' && (isPlaceholderText || !imagePart)
       ? this.readLatestDraftArchive(ws.slug, influencer)
       : null
+    // 达人名完全无法归属（罕见）时，最后才退化为全局最新归档
     if (!archived && (influencer === '未命名' || isPlaceholderText)) {
       archived = this.findLatestDraftArchive(ws.slug)
     }
@@ -944,6 +951,18 @@ class FeishuBridge {
     if (/（绿卡）/i.test(reply) || /绿卡/i.test(reply)) return '绿卡'
     if (/审核失败/i.test(reply)) return '审核失败'
     return ''
+  }
+
+  /**
+   * 从 bot 审核回复模板中提取"达人：X"作为本次审核的达人归属
+   *
+   * 三态模板（红卡/黄卡/绿卡/审核失败）固定输出"达人：X"行，是本行审核意见的事实归属；
+   * 消息侧达人名提取失败（'未命名'）时以此为准，确保达人/正文/审核意见三者一致。
+   */
+  private extractInfluencerFromReply(reply: string): string {
+    if (!reply) return ''
+    const m = reply.match(/达人[：:]\s*([^\n，,。]+)/)
+    return m?.[1]?.trim() ?? ''
   }
 
   /**
