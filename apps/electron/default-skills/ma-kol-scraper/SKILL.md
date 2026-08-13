@@ -1,7 +1,7 @@
 ---
 name: "ma-kol-scraper"
 description: "从蒲公英平台按条件批量采集 KOL 数据并输出 CSV，并内置完整 8 阶段筛选流水线（采集→初筛→删互动<100→top-8采集→沪杭复核+CPM/CPE估算→拆分→CPE硬性过滤→4维度打分→清洗）。支持以某达人为种子的「寻找相似」（kolSimilar）扩量模式：先按昵称搜到种子达人，即可批量拉取其相似达人列表并套用同一套筛选流水线。通过 CDP 连接 Chrome，用通用采集器 kol_collector.py + config JSON 采集，用 scripts/ 流水线脚本筛选打分。也可走可选 LLM 圈选校验（kol_screening.py）。当用户提到采集/爬虫/蒲公英/KOL 数据/批量导出达人/达人圈选/达人评分卡/筛选打分/寻找相似/相似达人/以某达人为种子/找同类博主/同类达人/lookalike/达人扩量或类似表述时触发。"
-version: "2.5.1"
+version: "2.5.2"
 ---
 
 # 蒲公英 KOL 采集 + 完整筛选流水线（v2.5）
@@ -185,16 +185,21 @@ python3 <skill>/scripts/kol_collector.py --config <workspace>/workspace-files/co
 python3 <skill>/scripts/kol_screening.py --csv ... --samples ... --rules <skill>/screening_rules.json --out ..._scorecard.json --category 美食探店 --city 上海
 ```
 
-## 产出物（全部在 workspace-files/）
+## 产出物（全部在 workspace-files/，命名与 `examples/pipeline_similar.sh` 一致）
 
 | 文件 | 说明 |
 |------|------|
 | `config_{产品}_{城市}.json` | 筛选参数 |
-| `{产品}{城市}采集结果.csv` | 主采集结果（含互动/评论中位数） |
+| `{产品}{城市}采集结果.csv` | 阶段1 主采集结果（含互动/评论中位数） |
 | `{产品}{城市}_筛选后.csv` | 阶段2 通过名单 |
-| `{产品}{城市}_top8.json` | top-8 曝光/点赞/标题/正文 |
+| `{产品}{城市}_interact.csv` | 阶段3 删互动<100 后（中间） |
+| `{产品}{城市}_健康.csv` | 阶段3 健康筛选后 |
+| `{产品}{城市}_top8.json` | 阶段4 top-8 曝光/点赞/标题/正文 |
 | `{产品}{城市}最终结果.csv` | 阶段5 最终结果（31列） |
-| `{产品}{城市}最终结果_合作笔记非0_打分.csv` | 4 维度打分名单（38列） |
+| `{产品}{城市}_拆分/{产品}{城市}最终结果_合作笔记非0.csv` | 阶段6 拆分输出（**带 base 前缀**；另有一个 `_合作笔记0.csv`） |
+| `{产品}{城市}_打分输入.csv` | 阶段7 CPE 硬性过滤后（打分输入） |
+| `{产品}{城市}_打分.csv` | 阶段8 打分名单（38列） |
+| `{产品}{城市}_清洗后.csv` | **最终名单（交付）** |
 
 ## CSV 字段清单
 
@@ -233,6 +238,7 @@ python3 <skill>/scripts/kol_collector.py --config <workspace>/workspace-files/co
 
 ## 版本历史
 
+- **v2.5.2**（2026-08-13）：产出物表与 `examples/pipeline_similar.sh` 命名对齐——补齐阶段3-7 中间产物（interact/健康/top8/拆分/打分输入），最终名单明确为 `{产品}{城市}_清洗后.csv`。
 - **v2.5.1**（2026-08-13）：修复拆分阶段两个叠加坑并沉淀——① `split_zero.py` 输出目录不存在时自动 `makedirs`（此前直接 `open` 抛 FileNotFoundError）；② 明确拆分输出文件名带 base 前缀（`<目录>/<输入名>_合作笔记非0.csv`），阶段7/8 引用必须带前缀；新增 `examples/pipeline_similar.sh` 完整流水线命令示例（含 mkdir -p 与带前缀路径），pipeline.md 易错点增至 13 条。
 - **v2.5.0**（2026-08-13）：新增**阶段7 CPE 硬性过滤**（`filter_cpe.py`，打分前去掉预估CPE>50，`--max-cpe` 可配，流水线扩为 8 阶段）；**寻找相似防误判**——Step 2b / pipeline 第0章新增任务判定规则（寻找相似任务必须一开始就走 kolSimilar，config 只含 similar 字段，keywords 留空、不配 strict_*），示例 `config-similar-kol.json` 精简为只含 similar 字段，`kol_collector.py` similar 模式强制关闭 strict 搜索。
 - **v2.4.1**（2026-08-13）：同步「寻找相似（kolSimilar）模式」至默认 skill，保留既有增强（抽样默认关闭 / score_kols.py 38 列精简输出 / 打分 5 列可替换接口）。
