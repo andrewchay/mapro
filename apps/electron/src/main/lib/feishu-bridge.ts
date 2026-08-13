@@ -36,7 +36,7 @@ import {
   getWorkspaceCapabilities,
 } from './agent-workspace-manager'
 import { getFeishuBotBindingsPath, getWorkspaceFilesDir, getConfigDir } from './config-paths'
-import { writeFileSync, readFileSync, existsSync, readdirSync, mkdirSync, appendFileSync } from 'node:fs'
+import { writeFileSync, readFileSync, existsSync, readdirSync, mkdirSync, appendFileSync, statSync } from 'node:fs'
 import { basename, extname, join, dirname } from 'node:path'
 import { extractTextFromFile, isSupportedDocumentExtension } from './document-parser'
 import {
@@ -791,11 +791,67 @@ class FeishuBridge {
    * 读取指定达人的最新归档全文（draft-archives/{达人名}/{达人名}_v{N}.md，N 最大）
    *
    * 用于 CSV"稿件文字部分"兜底：bridge 未能读到稿件正文（如云文档 API 读取降级）时，
-   * 从 Agent 兜底落盘的归档补全文字内容。
+   * 从 Agent 兜底落盘的归档补全文字内容。返回 { influencer, content }；无效达人名/无归档返回 null。
    */
-  private readLatestDraftArchive(workspaceSlug: string, influencer: string): string | null {
+  private readLatestDraftArchive(workspaceSlug: string, influencer: string): { influencer: string; content: string } | null {
     if (!influencer || influencer === '未命名') return null
     const dir = join(getWorkspaceFilesDir(workspaceSlug), 'draft-archives', influencer)
+    const latest = this.latestMdInDir(dir)
+    if (!latest) return null
+    try {
+      const content = readFileSync(join(dir, latest), 'utf-8')
+      return { influencer, content }
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * 扫描 draft-archives/ 下全部达人目录，取最近修改的归档（mtime 最新），返回 { influencer, content }
+   *
+   * 用于达人名/正文兜底：bridge 提取不到达人名（'未命名'）时，以 Agent 落盘归档的目录名作为达人名。
+   */
+  private findLatestDraftArchive(workspaceSlug: string): { influencer: string; content: string } | null {
+    const root = join(getWorkspaceFilesDir(workspaceSlug), 'draft-archives')
+    if (!existsSync(root)) return null
+    let entries: string[]
+    try {
+      entries = readdirSync(root)
+    } catch {
+      return null
+    }
+    let best: { influencer: string; content: string; mtime: number } | null = null
+    for (const entry of entries) {
+      const dir = join(root, entry)
+      if (!existsSync(dir)) continue
+      let files: string[]
+      try {
+        files = readdirSync(dir).filter((f) => f.endsWith('.md'))
+      } catch {
+        continue
+      }
+      for (const f of files) {
+        const p = join(dir, f)
+        let mtime = 0
+        try {
+          mtime = statSync(p).mtimeMs
+        } catch {
+          continue
+        }
+        if (!best || mtime > best.mtime) {
+          try {
+            best = { influencer: entry, content: readFileSync(p, 'utf-8'), mtime }
+          } catch {
+            continue
+          }
+        }
+      }
+    }
+    return best
+  }
+
+  /** 返回目录内版本号最大的 md 文件名（如 {达人名}_v{N}.md 取 N 最大者），无则 null */
+  private latestMdInDir(dir: string): string | null {
     if (!existsSync(dir)) return null
     let files: string[]
     try {
@@ -809,13 +865,17 @@ class FeishuBridge {
       return m ? Number(m[1]) : 0
     }
     files.sort((a, b) => versionOf(b) - versionOf(a))
-    const latest = files[0]
-    if (!latest) return null
-    try {
-      return readFileSync(join(dir, latest), 'utf-8')
-    } catch {
-      return null
-    }
+    return files[0] ?? null
+  }
+
+  /** 从归档全文提取图片信息（优先"图片：N 张…"行，兜底 markdown 图片引用计数） */
+  private extractImageInfoFromArchive(content: string): string {
+    if (!content) return ''
+    const m = content.match(/(?:图片|图)[:：]\s*([^\n]+)/)
+    if (m?.[1]?.trim()) return m[1].trim()
+    const count = (content.match(/!\[[^\]]*\]\([^)]+\)/g) || []).length
+    if (count > 0) return `图片 ${count} 张`
+    return ''
   }
 
   /**
@@ -835,12 +895,22 @@ class FeishuBridge {
     const ws = binding?.workspaceId ? getAgentWorkspace(binding.workspaceId) : undefined
     if (!ws) return
 
-    // 稿件文字部分兜底：bridge 未读到正文（如云文档 API 读取降级，仅有链接文本）时，从 Agent 兜底落盘的归档读取全文
+    // 稿件信息兜底：bridge 未读到正文/达人名/图片（云文档 API 读取降级、纯文本链接消息、空文件文本）时，
+    // 从 Agent 兜底落盘的 draft-archives 归档补全（Agent 归档目录名即达人名，归档含图片信息行）
+    let influencer = pending.influencer || '未命名'
     let textPart = pending.textPart
-    const looksLikePlaceholder = !textPart || textPart.length < 30 || /https?:\/\//.test(textPart)
-    if (looksLikePlaceholder) {
-      const archived = this.readLatestDraftArchive(ws.slug, pending.influencer)
-      if (archived) textPart = archived
+    let imagePart = pending.imagePart
+    const isPlaceholderText = !textPart || textPart.length < 30 || /https?:\/\//.test(textPart)
+    let archived = influencer === '未命名' || isPlaceholderText
+      ? this.readLatestDraftArchive(ws.slug, influencer)
+      : null
+    if (!archived && (influencer === '未命名' || isPlaceholderText)) {
+      archived = this.findLatestDraftArchive(ws.slug)
+    }
+    if (archived?.content) {
+      if (influencer === '未命名') influencer = archived.influencer
+      if (isPlaceholderText) textPart = archived.content
+      if (!imagePart) imagePart = this.extractImageInfoFromArchive(archived.content)
     }
 
     const csvPath = join(getWorkspaceFilesDir(ws.slug), 'draft-review-feedback.csv')
@@ -850,7 +920,7 @@ class FeishuBridge {
     }
     // 卡类型（红/黄/绿/审核失败）从 bot 回复模板中提取，放第一列
     const verdict = this.extractDraftVerdict(reply)
-    const line = `${escapeCsvField(verdict)},${escapeCsvField(pending.influencer)},${escapeCsvField(textPart)},${escapeCsvField(pending.imagePart)},${escapeCsvField(reply)}\n`
+    const line = `${escapeCsvField(verdict)},${escapeCsvField(influencer)},${escapeCsvField(textPart)},${escapeCsvField(imagePart)},${escapeCsvField(reply)}\n`
     try {
       const firstWrite = !existsSync(csvPath)
       // 首次写入加 UTF-8 BOM（Excel 打开中文不乱码）+ 表头行
@@ -2097,7 +2167,8 @@ class FeishuBridge {
       if (isDraftMsg && workspace) {
         const docName = docxDraft?.name ?? fileAttachments[0]?.fileName ?? ''
         const influencer = this.extractInfluencerName(userText, docName)
-        const textPart = docxDraft?.content ?? fileExtractedText ?? userText
+        // 注意：空字符串/降级（docxDraft 为 null、文件文本为空）时用 || 逐级兜底到消息文本，禁止用 ??（只跳过 null/undefined）
+        const textPart = docxDraft?.content || fileExtractedText || userText
         const imagePart = imageAttachments.length > 0
           ? imageAttachments.map((img) => `feishu-${img.imageKey}.${inferExtension(img.mediaType)}`).join('; ')
           : ''
