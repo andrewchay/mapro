@@ -32,7 +32,7 @@ python3 -u "$SKILL/scripts/screen_v2.py" \
   --out "$WS/workspace-files/${BASE}_筛选后.csv" \
   --config "$CONFIG" --fans-cities 上海 杭州
 
-# ---- 阶段3 健康筛选（删互动<100 + 删点赞率不健康）----
+# ---- 阶段3 健康筛选（删互动<100 + 删点赞率不健康；点赞率=日常笔记口径）----
 python3 -u "$SKILL/scripts/filter_interact.py" "$WS/workspace-files/${BASE}_筛选后.csv" "$WS/workspace-files/${BASE}_interact.csv" 100
 python3 -u "$SKILL/scripts/filter_health.py" --csv "$WS/workspace-files/${BASE}_interact.csv" --out "$WS/workspace-files/${BASE}_健康.csv" --lo 1.6 --hi 12
 

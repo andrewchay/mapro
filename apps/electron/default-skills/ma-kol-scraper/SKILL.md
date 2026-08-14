@@ -1,7 +1,7 @@
 ---
 name: "ma-kol-scraper"
 description: "从蒲公英平台按条件批量采集 KOL 数据并输出 CSV，并内置完整 8 阶段筛选流水线（采集→初筛→删互动<100→top-8采集→沪杭复核+CPM/CPE估算→拆分→CPE硬性过滤→4维度打分→清洗）。支持以某达人为种子的「寻找相似」（kolSimilar）扩量模式：先按昵称搜到种子达人，即可批量拉取其相似达人列表并套用同一套筛选流水线。通过 CDP 连接 Chrome，用通用采集器 kol_collector.py + config JSON 采集，用 scripts/ 流水线脚本筛选打分。也可走可选 LLM 圈选校验（kol_screening.py）。当用户提到采集/爬虫/蒲公英/KOL 数据/批量导出达人/达人圈选/达人评分卡/筛选打分/寻找相似/相似达人/以某达人为种子/找同类博主/同类达人/lookalike/达人扩量或类似表述时触发。"
-version: "2.5.2"
+version: "2.5.3"
 ---
 
 # 蒲公英 KOL 采集 + 完整筛选流水线（v2.5）
@@ -26,7 +26,7 @@ version: "2.5.2"
 │   ├── kol_screening.py              ← 可选 LLM 圈选校验引擎
 │   ├── screen_v2.py                  ← 阶段2 初筛（女性占比/篇数/交叉验证/报价/粉丝地域）
 │   ├── filter_interact.py            ← 阶段3 删合作互动中位数<100
-│   ├── filter_health.py              ← 阶段3 删合作笔记点赞率不健康（默认1.6%~12%）
+│   ├── filter_health.py              ← 阶段3 删点赞率不健康（日常笔记口径，默认1.6%~12%）
 │   ├── split_coop.py                 ← 生成 coop 子集（合作≥1）
 │   ├── top8_extractor.py             ← 阶段4 top-8 采集（点抽屉记曝光/点赞/标题/正文）
 │   ├── estimate_cpe_cpm.py           ← 阶段5 沪杭复核 + Tweedie 估算 CPM/CPE
@@ -163,7 +163,7 @@ python3 <skill>/scripts/kol_collector.py --config <workspace>/workspace-files/co
 | 阶段 | 脚本 | 产出 |
 |------|------|------|
 | 2 初筛 | `screen_v2.py` | 通过名单（女性≥70%/篇数≥4/交叉验证/粉丝沪杭浙/报价500-20000） |
-| 3 健康筛选 | `filter_interact.py`→`filter_health.py` | ①删近30日合作笔记互动中位数<100；②删合作笔记点赞率<1.6%或>12%（2%~10% 健康区间 ±20% 容差，`--lo/--hi` 可配） |
+| 3 健康筛选 | `filter_interact.py`→`filter_health.py` | ①删近30日合作笔记互动中位数<100；②删点赞率<1.6%或>12%（**日常笔记**口径：日常点赞÷日常阅读，与打分/「阅读与点赞占比」列一致；2%~10% 健康区间 ±20% 容差，`--lo/--hi` 可配） |
 | 4 top-8采集 | `top8_extractor.py` | top8.json（曝光/点赞/标题/正文，断点续采） |
 | 5 沪杭复核+估算 | `estimate_cpe_cpm.py` | 最终结果CSV（31列；top8含沪杭→通过；Tweedie 算 CPM/CPE） |
 | 6 拆分 | `split_zero.py` | 合作0 / 合作非0（**文件名带输入前缀** `<目录>/<输入名>_合作笔记非0.csv`；先 `mkdir -p <输出目录>`） |
@@ -238,6 +238,7 @@ python3 <skill>/scripts/kol_collector.py --config <workspace>/workspace-files/co
 
 ## 版本历史
 
+- **v2.5.3**（2026-08-13）：统一「点赞率」口径为**日常笔记**近30日仅自然流量（日常点赞中位数 ÷ 日常阅读中位数）——健康筛选（`filter_health.py` 由合作笔记口径修正为日常笔记口径）、打分（`score_kols.py`，本就日常口径）、CSV「阅读与点赞占比」列（`add_ratio_cols.py`，本就日常口径）三处一致。
 - **v2.5.2**（2026-08-13）：产出物表与 `examples/pipeline_similar.sh` 命名对齐——补齐阶段3-7 中间产物（interact/健康/top8/拆分/打分输入），最终名单明确为 `{产品}{城市}_清洗后.csv`。
 - **v2.5.1**（2026-08-13）：修复拆分阶段两个叠加坑并沉淀——① `split_zero.py` 输出目录不存在时自动 `makedirs`（此前直接 `open` 抛 FileNotFoundError）；② 明确拆分输出文件名带 base 前缀（`<目录>/<输入名>_合作笔记非0.csv`），阶段7/8 引用必须带前缀；新增 `examples/pipeline_similar.sh` 完整流水线命令示例（含 mkdir -p 与带前缀路径），pipeline.md 易错点增至 13 条。
 - **v2.5.0**（2026-08-13）：新增**阶段7 CPE 硬性过滤**（`filter_cpe.py`，打分前去掉预估CPE>50，`--max-cpe` 可配，流水线扩为 8 阶段）；**寻找相似防误判**——Step 2b / pipeline 第0章新增任务判定规则（寻找相似任务必须一开始就走 kolSimilar，config 只含 similar 字段，keywords 留空、不配 strict_*），示例 `config-similar-kol.json` 精简为只含 similar 字段，`kol_collector.py` similar 模式强制关闭 strict 搜索。

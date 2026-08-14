@@ -49,7 +49,7 @@
 | 0 环境 | `kol_collector.py` | `python3 kol_collector.py --check --port 9222` | CDP + 登录态确认 |
 | 1 主采集 | `kol_collector.py` | `python3 kol_collector.py --config config.json` | 采集结果CSV（含互动/评论中位数） |
 | 2 初筛 | `screen_v2.py` | `python3 screen_v2.py --csv 采集结果.csv --out 筛选后.csv [--config config.json] [--female-min 0.70] [--min-notes 4] [--price-lo 0.05 --price-hi 2.0] [--fans-cities 上海 杭州 ...]` | 通过名单（参数化：类目/标签/女性占比/篇数/报价/粉丝地域可配置） |
-| 3 健康筛选 | `filter_interact.py` → `filter_health.py` | `python3 filter_interact.py <coop.csv> <out1> 100`；`python3 filter_health.py --csv <out1> --out <健康.csv> [--lo 1.6 --hi 12]` | 健康 coop 名单（①删互动中位数<100；②删合作笔记点赞率不健康） |
+| 3 健康筛选 | `filter_interact.py` → `filter_health.py` | `python3 filter_interact.py <coop.csv> <out1> 100`；`python3 filter_health.py --csv <out1> --out <健康.csv> [--lo 1.6 --hi 12]` | 健康 coop 名单（①删互动中位数<100；②删点赞率不健康，日常笔记口径） |
 | 4 top-8采集 | `top8_extractor.py` | `python3 top8_extractor.py --csv coop.csv --out top8.json` | top8.json（曝光/点赞/标题/正文，断点续采） |
 | 5 沪杭复核+估算 | `estimate_cpe_cpm.py` | `python3 estimate_cpe_cpm.py --csv 筛选后.csv --pop 采集结果.csv --top8 top8.json --out 最终结果.csv [--city-words 上海 杭州]` | 最终结果CSV（31列；top8 命中任一城市词→通过，可配置） |
 | 6 拆分 | `split_zero.py` | `mkdir -p <目录> && python3 split_zero.py 最终结果.csv <目录>` | 合作0 / 合作非0（**文件名带输入前缀**：`<目录>/<输入名>_合作笔记非0.csv`） |
@@ -71,7 +71,7 @@
 
 ### 阶段3 健康筛选（filter_interact.py + filter_health.py）
 - **① 删互动中位数<100**：删近30日合作笔记（仅自然流量）互动中位数 <100
-- **② 删点赞率不健康**：合作笔记点赞率 = 合作笔记点赞中位数 ÷ 合作笔记阅读中位数（近30日仅自然流量），保留在 **[1.6%, 12%]** 内（即 2%~10% 健康区间 ±20% 容差），否则淘汰；阈值用 `--lo/--hi` 配置
+- **② 删点赞率不健康**：点赞率 = **日常笔记**点赞中位数 ÷ 日常笔记阅读中位数（近30日仅自然流量；与打分、CSV「阅读与点赞占比」列**同一口径**），保留在 **[1.6%, 12%]** 内（即 2%~10% 健康区间 ±20% 容差），否则淘汰；阈值用 `--lo/--hi` 配置
 
 ### 阶段5 沪杭复核 + CPM/CPE 估算（estimate_cpe_cpm.py）
 - 沪杭复核：top-8 标题/正文含「上海」或「杭州」→ 通过；无沪杭 → 淘汰
@@ -95,7 +95,7 @@ python3 filter_cpe.py --csv 合作笔记非0.csv --out 打分输入.csv --max-cp
 | 维度 | 满分 | 规则 |
 |------|------|------|
 | CPE | 50 | >20→0；15~20→20；10~15→30；5~10→40；0~5→50 |
-| 点赞率=点赞÷阅读 | 20 | 2%~10%→20，其他→0 |
+| 点赞率=日常点赞÷日常阅读 | 20 | 2%~10%→20，其他→0 |
 | 赞评比=点赞÷评论 | 20 | ≤5→20；5~8→12；>8→0 |
 | 爆文率 | 10 | 粉丝<1万且日常互动≥500，或≥1万且≥1000 →10；否则0 |
 
