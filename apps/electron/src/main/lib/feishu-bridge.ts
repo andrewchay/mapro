@@ -125,6 +125,8 @@ interface PendingDraftFeedback {
   textPart: string
   /** 稿件图片部分（飞书图片附件文件名列表，无则空） */
   imagePart: string
+  /** 上一轮红卡反馈的"必须修改"清单（本次审核的返工核对基准，写入 CSV"已反馈内容"列） */
+  lastFeedback: string
 }
 
 /**
@@ -883,8 +885,9 @@ class FeishuBridge {
    * 稿件审核反馈 CSV 落盘：session 完成时把（@谁/达人名称/稿件文字/稿件图片/bot 回复）追加到工作区 CSV
    *
    * - 文件路径：{工作区根}/draft-review-feedback.csv（绝对路径，与 bridge 其余落盘基准一致）
-   * - 表头：@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容（首次创建时写入，含 UTF-8 BOM 保证 Excel 中文不乱码）
-   * - @谁 列：审核模板开头"@姓名"（bot 实际 @ 的接收人）；历史格式（含红/黄/绿卡列）自动迁移为 5 列
+   * - 表头：@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,已反馈内容（首次创建时写入，含 UTF-8 BOM 保证 Excel 中文不乱码）
+   * - @谁 列：审核模板开头"@姓名"（bot 实际 @ 的接收人）；历史格式（含红/黄/绿卡列）自动迁移为 6 列
+   * - 已反馈内容 列：上一轮红卡反馈的"必须修改"清单（本次审核的返工核对基准，bot 反馈给第三方的修改意见）
    * - 稿件文字部分兜底：bridge 未读到正文（云文档 API 降级，仅有链接文本）时从 draft-archives 最新归档补全
    */
   private recordDraftFeedbackCsv(sessionId: string, reply: string): void {
@@ -929,32 +932,40 @@ class FeishuBridge {
     }
     // @谁 放第 1 列：回复中 @ 的接收人（审核模板开头 @姓名）
     const mentioned = this.extractMentionedName(reply)
-    const line = `${escapeCsvField(mentioned)},${escapeCsvField(influencer)},${escapeCsvField(textPart)},${escapeCsvField(imagePart)},${escapeCsvField(reply)}\n`
-    const headerLine = '\uFEFF@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容'
+    // 第 6 列"已反馈内容"：上一轮红卡反馈的"必须修改"清单（本次审核的返工核对基准）
+    const line = `${escapeCsvField(mentioned)},${escapeCsvField(influencer)},${escapeCsvField(textPart)},${escapeCsvField(imagePart)},${escapeCsvField(reply)},${escapeCsvField(pending.lastFeedback ?? '')}\n`
+    const headerLine = '\uFEFF@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,已反馈内容'
     try {
       if (!existsSync(csvPath)) {
         // 首次写入加 UTF-8 BOM（Excel 打开中文不乱码）+ 表头行
         appendFileSync(csvPath, `${headerLine}\n${line}`, 'utf-8')
         console.log(`[飞书 Bridge] 已追加稿件审核反馈 CSV: ${csvPath}`)
       } else {
-        // 旧格式迁移：历史文件可能是「红/黄/绿卡,@谁,…」6 列或「红/黄/绿卡,达人名称,…」5 列（无 @谁），
-        // 统一重写为目标 5 列 [@谁,达人,正文,图片,回复]（去掉红/黄/绿卡列、@谁 缺失时从回复提取），
+        // 旧格式迁移：历史文件可能是「红/黄/绿卡,@谁,…」6 列、「红/黄/绿卡,达人名称,…」5 列（无 @谁）
+        // 或标准 5 列 [@谁,达人,正文,图片,回复]，统一重写为目标 6 列 [@谁,达人,正文,图片,回复,已反馈内容]
+        // （去掉红/黄/绿卡列、@谁 缺失时从回复提取、旧行"已反馈内容"补空），
         // 避免新行与旧表头错列（引号内换行/逗号不能被 \n 盲拆，需 RFC4180 解析）
         const existing = readFileSync(csvPath, 'utf-8')
         const records = this.splitCsvRecords(existing)
         const oldHeader = records[0] ?? []
-        if ((oldHeader[0] ?? '').includes('@谁')) {
+        if ((oldHeader[0] ?? '').includes('@谁') && oldHeader.includes('已反馈内容')) {
           appendFileSync(csvPath, line, 'utf-8')
         } else {
           const hasMention = oldHeader.includes('@谁')
           const dataRows = records.slice(1).map((fields) => {
+            let base: string[]
             if (hasMention) {
+              // 标准 5 列 [@谁,达人,正文,图片,回复] → 补空"已反馈内容"
+              base = [fields[0] ?? '', fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '']
+            } else if (fields.length >= 6) {
               // 红/黄/绿卡,@谁,达人,正文,图片,回复 → 去掉卡列
-              return [fields[1] ?? '', ...fields.slice(2, 6)]
+              base = [fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', fields[5] ?? '']
+            } else {
+              // 红/黄/绿卡,达人,正文,图片,回复 → 从该行回复字段提取 @谁
+              const replyField = fields[4] ?? ''
+              base = [this.extractMentionedName(replyField), fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '']
             }
-            // 红/黄/绿卡,达人,正文,图片,回复 → 从该行回复字段提取 @谁
-            const replyField = fields[4] ?? ''
-            return [this.extractMentionedName(replyField), ...fields.slice(1, 5)]
+            return [...base, '']
           })
           writeFileSync(csvPath, `${headerLine}\n${dataRows.map((f) => f.map(escapeCsvField).join(',')).join('\n')}\n${line}`, 'utf-8')
         }
@@ -977,6 +988,74 @@ class FeishuBridge {
     if (!reply) return ''
     const m = reply.match(/达人[：:]\s*([^\n，,。]+)/)
     return m?.[1]?.trim() ?? ''
+  }
+
+  /**
+   * 提取该达人最近一次红卡（red）审核的"必须修改"清单（返工核对基准）
+   *
+   * 数据源：工作区 draft-review-feedback.csv（bot 每次审核落盘的反馈记录）。
+   * 匹配：按达人列过滤 → 解析每行 bot 回复的版本号与三态判定 → 取版本号最大且为红卡的行 →
+   * 提取"必须修改"区块（[位置] 问题 → 建议）。用于：
+   * 1. 新版本稿件审核时注入 `[上一版红卡反馈]`，让 Agent 逐条核对硬伤是否已修改（回复输出"返工项确认"）；
+   * 2. 写入本次审核 CSV 的"已反馈内容"列（记录 bot 反馈给第三方的修改意见）。
+   */
+  private extractLastRedFeedback(workspaceSlug: string, influencer: string): string {
+    if (!influencer || influencer === '未命名') return ''
+    const csvPath = join(getWorkspaceFilesDir(workspaceSlug), 'draft-review-feedback.csv')
+    if (!existsSync(csvPath)) return ''
+    try {
+      const text = readFileSync(csvPath, 'utf-8').replace(/^\uFEFF/, '')
+      const records = this.splitCsvRecords(text)
+      const header = records[0] ?? []
+      const influencerCol = header.includes('达人名称') ? header.indexOf('达人名称') : 1
+      const replyCol = header.includes('bot回复审核内容') ? header.indexOf('bot回复审核内容') : 4
+      let best: { version: number; reply: string } | null = null
+      for (const r of records.slice(1)) {
+        if ((r[influencerCol] ?? '').trim() !== influencer) continue
+        const reply = r[replyCol] ?? ''
+        if (this.extractDraftVerdict(reply) !== 'red') continue
+        const version = this.extractDraftVersion(reply)
+        if (!best || version > best.version) best = { version, reply }
+      }
+      return best ? this.extractMustFixBlock(best.reply) : ''
+    } catch (error) {
+      console.warn('[飞书 Bridge] 提取上一版红卡反馈失败:', error)
+      return ''
+    }
+  }
+
+  /** 从 bot 审核回复提取版本号（第 N 版），提取失败返回 0 */
+  private extractDraftVersion(reply: string): number {
+    const m = reply.match(/第\s*(\d+)\s*版/)
+    return m ? Number(m[1]) || 0 : 0
+  }
+
+  /** 从 bot 审核回复提取三态判定（red/yellow/green/fail），无模板标记时按区块结构兜底 */
+  private extractDraftVerdict(reply: string): string {
+    if (!reply) return ''
+    if (reply.includes('需修改（红卡）') || reply.includes('（红卡）')) return 'red'
+    if (reply.includes('需人工判断（黄卡）') || reply.includes('（黄卡）')) return 'yellow'
+    if (reply.includes('待确认放行（绿卡）') || reply.includes('（绿卡）')) return 'green'
+    if (reply.includes('审核失败')) return 'fail'
+    if (reply.includes('必须修改')) return 'red'
+    if (reply.includes('需你判断')) return 'yellow'
+    return ''
+  }
+
+  /** 从红卡回复中提取"必须修改"区块（逐条 [位置] 问题 → 建议），作为返工核对基准 */
+  private extractMustFixBlock(reply: string): string {
+    if (!reply) return ''
+    const idx = reply.indexOf('必须修改')
+    if (idx < 0) return ''
+    const lines = reply.slice(idx).split('\n')
+    const out: string[] = []
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed) break // 空行结束区块
+      if (/^(需你判断|可优化|需修改|稿件可发布|返工项确认)/.test(trimmed)) break
+      out.push(line)
+    }
+    return out.join('\n').trim()
   }
 
   /**
@@ -2193,12 +2272,22 @@ class FeishuBridge {
           // 硬伤→红卡 @执行-返工；争议→黄卡 @Account-拍板；无硬伤→绿卡 @Account-放行；审核失败→@Account；不输出分数；
           // 判定依据不写入回复（仅黄卡/绿卡"可优化"区块内允许写）；产品名词序/同义变体不得判红卡、不得列入红卡"必须修改"清单（归入黄/绿卡"可优化"）；黄卡/绿卡末尾"可优化（结合 brief 方向，非硬性）"区块必须对照 brief 方向逐一产出建议（每条含优化方向+判定依据，仅确实无方向性差距才"- 无建议"）
           contextParts.push(
-            '[审核硬约束: 硬伤→红卡 @本次稿件提交人（[发送者] 即发稿件的执行方）本人给逐条返工意见（执行方多人时必须 @提交人本人，禁止 @名单中全部执行成员）；无硬伤但有争议→黄卡 @Account成员 拍板；无硬伤无争议→绿卡 @Account成员 确认放行；审核失败（稿件无法自动审核）→@Account成员 转人工；不输出分数；产品名词序/同义变体不得判红卡、不得列入红卡"必须修改"清单（归入黄/绿卡"可优化"）；判定依据不写入回复（仅黄卡/绿卡"可优化"区块内允许写判定依据）；黄卡/绿卡末尾必须输出"可优化（结合 brief 方向，非硬性）"区块并对照 brief 方向逐一产出建议——每条建议对照 brief 方向与稿件内容差距产出，含优化方向+判定依据，仅确实无方向性差距才输出"- 无建议"；必须按 ma-draft-review 三态模板格式输出]',
+            '[审核硬约束: 硬伤→红卡 @本次稿件提交人（[发送者] 即发稿件的执行方）本人给逐条返工意见（执行方多人时必须 @提交人本人，禁止 @名单中全部执行成员）；无硬伤但有争议→黄卡 @Account成员 拍板；无硬伤无争议→绿卡 @Account成员 确认放行；审核失败（稿件无法自动审核）→@Account成员 转人工；不输出分数；产品名词序/同义变体不得判红卡、不得列入红卡"必须修改"清单（归入黄/绿卡"可优化"）；判定依据不写入回复（仅黄卡/绿卡"可优化"区块内允许写判定依据）；黄卡/绿卡末尾必须输出"可优化（结合 brief 方向，非硬性）"区块并对照 brief 方向逐一产出建议——每条建议对照 brief 方向与稿件内容差距产出，含优化方向+判定依据，仅确实无方向性差距才输出"- 无建议"；若注入了"上一版红卡反馈"：先逐条核对硬伤是否已修改，在"达人：X"行后插入"返工项确认（上版红卡 {F} 处，已修改 {K} 处）"区块逐条列出已修改项（✅ [{位置}] {硬伤} → 已修改），未修改项继续列入红卡"必须修改"清单；必须按 ma-draft-review 三态模板格式输出]',
           )
 
           const docName = docxDraft?.name ?? fileAttachments[0]?.fileName ?? ''
           const influencer = this.extractInfluencerName(userText, docName)
           if (influencer) {
+            // 上一版红卡反馈（返工核对）：该达人最近一次红卡审核的"必须修改"清单，
+            // Agent 审核本版时先逐条核对硬伤是否已修改，并在回复中输出"返工项确认"区块
+            if (workspace) {
+              const lastRedFeedback = this.extractLastRedFeedback(workspace.slug, influencer)
+              if (lastRedFeedback) {
+                contextParts.push(
+                  `[上一版红卡反馈: ${lastRedFeedback}]（审核本版前先逐条核对这些硬伤是否已修改：已修改的列入回复"返工项确认"区块；仍未修改的继续列入红卡"必须修改"清单）`,
+                )
+              }
+            }
             const brief = this.readInfluencerBrief(binding.workspaceId, influencer)
             if (brief) {
               const briefPreview = brief.length > 3000 ? `${brief.slice(0, 3000)}…（brief 过长已截断）` : brief
@@ -2263,7 +2352,13 @@ class FeishuBridge {
         const imagePart = imageAttachments.length > 0
           ? imageAttachments.map((img) => `feishu-${img.imageKey}.${inferExtension(img.mediaType)}`).join('; ')
           : ''
-        this.pendingDraftFeedback.set(binding.sessionId, { influencer, textPart, imagePart })
+        this.pendingDraftFeedback.set(binding.sessionId, {
+          influencer,
+          textPart,
+          imagePart,
+          // 上一轮红卡反馈的"必须修改"清单（本次审核的返工核对基准，落盘为 CSV"已反馈内容"列）
+          lastFeedback: workspace ? this.extractLastRedFeedback(workspace.slug, influencer) : '',
+        })
       }
 
       const input: AgentSendInput = {
