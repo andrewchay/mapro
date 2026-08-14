@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """小红书蒲公英 KOL 通用采集器（参数化，由 ma-kol-scraper skill 驱动）
 
-版本：v2.0.3（2026-08-02）
+版本：v2.3.0（2026-08-13）
+  - v2.3.0：严格交叉验证（strict_search/strict_categories/strict_home_tags/strict_exclude_words/strict_maternal_words/strict_maternal_pass）；粉丝地域沪杭浙（fans_region_cities）；搜索排序（search_column/search_sort）；跳过抽屉（skip_drawer_extraction）；互动/评论中位数；纯旅游/美妆排除口径（内容类目不命中任一 strict_categories 才排除）
   - v2.0.3：修复最低曝光/最低点赞/CPM/CPE 计算——抽屉 ex() 支持同行/换行两种布局 + 万/千单位；互动字段 API 优先、抽屉兜底；0 点赞不再被跳过
   - v2.0.2：末尾合并写入防丢数据；网络中断(net::ERR_*)纳入自动重连；userId 独立列+csv 模块解析断点
   - v2.0.1：location 省市区 token 匹配；搜索阶段同时检查 featureTags；CDP 断线自动重连；断点续采
@@ -61,7 +62,9 @@ HEADERS = [
     "粉丝所在区域（前五城市）", "获赞与收藏",
     "图文报价（万）", "视频报价（万）", "女性粉丝占比",
     "日常笔记发布篇数", "日常笔记曝光中位数", "日常笔记阅读中位数", "日常笔记点赞中位数",
+    "日常笔记互动中位数", "日常笔记评论中位数",
     "合作笔记发布篇数", "合作笔记曝光中位数", "合作笔记阅读中位数", "合作笔记点赞中位数",
+    "合作笔记互动中位数", "合作笔记评论中位数",
     "合作笔记最低曝光", "合作笔记最低曝光阅读", "合作笔记最低曝光点赞",
     "合作笔记最低曝光收藏", "合作笔记最低曝光评论", "合作笔记最低曝光时间",
     "合作笔记最低点赞", "合作笔记最低点赞阅读", "合作笔记最低点赞收藏",
@@ -164,6 +167,13 @@ class KolCollector:
         self.cfg = cfg
         self.brand_user_id = cfg.get("brand_user_id", "")
         self.keywords = cfg.get("keywords", []) or []
+        # ---- v2.4 寻找相似（kolSimilar）模式：以某达人为种子推荐相似达人 ----
+        self.similar_user_id = cfg.get("similar_user_id", "") or cfg.get("similarUserId", "")
+        self.similar_word = cfg.get("similar_word", "") or cfg.get("similarWord", "")
+        # v2.5 防误判加固：寻找相似模式的匹配依据是种子达人本身，不是关键词/标签；
+        # 强制关闭 strict 搜索（即使 config 误带 strict_search:true 也不生效）
+        if self.similar_user_id:
+            cfg["strict_search"] = False
         self.gender = cfg.get("gender", "不限")
         self.location_cities = format_location_cities(cfg.get("location_cities", []))
         self.fans_location_cities = format_location_cities(cfg.get("fans_location_cities", []))
@@ -183,11 +193,27 @@ class KolCollector:
         self.coop_note_pages_max = cfg.get("coop_note_pages_max", 10)
         self.active_within_days = cfg.get("active_within_days", 15)
         self.output_file = cfg.get("output_file", "")
-        # ---- v2.1 新增配置：相关帖子抽样与内容信号 ----
-        self.sample_note_count = cfg.get("sample_note_count", 5)      # 每个 KOL 抽取相关帖子数量
+        # 搜索排序（v2.3）：column 可选 comprehensiverank(综合)/fansCount(粉丝量)等；sort 可选 asc/desc
+        self.search_column = cfg.get("search_column", "comprehensiverank")
+        self.search_sort = cfg.get("search_sort", "desc")
+        # v2.3：主采集阶段跳过逐个点开合作笔记抽屉（最低曝光/点赞/正文/评论由 top-8 阶段补采），大幅提速
+        self.skip_drawer_extraction = cfg.get("skip_drawer_extraction", False)
+        # v2.3：严格搜索过滤——内容类目 AND 主页标签交叉验证，排除排除词/纯旅游/非精致宝妈母婴
+        self.strict_search = cfg.get("strict_search", False)
+        self.strict_categories = cfg.get("strict_categories", ["生活记录", "美食", "美食探店", "生活"])
+        self.strict_home_tags = cfg.get("strict_home_tags", ["互联网打工人", "精致宝妈", "氛围感", "高级感", "plog", "职场生活"])
+        self.strict_exclude_words = cfg.get("strict_exclude_words", ["大学生", "宠物", "搞笑", "知识付费", "课程", "培训", "备考", "留学", "攻略"])
+        self.strict_maternal_words = cfg.get("strict_maternal_words", ["母婴", "育儿", "孕产", "孕期", "带娃", "辅食", "婴幼儿"])
+        self.strict_maternal_pass = cfg.get("strict_maternal_pass", "精致宝妈")
+        # v2.3：纯旅游/纯美妆排除词（仅当内容类目不命中任一 strict_categories、命中这些词时排除）
+        self.strict_pure_words = cfg.get("strict_pure_words", ["旅游", "旅行", "出行", "美妆"])
+        # v2.3：粉丝地域允许城市（详情页 fans_profile top5 判断；为空则回退 target_cities）
+        self.fans_region_cities = cfg.get("fans_region_cities", [])
+        # ---- v2.1 新增配置：相关帖子抽样与内容信号（默认关闭，确定性打分流程不采集） ----
+        self.sample_note_count = cfg.get("sample_note_count", 0)      # 每个 KOL 抽取相关帖子数量（0=不抽样）
         self.relevance_keywords = cfg.get("relevance_keywords", [])   # 相关性关键词（如水果→食品/饮料）
-        self.grab_note_text = cfg.get("grab_note_text", True)         # 是否抓抽屉内笔记正文文本
-        self.grab_comments = cfg.get("grab_comments", True)          # 是否抓评论样本（默认开启，成本约每篇+1-2s；设为 false 可提速）
+        self.grab_note_text = cfg.get("grab_note_text", False)        # 是否抓抽屉内笔记正文文本（默认关闭）
+        self.grab_comments = cfg.get("grab_comments", False)          # 是否抓评论样本（默认关闭；开启成本约每篇+1-2s）
         self.notes_samples_file = cfg.get("notes_samples_file", "")  # 抽样笔记 JSON 输出路径（可选）
         # ---- v2.0.3 新增：强制重采指定 userId（修复历史数据时只重跑异常达人） ----
         self.force_redownload_ids = set(cfg.get("force_redownload_ids", []) or [])
@@ -279,19 +305,55 @@ class KolCollector:
                     return True
         return False
 
+    def kol_matches_strict_search(self, kol):
+        """v2.3：严格交叉验证——内容类目命中 strict_categories 且 主页标签命中 strict_home_tags，
+        排除排除词/纯旅游/非精致宝妈母婴。搜索列表页与详情页均可调用。
+        与宽松的 kol_matches_content_tags_search 区别：OR → AND。"""
+        if not self.strict_search:
+            return True
+        content = self._tag_values(kol.get("contentTags"))
+        feature = self._tag_values(kol.get("featureTags"))
+        personal = self._tag_values(kol.get("personalTags"))
+        all_tags = content | feature | personal
+        # 纯旅游/纯美妆：仅当内容类目不命中任一目标类目(strict_categories)、命中旅游/美妆类目时排除
+        # （混合类目如"美食;出行旅游"、"时尚;出行旅游"保留）
+        has_valid_cat = any(any(g in t or t in g for g in self.strict_categories) for t in content)
+        PURE_WORDS = set(self.strict_pure_words)
+        if not has_valid_cat:
+            for t in content:
+                for pw in PURE_WORDS:
+                    if pw in t or t in pw:
+                        return False
+        # 其他排除词（大学生/宠物/搞笑/知识付费/课程等）：标签命中即排除
+        OTHER = [w for w in self.strict_exclude_words if w not in PURE_WORDS]
+        for t in all_tags:
+            for ex in OTHER:
+                if ex in t or t in ex:
+                    return False
+        is_maternal = any(any(m in t or t in m for m in self.strict_maternal_words) for t in all_tags)
+        if is_maternal and not any(self.strict_maternal_pass in ft for ft in feature):
+            return False
+        # a：内容类目 生活记录/美食探店 有其一；b：主页标签 目标集合 有其一；a 且 b 都要满足
+        cat_hit = any(any(g in t or t in g for g in self.strict_categories) for t in content)
+        home_hit = any(any(g in t or t in g for g in self.strict_home_tags) for t in (feature | personal))
+        return cat_hit and home_hit
+
     def fan_profile_matches(self, fans_profile):
         cities = safe_get(fans_profile, "data", "cities", default=[]) or []
         top5 = [c.get("name", "") for c in cities[:5]]
-        if not self.target_cities:
+        region_cities = self.fans_region_cities or list(self.target_cities)
+        if not region_cities:
             return True, top5
         for c in top5:
-            for tc in self.target_cities:
+            for tc in region_cities:
                 if tc in c:
                     return True, top5
         return False, top5
 
     def is_active_recently(self, notes_rate, blogger=None, days=None):
         days = days or self.active_within_days
+        if days <= 0:
+            return True  # 关闭活跃度过滤（本次需求未要求，阶段2按篇数和判断）
         notes = safe_get(notes_rate, "data", "notes", default=[]) or []
         if not notes and blogger:
             last_time = blogger.get("lastNoteTime")
@@ -369,9 +431,9 @@ class KolCollector:
     # ----- 搜索 API -----
 
     def fetch_search_kols(self, page):
-        """分页拉取搜索列表"""
+        """分页拉取搜索列表。若配置了 similar_user_id，走「寻找相似」模式（trackId=kolSimilar_ + similarUserId/similarWord）。"""
         payload = {
-            "searchType": 1, "column": "comprehensiverank", "sort": "desc",
+            "searchType": 1, "column": self.search_column, "sort": self.search_sort,
             "pageNum": 1, "pageSize": 20,
             "brandUserId": self.brand_user_id,
             "trackId": f"kolMatch_{uuid.uuid4().hex}",
@@ -402,6 +464,47 @@ class KolCollector:
         search_keywords = self.keywords if self.keywords else [None]
         all_kols_dict = {}  # userId -> kol
 
+        # ===== 寻找相似（kolSimilar）模式 =====
+        if self.similar_user_id:
+            payload["similarUserId"] = self.similar_user_id
+            payload["similarWord"] = self.similar_word or self.similar_user_id
+            payload["trackId"] = f"kolSimilar_{uuid.uuid4().hex}"
+            payload["pageNum"] = 1
+            payload["searchType"] = 0
+            js_code = js_fetch_json(SEARCH_API, method="POST", body=payload)
+            data = page.evaluate(js_code)
+            if not data or data.get("code") != 0:
+                print(f"  [寻找相似] 无返回或 code={data.get('code') if data else 'None'}")
+                return []
+            total = safe_get(data, "data", "total", default=0) or 0
+            kols = safe_get(data, "data", "kols", default=[]) or []
+            print(f"  [寻找相似] 种子={self.similar_word} total={total} 首页返回={len(kols)}")
+            kols = [k for k in kols if (self.kol_matches_strict_search(k) if self.strict_search else True)]
+            for kol in kols:
+                if kol.get("userId"):
+                    all_kols_dict[kol["userId"]] = kol
+            page_num = 2
+            while page_num <= self.max_pages and len(kols) > 0:
+                payload["pageNum"] = page_num
+                payload["trackId"] = f"kolSimilar_{uuid.uuid4().hex}"
+                js_code = js_fetch_json(SEARCH_API, method="POST", body=payload)
+                data = page.evaluate(js_code)
+                if not data or data.get("code") != 0:
+                    break
+                kols = safe_get(data, "data", "kols", default=[]) or []
+                for kol in kols:
+                    if kol.get("userId"):
+                        all_kols_dict[kol["userId"]] = kol
+                print(f"    [寻找相似] 第{page_num}页 返回={len(kols)} 累计唯一={len(all_kols_dict)}")
+                page_num += 1
+                time.sleep(0.5)
+                if self.max_kols > 0 and len(all_kols_dict) >= self.max_kols:
+                    break
+            all_kols = list(all_kols_dict.values())
+            print(f"  [寻找相似] 共获取 {len(all_kols)} 个唯一相似 KOL")
+            return all_kols
+
+        # ===== 常规关键词搜索模式 =====
         for keyword in search_keywords:
             if keyword is None:
                 payload["keyword"] = None
@@ -425,7 +528,7 @@ class KolCollector:
             kols = safe_get(data, "data", "kols", default=[]) or []
             print(f"  [搜索] 关键词'{keyword}'：total={total} 首页返回={len(kols)}")
             # 预过滤：先按内容标签/报价/粉丝量过滤，减少详情页请求
-            kols = [k for k in kols if self.kol_matches_content_tags_search(k)]
+            kols = [k for k in kols if (self.kol_matches_strict_search(k) if self.strict_search else self.kol_matches_content_tags_search(k))]
             print(f"  [搜索] 标签预过滤后={len(kols)}")
 
             for kol in kols:
@@ -446,7 +549,7 @@ class KolCollector:
                 if not data or data.get("code") != 0:
                     break
                 kols = safe_get(data, "data", "kols", default=[]) or []
-                kols = [k for k in kols if self.kol_matches_content_tags_search(k)]
+                kols = [k for k in kols if (self.kol_matches_strict_search(k) if self.strict_search else self.kol_matches_content_tags_search(k))]
                 for kol in kols:
                     uid = kol.get("userId")
                     if uid:
@@ -665,6 +768,8 @@ class KolCollector:
             note_exposure = captured.setdefault("note_exposure", {})
 
             for pg in range(1, self.coop_note_pages_max + 1):
+                if self.skip_drawer_extraction:
+                    break  # 主采集跳过抽屉逐个点开，最低曝光/点赞/正文/评论由 top-8 阶段补采
                 all_detail_notes = []
                 for item in captured.get("notes_detail") or []:
                     all_detail_notes.extend(safe_get(item, "data", "list", default=[]) or [])
@@ -1182,10 +1287,14 @@ class KolCollector:
             "日常笔记曝光中位数": nr_median(notes_rate_daily, "impMedian"),
             "日常笔记阅读中位数": nr_median(notes_rate_daily, "readMedian"),
             "日常笔记点赞中位数": nr_median(notes_rate_daily, "likeMedian"),
+            "日常笔记互动中位数": nr_median(notes_rate_daily, "interactionMedian"),
+            "日常笔记评论中位数": nr_median(notes_rate_daily, "commentMedian"),
             "合作笔记发布篇数": nr_median(notes_rate_coop, "noteNumber"),
             "合作笔记曝光中位数": nr_median(notes_rate_coop, "impMedian"),
             "合作笔记阅读中位数": nr_median(notes_rate_coop, "readMedian"),
             "合作笔记点赞中位数": nr_median(notes_rate_coop, "likeMedian"),
+            "合作笔记互动中位数": nr_median(notes_rate_coop, "interactionMedian"),
+            "合作笔记评论中位数": nr_median(notes_rate_coop, "commentMedian"),
             "合作笔记最低曝光": note_field(min_imp_note, "imp"),
             "合作笔记最低曝光阅读": note_field(min_imp_note, "read"),
             "合作笔记最低曝光点赞": note_field(min_imp_note, "like"),
@@ -1436,7 +1545,12 @@ class KolCollector:
                     print(f"  -> 过滤: 粉丝量不符")
                     debug["filtered_out"].append({"name": name, "reason": "detail_fans"})
                     continue
-                if not self.kol_matches_content_tags(blogger):
+                if self.strict_search:
+                    if not self.kol_matches_strict_search(blogger):
+                        print(f"  -> 过滤: 严格交叉验证不符（内容类目/主页标签/排除项）")
+                        debug["filtered_out"].append({"name": name, "reason": "detail_strict"})
+                        continue
+                elif not self.kol_matches_content_tags(blogger):
                     print(f"  -> 过滤: 内容标签不含 {list(self.target_tags)}")
                     debug["filtered_out"].append({"name": name, "reason": "detail_tags"})
                     continue
