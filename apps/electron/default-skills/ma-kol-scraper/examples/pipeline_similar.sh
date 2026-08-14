@@ -9,6 +9,8 @@
 #     `<目录>/<输入名>_合作笔记非0.csv`（非固定名 合作笔记非0.csv）
 #   - 阶段7/8 引用拆分文件必须带前缀，否则找不到文件
 #   - 阶段6 前先 mkdir -p 输出目录（脚本已自动创建，手动建双保险）
+#   - 阶段5 输入必须用阶段3 健康名单（健康.csv），勿用阶段2 筛选后名单，
+#     否则阶段3 淘汰的达人会被 estimate 打回最终名单，筛选口径不一致
 
 set -euo pipefail
 
@@ -39,9 +41,9 @@ python3 -u "$SKILL/scripts/filter_health.py" --csv "$WS/workspace-files/${BASE}_
 # ---- 阶段4 top-8 采集（点抽屉记曝光/点赞/标题/正文，断点续采）----
 python3 -u "$SKILL/scripts/top8_extractor.py" --csv "$WS/workspace-files/${BASE}_健康.csv" --out "$WS/workspace-files/${BASE}_top8.json"
 
-# ---- 阶段5 沪杭复核 + CPM/CPE 估算 ----
+# ---- 阶段5 沪杭复核 + CPM/CPE 估算（输入=阶段3 健康名单！）----
 python3 -u "$SKILL/scripts/estimate_cpe_cpm.py" \
-  --csv "$WS/workspace-files/${BASE}_筛选后.csv" \
+  --csv "$WS/workspace-files/${BASE}_健康.csv" \
   --pop "$COLLECTED" \
   --top8 "$WS/workspace-files/${BASE}_top8.json" \
   --out "$WS/workspace-files/${BASE}_最终结果.csv" \

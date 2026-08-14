@@ -51,7 +51,7 @@
 | 2 初筛 | `screen_v2.py` | `python3 screen_v2.py --csv 采集结果.csv --out 筛选后.csv [--config config.json] [--female-min 0.70] [--min-notes 4] [--price-lo 0.05 --price-hi 2.0] [--fans-cities 上海 杭州 ...]` | 通过名单（参数化：类目/标签/女性占比/篇数/报价/粉丝地域可配置） |
 | 3 健康筛选 | `filter_interact.py` → `filter_health.py` | `python3 filter_interact.py <coop.csv> <out1> 100`；`python3 filter_health.py --csv <out1> --out <健康.csv> [--lo 1.6 --hi 12]` | 健康 coop 名单（①删互动中位数<100；②删点赞率不健康，日常笔记口径） |
 | 4 top-8采集 | `top8_extractor.py` | `python3 top8_extractor.py --csv coop.csv --out top8.json` | top8.json（曝光/点赞/标题/正文，断点续采） |
-| 5 沪杭复核+估算 | `estimate_cpe_cpm.py` | `python3 estimate_cpe_cpm.py --csv 筛选后.csv --pop 采集结果.csv --top8 top8.json --out 最终结果.csv [--city-words 上海 杭州]` | 最终结果CSV（31列；top8 命中任一城市词→通过，可配置） |
+| 5 沪杭复核+估算 | `estimate_cpe_cpm.py` | `python3 estimate_cpe_cpm.py --csv 健康.csv --pop 采集结果.csv --top8 top8.json --out 最终结果.csv [--city-words 上海 杭州]` | 最终结果CSV（31列；**输入=阶段3 健康名单**；top8 命中任一城市词→通过，可配置） |
 | 6 拆分 | `split_zero.py` | `mkdir -p <目录> && python3 split_zero.py 最终结果.csv <目录>` | 合作0 / 合作非0（**文件名带输入前缀**：`<目录>/<输入名>_合作笔记非0.csv`） |
 | 7 CPE硬性过滤 | `filter_cpe.py` | `python3 filter_cpe.py --csv <目录>/<输入名>_合作笔记非0.csv --out 打分输入.csv [--max-cpe 50]` | 去掉预估CPE>50（硬性条件，打分前） |
 | 8 打分+清洗 | `add_ratio_cols.py` → `score_kols.py` → `clean_final.py` | `score_kols.py --csv 打分输入.csv --out 打分.csv`；`clean_final.py --csv 打分.csv --out 清洗后.csv [--categories 美食 ...] [--guoqie-words 果切 ...]` | 打分名单 + 清洗后名单（38列） |
@@ -74,6 +74,9 @@
 - **② 删点赞率不健康**：点赞率 = **日常笔记**点赞中位数 ÷ 日常笔记阅读中位数（近30日仅自然流量；与打分、CSV「阅读与点赞占比」列**同一口径**），保留在 **[1.6%, 12%]** 内（即 2%~10% 健康区间 ±20% 容差），否则淘汰；阈值用 `--lo/--hi` 配置
 
 ### 阶段5 沪杭复核 + CPM/CPE 估算（estimate_cpe_cpm.py）
+
+> **⚠️ 输入必须是阶段3 健康筛选后的名单（`健康.csv`），勿用阶段2 筛选后名单**——否则被阶段3 淘汰（互动<100 / 点赞率不健康）的达人会经 estimate 被打回最终名单，筛选口径不一致（本次与 Milch 实操均为健康.csv）。
+
 - 沪杭复核：top-8 标题/正文含「上海」或「杭州」→ 通过；无沪杭 → 淘汰
 - 大盘：全量采集CSV的**合作笔记曝光/点赞中位数**（近30日仅自然流量，>0）→ P50=中位数、P10=10%分位、R=P10/P50
 - Tweedie 收缩（φ=2）：`预估最低值 = (n×样本P10 + 2×M_个体×R) / (n+2)`，n=top8样本条数
@@ -103,7 +106,7 @@ python3 filter_cpe.py --csv 合作笔记非0.csv --out 打分输入.csv --max-cp
 
 > 与 `kol_screening.py`（LLM 四规则校验）**二选一，勿混合计分**。确定性打分可复现，推荐；LLM 校验需配置 LLM + 抽样笔记。
 
-## 4. 易错点（13 条）
+## 4. 易错点（14 条）
 
 1. **拆分输出目录不存在 → FileNotFoundError**：`split_zero.py` 直接 `open(<目录>/<名>)`，目录不存在即崩（如 `道明寺猴相似达人_拆分/...`）。脚本已自动 `makedirs`（v2.5.1），手动运行仍先 `mkdir -p <输出目录>`。
 2. **拆分文件名带 base 前缀**：输出是 `<目录>/<输入名>_合作笔记非0.csv` 而非固定 `合作笔记非0.csv`——后续阶段引用必须带前缀，否则找不到文件（Milch 那次就是目录不存在 + 前缀不符叠加踩坑）。
@@ -118,6 +121,7 @@ python3 filter_cpe.py --csv 合作笔记非0.csv --out 打分输入.csv --max-cp
 11. **日志缓冲**：重定向输出用 `python3 -u`，否则进度不显示。
 12. **CDP 不稳定**：EPIPE/TargetClosed/内存 → 重启采集器续采（断点续采不丢数据）。
 13. **打分前漏 CPE 硬性过滤**：预估CPE>50 的达人须用 `filter_cpe.py` 在打分前淘汰（硬性条件），勿混进打分名单；CPE 列缺失或全空时先跑阶段5 估算。
+14. **阶段5 输入用了阶段2 名单**：`estimate_cpe_cpm.py --csv` 必须传**阶段3 健康名单**（健康.csv），勿传阶段2 筛选后.csv——否则阶段3 淘汰（互动<100/点赞率不健康）的达人会被 estimate 打回最终名单，筛选口径不一致。
 
 ## 5. 38 列最终表头（打分清洗后）
 

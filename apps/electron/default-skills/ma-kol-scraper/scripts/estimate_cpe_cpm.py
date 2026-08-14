@@ -10,7 +10,9 @@
 
 合作报价 = 图文/视频报价中落在 0.1万-0.5万 内的较小者（与采集器 effective_price 口径一致）。
 
-用法: python3 estimate_cpe_cpm.py --csv xxx.csv --top8 top8_notes.json [--out xxx_estimate.csv]
+⚠️ 输入（--csv）必须是**阶段3 健康筛选后的名单**（健康.csv），勿用阶段2 筛选后名单——否则被阶段3 淘汰的达人会被打回最终名单，筛选口径不一致。
+
+用法: python3 estimate_cpe_cpm.py --csv <阶段3健康名单.csv> --top8 top8_notes.json [--out xxx_estimate.csv]
 """
 import argparse, csv, json, os, statistics
 import numpy as np
