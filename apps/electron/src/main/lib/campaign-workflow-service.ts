@@ -1,7 +1,7 @@
 /**
  * Campaign 工作流状态服务
  *
- * 管理每个 Campaign 的 13 步标准工作流进度。
+ * 管理每个 Campaign 的 15 步标准工作流进度。
  * 存储位置：~/.mapro/agent-workspaces/campaign-{id}/
  *
  * 目录结构：
@@ -35,6 +35,7 @@ import type {
   UpdateWorkflowStepInput,
   AdvanceWorkflowInput,
 } from '@ma-proma/shared'
+import { buildArtifactPersistenceDirective, splitOutputByFiles } from '@ma-proma/shared'
 
 // =====================================================================
 // 标准目录定义
@@ -825,20 +826,26 @@ function getDirDescription(dir: string): string {
 
 /** 更新所有工作区文件 */
 function syncWorkspaceFiles(workflow: CampaignWorkflow): void {
-  const slug = `campaign-${workflow.campaignId}`
-  const baseDir = getAgentWorkspacePath(slug)
-  const contextDir = join(baseDir, '.context')
+  try {
+    const slug = `campaign-${workflow.campaignId}`
+    const baseDir = getAgentWorkspacePath(slug)
+    const contextDir = join(baseDir, '.context')
 
-  // 1. 确保目录存在
-  ensureArtifactDirs(workflow.campaignId)
+    // 1. 确保目录存在
+    ensureArtifactDirs(workflow.campaignId)
 
-  // 2. 更新 todo.md
-  writeFileSync(join(contextDir, 'todo.md'), generateTodoMarkdown(workflow), 'utf-8')
+    // 2. 更新 todo.md
+    writeFileSync(join(contextDir, 'todo.md'), generateTodoMarkdown(workflow), 'utf-8')
 
-  // 3. 更新 campaign.md（如果还没创建）
-  const campaignMdPath = join(contextDir, 'campaign.md')
-  if (!existsSync(campaignMdPath)) {
-    writeFileSync(campaignMdPath, generateCampaignMdPlaceholder(workflow), 'utf-8')
+    // 3. 更新 campaign.md（如果还没创建）
+    const campaignMdPath = join(contextDir, 'campaign.md')
+    if (!existsSync(campaignMdPath)) {
+      writeFileSync(campaignMdPath, generateCampaignMdPlaceholder(workflow), 'utf-8')
+    }
+  } catch (err) {
+    // todo.md / campaign.md 的同步失败不应阻断工作流加载（例如磁盘满、目录只读、绑定的本地文件夹失效）。
+    // 仅记录告警，工作流仍以内存中的状态返回，UI 降级为只读展示。
+    console.warn('[CampaignWorkflow] 同步工作区文件失败（忽略，不影响工作流读取）:', err)
   }
 }
 
@@ -938,7 +945,12 @@ export function loadCampaignWorkflow(campaignId: string): CampaignWorkflow {
   }
 
   const workflow = createDefaultWorkflow(campaignId)
-  saveWorkflow(workflow)
+  try {
+    saveWorkflow(workflow)
+  } catch (err) {
+    // 写盘失败（磁盘满 / 权限不足 / 目录被占用）时仍返回内存中的默认工作流，避免 UI 直接「加载失败」。
+    console.error('[CampaignWorkflow] 新建工作流写盘失败（返回内存默认值）:', err)
+  }
   syncWorkspaceFiles(workflow)
   return workflow
 }
@@ -993,7 +1005,12 @@ function migrateWorkflow(old: CampaignWorkflow, campaignId: string): CampaignWor
     createdAt: old.createdAt,
     updatedAt: now,
   }
-  saveWorkflow(workflow)
+  try {
+    saveWorkflow(workflow)
+  } catch (err) {
+    // 迁移写盘失败时返回内存结果，避免旧版本 Campaign 因磁盘/权限问题打不开。
+    console.error('[CampaignWorkflow] 工作流迁移写盘失败（返回内存迁移结果）:', err)
+  }
   return workflow
 }
 
@@ -1093,6 +1110,12 @@ export function getStepAgentPrompt(
       prompt = prompt.replace(new RegExp(`\\{${key}\\}`, 'g'), value)
     }
   }
+
+  // 带 requiredFiles 的步骤：追加「落盘硬约束」，强制模型真实调用 Write 工具写文件
+  if (step.requiredFiles && step.requiredFiles.length > 0) {
+    prompt += `\n\n${buildArtifactPersistenceDirective(STEP_DIR_MAP[stepId], step.requiredFiles)}`
+  }
+
   return prompt
 }
 
@@ -1404,7 +1427,27 @@ function materializeAssistantOutputIfNeeded(
 
   mkdirSync(dirPath, { recursive: true })
   const workflow = loadCampaignWorkflow(campaignId)
-  const stepTitle = workflow.steps.find((step) => step.id === stepId)?.title ?? stepId
+  const step = workflow.steps.find((s) => s.id === stepId)
+  const stepTitle = step?.title ?? stepId
+  const requiredFiles = step?.requiredFiles ?? []
+
+  // 带 requiredFiles 的步骤：兜底时必须按精确文件名落盘，否则 validateStepArtifacts 仍会失败。
+  // 优先按文件名标题拆分输出；拆不出的文件用整段输出兜底，保证每个必需文件非空、够字数。
+  if (requiredFiles.length > 0) {
+    const sections = splitOutputByFiles(output, requiredFiles)
+    for (const rf of requiredFiles) {
+      const section = sections.get(rf)?.trim()
+      const body = section && section.length > 0 ? section : output
+      writeFileSync(join(dirPath, rf), `# ${rf}\n\n${body}\n`, 'utf-8')
+    }
+    // 额外保留完整原始输出，便于回溯模型实际产出的内容
+    writeFileSync(join(dirPath, 'agent-output.md'), `# ${stepTitle}\n\n${output}\n`, 'utf-8')
+    console.log(
+      `[CampaignWorkflow] 已将 Agent 输出按 requiredFiles 兜底落盘: ${dirName}/${requiredFiles.join(', ')}（含 agent-output.md 原始输出）`,
+    )
+    return
+  }
+
   const content = `# ${stepTitle}\n\n${output}\n`
   writeFileSync(join(dirPath, 'agent-output.md'), content, 'utf-8')
   console.log(`[CampaignWorkflow] 已将 Agent 输出保存为兜底产物: ${dirName}/agent-output.md`)

@@ -1011,6 +1011,20 @@ export interface ElectronAPI {
   saveCampaignBrief: (input: import('@ma-proma/shared').SaveCampaignBriefInput) => Promise<import('@ma-proma/shared').CampaignBrief>
   /** 推进 Campaign 到下一阶段 */
   advanceCampaignPhase: (id: string) => Promise<import('@ma-proma/shared').Campaign | null>
+  /** 归档 / 取消归档 Campaign */
+  setCampaignArchived: (id: string, archived: boolean) => Promise<import('@ma-proma/shared').Campaign | null>
+  /** 删除 Campaign（移入回收站，软删除，可从回收站恢复） */
+  deleteCampaign: (id: string) => Promise<boolean>
+  /** 获取回收站中的 Campaign */
+  listTrashedCampaigns: () => Promise<import('@ma-proma/shared').Campaign[]>
+  /** 从回收站恢复 Campaign */
+  restoreCampaign: (id: string) => Promise<import('@ma-proma/shared').Campaign | null>
+  /** 彻底删除 Campaign（物理清除数据库记录与工作区目录，不可恢复） */
+  purgeCampaign: (id: string) => Promise<boolean>
+  /** 追加一条 Campaign 构建过程记录 */
+  addCampaignBuildLog: (input: import('@ma-proma/shared').AddCampaignBuildLogInput) => Promise<import('@ma-proma/shared').CampaignBuildLog>
+  /** 查询 Campaign 构建过程记录 */
+  listCampaignBuildLogs: (campaignId: string) => Promise<import('@ma-proma/shared').CampaignBuildLog[]>
   /** 确保 Campaign Workspace 工具文件存在（旧 Campaign 兼容） */
   ensureCampaignWorkspace: (campaign: import('@ma-proma/shared').Campaign) => Promise<string>
 
@@ -2302,6 +2316,34 @@ const electronAPI: ElectronAPI = {
 
   advanceCampaignPhase: (id: string) => {
     return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.ADVANCE_PHASE, id)
+  },
+
+  setCampaignArchived: (id: string, archived: boolean) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.ARCHIVE, id, archived)
+  },
+
+  deleteCampaign: (id: string) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.DELETE, id)
+  },
+
+  listTrashedCampaigns: () => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.LIST_TRASHED)
+  },
+
+  restoreCampaign: (id: string) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.RESTORE, id)
+  },
+
+  purgeCampaign: (id: string) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.PURGE, id)
+  },
+
+  addCampaignBuildLog: (input: import('@ma-proma/shared').AddCampaignBuildLogInput) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.ADD_BUILD_LOG, input)
+  },
+
+  listCampaignBuildLogs: (campaignId: string) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.LIST_BUILD_LOGS, campaignId)
   },
 
   ensureCampaignWorkspace: (campaign: import('@ma-proma/shared').Campaign) => {

@@ -19,6 +19,7 @@ import type {
   CampaignWorkflowStepId,
   UpdateWorkflowStepInput,
 } from '@ma-proma/shared'
+import { buildArtifactPersistenceDirective } from '@ma-proma/shared'
 import type { AppContext } from '../context/types.ts'
 import type { FileProvider } from '../files/types.ts'
 import { getAgentWorkspacePath } from '../context/config-paths.ts'
@@ -904,6 +905,12 @@ export class CampaignWorkflowService {
         prompt = prompt.replace(new RegExp(`\\{${key}\\}`, 'g'), value)
       }
     }
+
+    // 带 requiredFiles 的步骤：追加「落盘硬约束」，强制模型真实调用 Write 工具写文件
+    if (step.requiredFiles && step.requiredFiles.length > 0) {
+      prompt += `\n\n${buildArtifactPersistenceDirective(STEP_DIR_MAP[stepId], step.requiredFiles)}`
+    }
+
     return prompt
   }
 
@@ -977,7 +984,7 @@ export class CampaignWorkflowService {
       throw new Error(`步骤不存在: ${stepId}`)
     }
 
-    await this.validator.materializeAssistantOutputIfNeeded(campaignId, stepId, step.title, messages)
+    await this.validator.materializeAssistantOutputIfNeeded(campaignId, stepId, step.title, messages, step.requiredFiles ?? [])
     const validation = await this.validator.validateStepArtifacts(campaignId, stepId, step)
     const outputSummary = await this.validator.extractOutputSummary(messages)
 

@@ -11,10 +11,20 @@ import { ContentTrackingManager } from './ContentTrackingManager'
 import { PhaseReviewPanel } from './PhaseReviewPanel'
 import { ABTestPanel } from './ABTestPanel'
 import { VideoAssetPanel } from './VideoAssetPanel'
-import { ArrowLeft, Calendar, MapPin, Users, DollarSign, Plus, UserCheck, FileText, Rocket, ShieldCheck, BarChart3, TrendingUp, FlaskConical, Clapperboard } from 'lucide-react'
+import { ArrowLeft, Calendar, MapPin, Users, DollarSign, Plus, UserCheck, FileText, Rocket, ShieldCheck, BarChart3, TrendingUp, FlaskConical, Clapperboard, Archive, ArchiveRestore, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import {
   Tabs,
   TabsList,
@@ -72,6 +82,9 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
   const [selectedBriefKOL, setSelectedBriefKOL] = React.useState<CampaignKOLPoolItem | null>(null)
   const [loadingPool, setLoadingPool] = React.useState(true)
   const [advancing, setAdvancing] = React.useState(false)
+  const [archiving, setArchiving] = React.useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
+  const [deleting, setDeleting] = React.useState(false)
 
   // ... rest of the component
 
@@ -154,6 +167,43 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
     }
   }
 
+  const handleToggleArchive = async () => {
+    setArchiving(true)
+    try {
+      const updated = await window.electronAPI.setCampaignArchived(campaign.id, !campaign.archived)
+      if (!updated) {
+        toast.error('操作失败')
+        return
+      }
+      applyCampaignUpdate(updated)
+      toast.success(updated.archived ? '已归档' : '已取消归档')
+    } catch (error) {
+      console.error('[CampaignDetail] 归档操作失败:', error)
+      toast.error('操作失败')
+    } finally {
+      setArchiving(false)
+    }
+  }
+
+  const handleConfirmDelete = async () => {
+    setDeleting(true)
+    try {
+      const ok = await window.electronAPI.deleteCampaign(campaign.id)
+      if (!ok) {
+        toast.error('删除失败')
+        setDeleting(false)
+        return
+      }
+      setCampaigns((prev) => prev.filter((item) => item.id !== campaign.id))
+      toast.success('已删除 Campaign')
+      onBack()
+    } catch (error) {
+      console.error('[CampaignDetail] 删除失败:', error)
+      toast.error('删除失败')
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
       {/* 头部 */}
@@ -173,7 +223,33 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
             <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground font-medium">
               {STATUS_LABEL[campaign.status]}
             </span>
+            {campaign.archived && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 font-medium">
+                已归档
+              </span>
+            )}
           </div>
+        </div>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => void handleToggleArchive()}
+            disabled={archiving}
+          >
+            {campaign.archived ? <ArchiveRestore size={13} className="mr-1" /> : <Archive size={13} className="mr-1" />}
+            {archiving ? '处理中...' : (campaign.archived ? '取消归档' : '归档')}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2.5 text-xs text-muted-foreground hover:text-destructive hover:border-destructive/40"
+            onClick={() => setDeleteDialogOpen(true)}
+          >
+            <Trash2 size={13} className="mr-1" />
+            删除
+          </Button>
         </div>
       </div>
 
@@ -535,6 +611,28 @@ export function CampaignDetail({ campaign: initialCampaign, onBack, onNavigateTo
           if (!open) setPreviewFilePath(null)
         }}
       />
+
+      {/* 删除 Campaign 确认弹窗 */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除 Campaign</AlertDialogTitle>
+            <AlertDialogDescription>
+              将删除项目「{campaign.name}」及其所有关联数据（候选池、Brief、内容追踪、阶段复盘、视频素材、工作区目录）。删除后可在回收站恢复。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? '删除中...' : '删除'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
     </div>
   )

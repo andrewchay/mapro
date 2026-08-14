@@ -4,6 +4,9 @@ import type { Campaign } from '@ma-proma/shared'
 /** Campaign 列表 */
 export const campaignsAtom = atom<Campaign[]>([])
 
+/** 回收站中的 Campaign 列表 */
+export const trashedCampaignsAtom = atom<Campaign[]>([])
+
 /** 当前选中的 Campaign ID */
 export const currentCampaignIdAtom = atom<string | null>(null)
 

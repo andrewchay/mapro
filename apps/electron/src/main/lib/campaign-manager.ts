@@ -9,15 +9,15 @@
  * Slice 4: 添加 Brief 表 + 生成/保存功能
  */
 
-import { existsSync, mkdirSync, cpSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, cpSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { getConfigDir, getAgentWorkspacePath } from './config-paths'
-import { createAgentWorkspace } from './agent-workspace-manager'
+import { createAgentWorkspace, listAgentWorkspaces, deleteAgentWorkspace } from './agent-workspace-manager'
 import { getKOLById, computeKOLScores, recalculateAllScores, type KOLRecord } from './ma-tools/kol-data-service'
 export { recalculateAllScores }
 import { runContentAudit } from './ma-tools/content-audit'
-import type { Campaign, CampaignCreativePlan, CampaignPhasePlan, CreateCampaignInput, KOLListItem } from '@ma-proma/shared'
+import type { Campaign, CampaignBuildLog, AddCampaignBuildLogInput, CampaignCreativePlan, CampaignPhasePlan, CreateCampaignInput, KOLListItem } from '@ma-proma/shared'
 
 // =====================================================================
 // SQLite 运行时适配层（复用 kol-data-service 模式）
@@ -223,6 +223,8 @@ export function getDb(): Database {
       phase_plans TEXT,
       creative_plan TEXT,
       status TEXT DEFAULT 'draft',
+      archived INTEGER DEFAULT 0,
+      deleted_at INTEGER,
       created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
       updated_at INTEGER DEFAULT (strftime('%s','now') * 1000)
     )
@@ -230,6 +232,8 @@ export function getDb(): Database {
 
   dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status)`)
   dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_campaigns_brand ON campaigns(brand)`)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_campaigns_archived ON campaigns(archived)`)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_campaigns_deleted_at ON campaigns(deleted_at)`)
 
   const campaignColumns = dbInstance.query(`PRAGMA table_info(campaigns)`).all() as Array<{ name: string }>
   if (!campaignColumns.some((col) => col.name === 'phase_plans')) {
@@ -241,6 +245,30 @@ export function getDb(): Database {
   if (!campaignColumns.some((col) => col.name === 'project_path')) {
     dbInstance.run(`ALTER TABLE campaigns ADD COLUMN project_path TEXT`)
   }
+  if (!campaignColumns.some((col) => col.name === 'archived')) {
+    dbInstance.run(`ALTER TABLE campaigns ADD COLUMN archived INTEGER DEFAULT 0`)
+  }
+  if (!campaignColumns.some((col) => col.name === 'deleted_at')) {
+    dbInstance.run(`ALTER TABLE campaigns ADD COLUMN deleted_at INTEGER`)
+  }
+
+  // 构建过程记录表（结构化过程史：步骤完成、用户诉求、需求变更等）
+  dbInstance.run(`
+    CREATE TABLE IF NOT EXISTS campaign_build_log (
+      id TEXT PRIMARY KEY,
+      campaign_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      step TEXT,
+      title TEXT NOT NULL,
+      content TEXT,
+      file_paths TEXT,
+      session_id TEXT,
+      meta TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_build_log_campaign ON campaign_build_log(campaign_id, created_at)`)
 
   // Campaign KOL 候选池表（Slice 3）
   dbInstance.run(`
@@ -1091,6 +1119,8 @@ function rowToCampaign(row: any): Campaign {
     phasePlans: normalizePhasePlans(row.phase_plans, budget, durationMonths),
     creativePlan: normalizeCreativePlan(row.creative_plan, { brand, targetAudience }),
     status: row.status as Campaign['status'],
+    archived: Boolean(row.archived),
+    deletedAt: row.deleted_at ? Number(row.deleted_at) : undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -1114,11 +1144,23 @@ function rowToPoolItem(row: any): import('@ma-proma/shared').CampaignKOLPoolItem
   }
 }
 
-/** 获取 Campaign 列表（按创建时间倒序） */
-export function listCampaigns(): Campaign[] {
+/** 获取 Campaign 列表（按创建时间倒序；默认排除已归档；始终排除回收站中的记录） */
+export function listCampaigns(options?: { includeArchived?: boolean }): Campaign[] {
+  const db = getDb()
+  const where = options?.includeArchived
+    ? `WHERE deleted_at IS NULL`
+    : `WHERE archived = 0 AND deleted_at IS NULL`
+  const rows = db.query(
+    `SELECT * FROM campaigns ${where} ORDER BY created_at DESC`
+  ).all()
+  return rows.map(rowToCampaign)
+}
+
+/** 获取回收站中的 Campaign（软删除记录，按删除时间倒序） */
+export function listTrashedCampaigns(): Campaign[] {
   const db = getDb()
   const rows = db.query(
-    `SELECT * FROM campaigns ORDER BY created_at DESC`
+    `SELECT * FROM campaigns WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`
   ).all()
   return rows.map(rowToCampaign)
 }
@@ -1231,6 +1273,29 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
       throw err instanceof Error ? err : new Error(String(err))
     }
   }
+
+  // 记录创建事件到构建过程史
+  addCampaignBuildLog({
+    campaignId: campaign.id,
+    kind: 'campaign_created',
+    actor: 'user',
+    title: `创建 Campaign「${campaign.name}」`,
+    content: [
+      `品牌：${campaign.brand}`,
+      `平台：${campaign.platform}`,
+      `预算：${campaign.budget}`,
+      `周期：${campaign.durationMonths} 个月`,
+      campaign.targetAudience ? `目标人群：${campaign.targetAudience}` : '',
+    ].filter(Boolean).join('\n'),
+    filePaths: campaign.projectPath ? [campaign.projectPath] : undefined,
+    meta: {
+      name: campaign.name,
+      brand: campaign.brand,
+      platform: campaign.platform,
+      budget: campaign.budget,
+      durationMonths: campaign.durationMonths,
+    },
+  })
 
   return campaign
 }
@@ -1703,6 +1768,179 @@ export function advanceCampaignPhase(id: string): Campaign | null {
   )
 
   return getCampaignById(id)
+}
+
+/** 归档 / 取消归档 Campaign */
+export function setCampaignArchived(id: string, archived: boolean): Campaign | null {
+  const db = getDb()
+  const campaign = getCampaignById(id)
+  if (!campaign) return null
+
+  db.run(
+    `UPDATE campaigns SET archived = ?, updated_at = ? WHERE id = ?`,
+    archived ? 1 : 0,
+    Date.now(),
+    id,
+  )
+
+  return getCampaignById(id)
+}
+
+/**
+ * 软删除 Campaign：移入回收站（设置 deleted_at），数据与工作区目录保留，可从回收站恢复。
+ */
+export function deleteCampaign(id: string): boolean {
+  const db = getDb()
+  const campaign = getCampaignById(id)
+  if (!campaign) return false
+
+  const result = db.run(
+    `UPDATE campaigns SET deleted_at = ?, archived = 0, updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
+    Date.now(),
+    Date.now(),
+    id,
+  )
+  if (result.changes === 0) return false
+
+  console.log(`[Campaign] 已移入回收站: ${campaign.name} (${id})`)
+  return true
+}
+
+/** 从回收站恢复 Campaign */
+export function restoreCampaign(id: string): Campaign | null {
+  const db = getDb()
+  const campaign = getCampaignById(id)
+  if (!campaign) return null
+
+  db.run(
+    `UPDATE campaigns SET deleted_at = NULL, updated_at = ? WHERE id = ?`,
+    Date.now(),
+    id,
+  )
+  return getCampaignById(id)
+}
+
+/**
+ * 彻底删除 Campaign：物理清除数据库关联数据 + 专属 Agent 工作区目录，不可恢复。
+ * 注意：用户绑定到工作区的本地项目文件夹（rootPath）不会被删除，仅删除 ~/.mapro 下的 campaign-{id} 工作区目录。
+ */
+export function purgeCampaign(id: string): boolean {
+  const db = getDb()
+  const campaign = getCampaignById(id)
+  if (!campaign) return false
+
+  // 1. 清理构建过程记录
+  db.run(`DELETE FROM campaign_build_log WHERE campaign_id = ?`, id)
+
+  // 2. 清理关联数据（子表无外键级联，逐个显式删除）
+  const abTestIds = db.query(
+    `SELECT id FROM campaign_ab_tests WHERE campaign_id = ?`
+  ).all(id) as Array<{ id: string }>
+  for (const ab of abTestIds) {
+    db.run(`DELETE FROM ab_test_results WHERE ab_test_id = ?`, ab.id)
+  }
+  db.run(`DELETE FROM campaign_ab_tests WHERE campaign_id = ?`, id)
+  db.run(`DELETE FROM campaign_phase_reports WHERE campaign_id = ?`, id)
+  db.run(`DELETE FROM kol_content_tracking WHERE campaign_id = ?`, id)
+  db.run(`DELETE FROM campaign_briefs WHERE campaign_id = ?`, id)
+  db.run(`DELETE FROM campaign_kol_pool WHERE campaign_id = ?`, id)
+
+  // content_audits 表实际位于 KOL 数据库（kol-database.sqlite），单独清理，失败不影响主删除
+  try {
+    const kolDb = getKolDb()
+    kolDb.run(`DELETE FROM content_audits WHERE campaign_id = ?`, id)
+  } catch (err) {
+    console.warn(`[Campaign] 清理 content_audits 失败（忽略）:`, err)
+  }
+
+  // 3. 删除 Campaign 主记录
+  const result = db.run(`DELETE FROM campaigns WHERE id = ?`, id)
+  if (result.changes === 0) return false
+
+  // 4. 删除专属 Agent 工作区目录（保留索引条目清理 + 目录物理删除）
+  try {
+    const workspace = listAgentWorkspaces().find((w) => w.slug === `campaign-${id}`)
+    if (workspace) {
+      deleteAgentWorkspace(workspace.id)
+    }
+    const workspacePath = getAgentWorkspacePath(`campaign-${id}`)
+    if (existsSync(workspacePath)) {
+      rmSync(workspacePath, { recursive: true, force: true })
+    }
+  } catch (err) {
+    // 目录删除失败不阻断数据库删除，仅记录
+    console.error(`[Campaign] 删除工作区目录失败 (${id}):`, err)
+  }
+
+  console.log(`[Campaign] 已彻底删除 Campaign: ${campaign.name} (${id})`)
+  return true
+}
+
+// =====================================================================
+// 构建过程记录（Build Log）
+// =====================================================================
+
+/** 追加一条构建过程记录 */
+export function addCampaignBuildLog(input: AddCampaignBuildLogInput): CampaignBuildLog {
+  const db = getDb()
+  const now = Date.now()
+  const entry: CampaignBuildLog = {
+    id: `buildlog_${now}_${Math.random().toString(36).slice(2, 9)}`,
+    campaignId: input.campaignId,
+    kind: input.kind,
+    actor: input.actor,
+    step: input.step,
+    title: input.title,
+    content: input.content,
+    filePaths: input.filePaths,
+    sessionId: input.sessionId,
+    meta: input.meta,
+    createdAt: now,
+  }
+
+  db.run(
+    `INSERT INTO campaign_build_log (id, campaign_id, kind, actor, step, title, content, file_paths, session_id, meta, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    entry.id,
+    entry.campaignId,
+    entry.kind,
+    entry.actor,
+    entry.step ?? null,
+    entry.title,
+    entry.content ?? null,
+    entry.filePaths ? JSON.stringify(entry.filePaths) : null,
+    entry.sessionId ?? null,
+    entry.meta ? JSON.stringify(entry.meta) : null,
+    entry.createdAt,
+  )
+
+  return entry
+}
+
+/** 查询 Campaign 的构建过程记录（按时间正序，便于阅读构建史） */
+export function listCampaignBuildLogs(campaignId: string): CampaignBuildLog[] {
+  const db = getDb()
+  const rows = db.query(
+    `SELECT * FROM campaign_build_log WHERE campaign_id = ? ORDER BY created_at ASC`
+  ).all(campaignId) as Record<string, unknown>[]
+
+  return rows.map((row) => {
+    const filePaths = row.file_paths ? JSON.parse(String(row.file_paths)) : undefined
+    const meta = row.meta ? JSON.parse(String(row.meta)) : undefined
+    return {
+      id: String(row.id),
+      campaignId: String(row.campaign_id),
+      kind: String(row.kind) as CampaignBuildLog['kind'],
+      actor: String(row.actor) as CampaignBuildLog['actor'],
+      step: row.step ? String(row.step) : undefined,
+      title: String(row.title),
+      content: row.content ? String(row.content) : undefined,
+      filePaths,
+      sessionId: row.session_id ? String(row.session_id) : undefined,
+      meta,
+      createdAt: Number(row.created_at),
+    }
+  })
 }
 
 // =====================================================================

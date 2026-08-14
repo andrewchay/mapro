@@ -1,8 +1,8 @@
 /**
  * Campaign 工作流步骤列表组件
  *
- * 展示 13 步标准工作流进度，支持状态跟踪和 Agent 执行。
- * 新策略顺序：市场分析→竞品分析→用户分析→品牌DNA+品牌诊断→品牌概念→目标设定→Big Idea→平台矩阵→KOL金字塔→搜索KOL→加入候选池→生成Briefs→A/B测试
+ * 展示 15 步标准工作流进度，支持状态跟踪和 Agent 执行。
+ * 新策略顺序：市场分析→竞品分析→用户分析→品牌DNA+品牌诊断→品牌信息核实→品牌概念→目标设定→Big Idea→平台矩阵→KOL金字塔→搜索KOL→加入候选池→生成Briefs→A/B测试→视频素材
  */
 import * as React from 'react'
 import {
@@ -17,6 +17,7 @@ import {
   ChevronUp,
   Bot,
   Pencil,
+  RefreshCw,
 } from 'lucide-react'
 
 const STEP_DIR_MAP: Record<string, string> = {
@@ -24,6 +25,7 @@ const STEP_DIR_MAP: Record<string, string> = {
   competitor_analysis: 'competitor-analysis',
   user_analysis: 'user-analysis',
   brand_dna: 'brand-dna',
+  brand_fact_check: 'brand-fact-check',
   brand_concept: 'brand-concept',
   goal_setting: 'goal-setting',
   creative_concept: 'creative-concept',
@@ -33,6 +35,7 @@ const STEP_DIR_MAP: Record<string, string> = {
   add_to_pool: 'kol-search',
   generate_briefs: 'briefs',
   ab_test: 'ab-test',
+  generate_video_assets: 'video-assets',
 }
 
 function getArtifactDir(stepId: string): string {
@@ -46,6 +49,7 @@ import type {
   CampaignWorkflowStepId,
   UpdateWorkflowStepInput,
 } from '@ma-proma/shared'
+import { buildArtifactPersistenceDirective } from '@ma-proma/shared'
 
 interface CampaignWorkflowStepsProps {
   campaignId: string
@@ -70,29 +74,52 @@ export function CampaignWorkflowSteps({
 }: CampaignWorkflowStepsProps): React.ReactElement {
   const [workflow, setWorkflow] = React.useState<CampaignWorkflow | null>(null)
   const [loading, setLoading] = React.useState(true)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
   const [expandedSteps, setExpandedSteps] = React.useState<Set<string>>(new Set())
   const [executingStep, setExecutingStep] = React.useState<string | null>(null)
   const [updatingStep, setUpdatingStep] = React.useState<string | null>(null)
   const hasInProgressStep = workflow?.steps.some((step) => step.status === 'in_progress') ?? false
 
   // 加载工作流
-  React.useEffect(() => {
-    setLoading(true)
-    window.electronAPI
-      .getCampaignWorkflow(campaignId)
-      .then((wf) => {
-        setWorkflow(wf)
-        // 自动展开当前步骤
-        if (wf.currentStepIndex >= 0) {
-          const currentStepId = wf.steps[wf.currentStepIndex]?.id
-          if (currentStepId) {
-            setExpandedSteps(new Set([currentStepId]))
+  const loadWorkflow = React.useCallback(
+    async (opts?: { silent?: boolean; keepExpanded?: boolean }) => {
+      if (!opts?.silent) {
+        setLoading(true)
+      }
+      setLoadError(null)
+      try {
+        const wf = await window.electronAPI.getCampaignWorkflow(campaignId)
+        setWorkflow((prev) => {
+          // 静默刷新时保持用户已展开的状态；首次加载时自动展开当前步骤
+          if (opts?.keepExpanded && prev) {
+            return wf
           }
+          if (wf.currentStepIndex >= 0) {
+            const currentStepId = wf.steps[wf.currentStepIndex]?.id
+            if (currentStepId) {
+              setExpandedSteps(new Set([currentStepId]))
+            }
+          }
+          return wf
+        })
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err)
+        if (!opts?.silent) {
+          setLoadError(message)
         }
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [campaignId])
+        console.error('[WorkflowSteps] 加载工作流失败:', err)
+      } finally {
+        if (!opts?.silent) {
+          setLoading(false)
+        }
+      }
+    },
+    [campaignId],
+  )
+
+  React.useEffect(() => {
+    loadWorkflow()
+  }, [loadWorkflow])
 
   // Agent 完成后主进程会回写 workflow 文件；这里在步骤进行中时轻量刷新，避免 UI 停在"进行中"。
   React.useEffect(() => {
@@ -100,13 +127,7 @@ export function CampaignWorkflowSteps({
 
     let cancelled = false
     const refreshWorkflow = () => {
-      window.electronAPI
-        .getCampaignWorkflow(campaignId)
-        .then((updated) => {
-          if (cancelled) return
-          setWorkflow(updated)
-        })
-        .catch(console.error)
+      loadWorkflow({ silent: true, keepExpanded: true }).catch(console.error)
     }
 
     const timer = window.setInterval(refreshWorkflow, 2000)
@@ -116,7 +137,18 @@ export function CampaignWorkflowSteps({
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [campaignId, hasInProgressStep])
+  }, [campaignId, hasInProgressStep, loadWorkflow])
+
+  // 用户切回窗口时自动刷新工作流，捕获外部修改或 Agent 后台更新
+  React.useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadWorkflow({ silent: true, keepExpanded: true }).catch(console.error)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [loadWorkflow])
 
   // 切换步骤展开
   const toggleExpand = (stepId: string) => {
@@ -159,6 +191,11 @@ export function CampaignWorkflowSteps({
     let prompt = step.agentPrompt
     for (const [key, value] of Object.entries(campaignContext)) {
       prompt = prompt.replace(new RegExp(`\\{${key}\\}`, 'g'), value)
+    }
+
+    // 带 requiredFiles 的步骤：追加「落盘硬约束」，强制模型真实调用 Write 工具写文件
+    if (step.requiredFiles && step.requiredFiles.length > 0) {
+      prompt += `\n\n${buildArtifactPersistenceDirective(getArtifactDir(step.id), step.requiredFiles)}`
     }
 
     // 发送到 Agent
@@ -213,6 +250,11 @@ export function CampaignWorkflowSteps({
     prompt += `完成后请更新产物摘要。\n\n`
     prompt += `请告诉我你想调整的具体内容：`
 
+    // 带 requiredFiles 的步骤：调整后同样必须真实写入对应文件
+    if (step.requiredFiles && step.requiredFiles.length > 0) {
+      prompt += `\n\n${buildArtifactPersistenceDirective(getArtifactDir(step.id), step.requiredFiles)}`
+    }
+
     onOpenInAgent(prompt)
     setTimeout(() => setExecutingStep(null), 500)
   }
@@ -241,7 +283,12 @@ export function CampaignWorkflowSteps({
   if (!workflow) {
     return (
       <div className="text-center py-6 text-muted-foreground text-xs">
-        工作流加载失败
+        <div>工作流加载失败</div>
+        {loadError && (
+          <div className="mt-2 px-3 py-2 rounded bg-muted/50 text-[11px] text-red-500 break-all leading-relaxed">
+            {loadError}
+          </div>
+        )}
       </div>
     )
   }
@@ -265,6 +312,16 @@ export function CampaignWorkflowSteps({
         </div>
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-muted-foreground">{progress}%</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+            title="刷新工作流"
+            onClick={() => loadWorkflow({ silent: true, keepExpanded: true })}
+            disabled={loading}
+          >
+            <RefreshCw size={11} className={cn(loading && 'animate-spin')} />
+          </Button>
           <Button
             size="sm"
             variant="ghost"
@@ -478,7 +535,7 @@ export function CampaignWorkflowSteps({
               <div>
                 <h3 className="text-sm font-semibold text-foreground">🎉 工作流全部完成</h3>
                 <p className="text-xs text-muted-foreground mt-1">
-                  所有 9 个步骤已完成。生成完整整合方案文档。
+                  所有 {workflow.steps.length} 个步骤已完成。生成完整整合方案文档。
                 </p>
               </div>
               <Button

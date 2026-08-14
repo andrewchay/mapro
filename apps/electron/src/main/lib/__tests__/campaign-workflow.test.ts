@@ -109,7 +109,7 @@ describe('Campaign 工作流测试', () => {
     const workflow = workflowService.loadCampaignWorkflow(testCampaignId)
 
     expect(workflow.campaignId).toBe(testCampaignId)
-    expect(workflow.steps).toHaveLength(14)
+    expect(workflow.steps).toHaveLength(15)
     expect(workflow.currentStepIndex).toBe(-1)
     expect(workflow.steps[0]?.id).toBe('market_analysis')
     expect(workflow.steps[0]?.status).toBe('pending')
@@ -118,7 +118,7 @@ describe('Campaign 工作流测试', () => {
     const expectedDirs = [
       'market-analysis', 'competitor-analysis', 'user-analysis',
       'brand-dna', 'brand-fact-check', 'brand-concept', 'goal-setting', 'creative-concept',
-      'platform-matrix', 'kol-pyramid', 'kol-search', 'briefs', 'ab-test', '.context',
+      'platform-matrix', 'kol-pyramid', 'kol-search', 'briefs', 'ab-test', 'video-assets', '.context',
     ]
     for (const dir of expectedDirs) {
       expect(existsSync(join(workspaceDir, dir))).toBe(true)
@@ -466,7 +466,7 @@ describe('Campaign 工作流测试', () => {
 
   it('Slice 7: 进度计算正确', () => {
     const progress = workflowService.getWorkflowProgress(testCampaignId)
-    // 14 步中：ab_test completed, add_to_pool completed (校验时写文件), generate_briefs failed
+    // 15 步中：ab_test completed, add_to_pool completed (校验时写文件), generate_briefs failed
     // 其余 pending
     expect(progress).toBeGreaterThanOrEqual(0)
     expect(progress).toBeLessThanOrEqual(100)
@@ -515,7 +515,7 @@ describe('Campaign 工作流测试', () => {
 
     const migrated = workflowService.loadCampaignWorkflow(legacyCampaignId)
 
-    expect(migrated.steps).toHaveLength(14)
+    expect(migrated.steps).toHaveLength(15)
     expect(migrated.steps[migrated.currentStepIndex]?.id).toBe('kol_pyramid')
     expect(migrated.steps.find((step) => step.id === 'market_analysis')?.status).toBe('pending')
 
@@ -527,7 +527,7 @@ describe('Campaign 工作流测试', () => {
   it('Slice 9: 重置工作流恢复初始状态', () => {
     const workflow = workflowService.resetWorkflow(testCampaignId)
 
-    expect(workflow.steps).toHaveLength(14)
+    expect(workflow.steps).toHaveLength(15)
     for (const step of workflow.steps) {
       expect(step.status).toBe('pending')
       expect(step.completedAt).toBeUndefined()
@@ -550,7 +550,7 @@ describe('Campaign 工作流测试', () => {
 
     // 重建为默认工作流而不是抛错
     expect(workflow.campaignId).toBe(corruptCampaignId)
-    expect(workflow.steps).toHaveLength(14)
+    expect(workflow.steps).toHaveLength(15)
     expect(workflow.steps[0]?.status).toBe('pending')
 
     // 损坏原件被保留为 .corrupt-{ts} 备份，不会被静默覆盖

@@ -22,3 +22,7 @@ export {
   normalizeAgentRuntimeError,
 } from './agent-runtime-error'
 export type { NormalizeAgentRuntimeErrorInput } from './agent-runtime-error'
+export {
+  buildArtifactPersistenceDirective,
+  splitOutputByFiles,
+} from './campaign-prompt'

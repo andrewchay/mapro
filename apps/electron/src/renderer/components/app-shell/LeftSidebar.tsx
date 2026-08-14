@@ -71,7 +71,7 @@ import { useSyncActiveTabSideEffects } from '@/hooks/useSyncActiveTabSideEffects
 import { WorkspaceSelector } from '@/components/agent/WorkspaceSelector'
 import { MoveSessionDialog } from '@/components/agent/MoveSessionDialog'
 import { CampaignCreateDialog } from '@/components/agent/CampaignCreateDialog'
-import { campaignsAtom, currentCampaignIdAtom, campaignCreateDialogOpenAtom } from '@/atoms/campaign-atoms'
+import { campaignsAtom, currentCampaignIdAtom, campaignCreateDialogOpenAtom, trashedCampaignsAtom } from '@/atoms/campaign-atoms'
 import { detectIsMac } from '@/lib/platform'
 import {
   AlertDialog,
@@ -98,7 +98,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import type { ActiveView } from '@/atoms/active-view'
-import type { ConversationMeta, AgentSessionMeta, WorkspaceCapabilities } from '@ma-proma/shared'
+import type { Campaign, ConversationMeta, AgentSessionMeta, WorkspaceCapabilities } from '@ma-proma/shared'
 
 interface SidebarItemProps {
   icon: React.ReactNode
@@ -2099,9 +2099,104 @@ const CAMPAIGN_STATUS_LABEL: Record<string, string> = {
 function CampaignSidebarList(): React.ReactElement {
   const campaigns = useAtomValue(campaignsAtom)
   const setCampaigns = useSetAtom(campaignsAtom)
+  const trashedCampaigns = useAtomValue(trashedCampaignsAtom)
+  const setTrashedCampaigns = useSetAtom(trashedCampaignsAtom)
   const currentCampaignId = useAtomValue(currentCampaignIdAtom)
   const setCurrentCampaignId = useSetAtom(currentCampaignIdAtom)
   const [createDialogOpen, setCreateDialogOpen] = useAtom(campaignCreateDialogOpenAtom)
+  const [campaignViewMode, setCampaignViewMode] = React.useState<'active' | 'archived' | 'trash'>('active')
+  const [pendingDeleteCampaign, setPendingDeleteCampaign] = React.useState<Campaign | null>(null)
+  const [deletingCampaign, setDeletingCampaign] = React.useState(false)
+
+  React.useEffect(() => {
+    window.electronAPI.listTrashedCampaigns()
+      .then((list) => setTrashedCampaigns(list))
+      .catch(console.error)
+  }, [setTrashedCampaigns])
+
+  const visibleCampaigns = React.useMemo(
+    () => (campaignViewMode === 'trash'
+      ? trashedCampaigns
+      : campaigns.filter((c) => (campaignViewMode === 'archived' ? !!c.archived : !c.archived))),
+    [campaigns, trashedCampaigns, campaignViewMode]
+  )
+  const archivedCount = React.useMemo(() => campaigns.filter((c) => c.archived).length, [campaigns])
+  const trashedCount = trashedCampaigns.length
+
+  const handleToggleArchive = async (campaign: Campaign) => {
+    const archived = !campaign.archived
+    try {
+      const updated = await window.electronAPI.setCampaignArchived(campaign.id, archived)
+      if (!updated) {
+        toast.error('操作失败')
+        return
+      }
+      setCampaigns((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
+      if (archived && currentCampaignId === campaign.id) {
+        setCurrentCampaignId(null)
+      }
+      toast.success(archived ? '已归档' : '已取消归档')
+    } catch (error) {
+      console.error('[CampaignSidebarList] 归档操作失败:', error)
+      toast.error('操作失败')
+    }
+  }
+
+  const handleConfirmDeleteCampaign = async () => {
+    if (!pendingDeleteCampaign) return
+    const campaign = pendingDeleteCampaign
+    setDeletingCampaign(true)
+    try {
+      const ok = await window.electronAPI.deleteCampaign(campaign.id)
+      if (!ok) {
+        toast.error('删除失败')
+        return
+      }
+      setCampaigns((prev) => prev.filter((c) => c.id !== campaign.id))
+      setTrashedCampaigns((prev) => [campaign, ...prev])
+      if (currentCampaignId === campaign.id) {
+        setCurrentCampaignId(null)
+      }
+      toast.success('已删除 Campaign，可在回收站恢复')
+    } catch (error) {
+      console.error('[CampaignSidebarList] 删除失败:', error)
+      toast.error('删除失败')
+    } finally {
+      setDeletingCampaign(false)
+      setPendingDeleteCampaign(null)
+    }
+  }
+
+  const handleRestoreCampaign = async (campaign: Campaign) => {
+    try {
+      const restored = await window.electronAPI.restoreCampaign(campaign.id)
+      if (!restored) {
+        toast.error('恢复失败')
+        return
+      }
+      setTrashedCampaigns((prev) => prev.filter((c) => c.id !== campaign.id))
+      setCampaigns((prev) => [restored, ...prev])
+      toast.success('已恢复 Campaign')
+    } catch (error) {
+      console.error('[CampaignSidebarList] 恢复失败:', error)
+      toast.error('恢复失败')
+    }
+  }
+
+  const handlePurgeCampaign = async (campaign: Campaign) => {
+    try {
+      const ok = await window.electronAPI.purgeCampaign(campaign.id)
+      if (!ok) {
+        toast.error('彻底删除失败')
+        return
+      }
+      setTrashedCampaigns((prev) => prev.filter((c) => c.id !== campaign.id))
+      toast.success('已彻底删除 Campaign')
+    } catch (error) {
+      console.error('[CampaignSidebarList] 彻底删除失败:', error)
+      toast.error('彻底删除失败')
+    }
+  }
 
   return (
     <>
@@ -2116,43 +2211,71 @@ function CampaignSidebarList(): React.ReactElement {
         </button>
       </div>
 
+      {/* 进行中 / 已归档 / 回收站 切换 */}
+      <div className="px-3 pt-2 flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setCampaignViewMode('active')}
+          className={cn(
+            'flex-1 px-2 py-1 rounded-lg text-xs transition-colors',
+            campaignViewMode === 'active'
+              ? 'bg-primary/10 text-foreground font-medium'
+              : 'text-muted-foreground hover:bg-muted/50'
+          )}
+        >
+          进行中
+        </button>
+        <button
+          type="button"
+          onClick={() => setCampaignViewMode('archived')}
+          className={cn(
+            'flex-1 px-2 py-1 rounded-lg text-xs transition-colors flex items-center justify-center gap-1',
+            campaignViewMode === 'archived'
+              ? 'bg-primary/10 text-foreground font-medium'
+              : 'text-muted-foreground hover:bg-muted/50'
+          )}
+        >
+          <Archive size={12} />
+          已归档{archivedCount > 0 ? ` (${archivedCount})` : ''}
+        </button>
+        <button
+          type="button"
+          onClick={() => setCampaignViewMode('trash')}
+          className={cn(
+            'flex-1 px-2 py-1 rounded-lg text-xs transition-colors flex items-center justify-center gap-1',
+            campaignViewMode === 'trash'
+              ? 'bg-primary/10 text-foreground font-medium'
+              : 'text-muted-foreground hover:bg-muted/50'
+          )}
+        >
+          <Trash2 size={12} />
+          回收站{trashedCount > 0 ? ` (${trashedCount})` : ''}
+        </button>
+      </div>
+
       {/* Campaign 列表（可滚动） */}
       <div className="px-3 pt-2 flex-1 min-h-0 overflow-y-auto">
         <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2 px-1">
-          Campaign 项目
+          {campaignViewMode === 'archived' ? '已归档项目' : campaignViewMode === 'trash' ? '回收站' : 'Campaign 项目'}
         </div>
         <div className="flex flex-col gap-1">
-          {campaigns.map((campaign) => (
-            <button
+          {visibleCampaigns.map((campaign) => (
+            <CampaignSidebarItem
               key={campaign.id}
-              type="button"
-              onClick={() => setCurrentCampaignId(campaign.id)}
-              className={cn(
-                'w-full text-left px-2.5 py-2 rounded-xl border transition-all',
-                currentCampaignId === campaign.id
-                  ? 'border-primary/30 bg-primary/5'
-                  : 'border-border/40 bg-background hover:bg-muted/50'
-              )}
-            >
-              <div className="flex items-center justify-between gap-1.5">
-                <span className="text-[13px] font-medium truncate">{campaign.name}</span>
-                <span className={cn(
-                  'text-[9px] px-1 py-0.5 rounded font-medium flex-shrink-0',
-                  campaign.status === 'completed' ? 'bg-emerald-500/10 text-emerald-600' :
-                  campaign.status === 'live' ? 'bg-blue-500/10 text-blue-600' :
-                  'bg-muted text-muted-foreground'
-                )}>
-                  {CAMPAIGN_STATUS_LABEL[campaign.status] ?? campaign.status}
-                </span>
-              </div>
-              <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                {campaign.brand} · {campaign.platform}
-              </div>
-            </button>
+              campaign={campaign}
+              active={currentCampaignId === campaign.id && campaignViewMode !== 'trash'}
+              disabled={campaignViewMode === 'trash'}
+              mode={campaignViewMode}
+              onSelect={() => setCurrentCampaignId(campaign.id)}
+              onToggleArchive={() => void handleToggleArchive(campaign)}
+              onRequestDelete={() => setPendingDeleteCampaign(campaign)}
+              onRestore={() => void handleRestoreCampaign(campaign)}
+              onPurge={() => void handlePurgeCampaign(campaign)}
+            />
           ))}
-          {campaigns.length === 0 && (
+          {visibleCampaigns.length === 0 && (
             <div className="text-center text-xs text-muted-foreground py-4">
-              暂无 Campaign 项目
+              {campaignViewMode === 'archived' ? '暂无已归档项目' : campaignViewMode === 'trash' ? '回收站为空' : '暂无 Campaign 项目'}
             </div>
           )}
         </div>
@@ -2165,8 +2288,109 @@ function CampaignSidebarList(): React.ReactElement {
         onCreated={(campaign) => {
           setCampaigns((prev) => [campaign, ...prev])
           setCurrentCampaignId(campaign.id)
+          setCampaignViewMode('active')
         }}
       />
+
+      {/* 删除 Campaign 确认弹窗 */}
+      <AlertDialog
+        open={pendingDeleteCampaign !== null}
+        onOpenChange={(open) => { if (!open) setPendingDeleteCampaign(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除 Campaign</AlertDialogTitle>
+            <AlertDialogDescription>
+              将删除项目「{pendingDeleteCampaign?.name}」及其所有关联数据（候选池、Brief、内容追踪、阶段复盘、视频素材、工作区目录）。删除后可在回收站恢复。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingCampaign}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDeleteCampaign}
+              disabled={deletingCampaign}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingCampaign ? '删除中...' : '删除'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
+  )
+}
+
+interface CampaignSidebarItemProps {
+  campaign: Campaign
+  active: boolean
+  disabled?: boolean
+  mode?: 'active' | 'archived' | 'trash'
+  onSelect: () => void
+  onToggleArchive: () => void
+  onRequestDelete: () => void
+  onRestore?: () => void
+  onPurge?: () => void
+}
+
+function CampaignSidebarItem({ campaign, active, disabled, mode = 'active', onSelect, onToggleArchive, onRequestDelete, onRestore, onPurge }: CampaignSidebarItemProps): React.ReactElement {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <button
+          type="button"
+          onClick={onSelect}
+          disabled={disabled}
+          className={cn(
+            'w-full text-left px-2.5 py-2 rounded-xl border transition-all titlebar-no-drag',
+            active
+              ? 'border-primary/30 bg-primary/5'
+              : 'border-border/40 bg-background hover:bg-muted/50',
+            disabled && 'opacity-60 cursor-not-allowed hover:bg-background'
+          )}
+        >
+          <div className="flex items-center justify-between gap-1.5">
+            <span className="text-[13px] font-medium truncate">{campaign.name}</span>
+            <span className={cn(
+              'text-[9px] px-1 py-0.5 rounded font-medium flex-shrink-0',
+              campaign.status === 'completed' ? 'bg-emerald-500/10 text-emerald-600' :
+              campaign.status === 'live' ? 'bg-blue-500/10 text-blue-600' :
+              'bg-muted text-muted-foreground'
+            )}>
+              {CAMPAIGN_STATUS_LABEL[campaign.status] ?? campaign.status}
+            </span>
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+            {campaign.brand} · {campaign.platform}
+          </div>
+        </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-44 z-[9999] min-w-0 p-0.5">
+        {mode === 'trash' ? (
+          <>
+            <ContextMenuItem className="text-xs py-1 [&>svg]:size-3.5" onSelect={onRestore}>
+              <ArchiveRestore size={14} />
+              恢复项目
+            </ContextMenuItem>
+            <ContextMenuSeparator className="my-0.5" />
+            <ContextMenuItem className="text-xs py-1 [&>svg]:size-3.5 text-destructive" onSelect={onPurge}>
+              <Trash2 size={14} />
+              彻底删除
+            </ContextMenuItem>
+          </>
+        ) : (
+          <>
+            <ContextMenuItem className="text-xs py-1 [&>svg]:size-3.5" onSelect={onToggleArchive}>
+              {campaign.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+              {campaign.archived ? '取消归档' : '归档'}
+            </ContextMenuItem>
+            <ContextMenuSeparator className="my-0.5" />
+            <ContextMenuItem className="text-xs py-1 [&>svg]:size-3.5 text-destructive" onSelect={onRequestDelete}>
+              <Trash2 size={14} />
+              删除项目
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }

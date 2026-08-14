@@ -125,6 +125,13 @@ import {
   saveBrief,
   generateBriefTemplate,
   advanceCampaignPhase,
+  setCampaignArchived,
+  deleteCampaign,
+  restoreCampaign,
+  purgeCampaign,
+  listTrashedCampaigns,
+  addCampaignBuildLog,
+  listCampaignBuildLogs,
   listAllKOLs,
   updateKOL,
   deleteKOL,
@@ -2375,12 +2382,22 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     AGENT_IPC_CHANNELS.READ_FILE_CONTENT,
     async (_, filePath: string): Promise<{ content: string; error?: string }> => {
-      const { resolve } = await import('node:path')
+      const { resolve, sep } = await import('node:path')
       const { readFileSync, existsSync } = await import('node:fs')
+      const { listAgentWorkspaces } = await import('./lib/agent-workspace-manager')
 
       const safePath = resolve(filePath)
       const workspacesRoot = resolve(getAgentWorkspacesDir())
-      if (!isUnderAgentWorkspaces(safePath, workspacesRoot)) {
+
+      // Campaign 工作区可绑定外部本地项目文件夹（rootPath），产物文件存放在 rootPath 下，
+      // 因此内联预览时也要允许访问这些已授权目录。
+      // 允许访问任何已绑定本地项目文件夹（rootPath）的 workspace 目录及其子目录
+      const workspaceRoots = listAgentWorkspaces()
+        .flatMap((workspace) => workspace.rootPath ? [workspace.rootPath] : [])
+      const isAllowed =
+        isUnderAgentWorkspaces(safePath, workspacesRoot)
+        || workspaceRoots.some((root) => isUnderRoot(safePath, root))
+      if (!isAllowed) {
         return { content: '', error: '访问路径超出 Agent 工作区范围' }
       }
 
@@ -3732,7 +3749,8 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     CAMPAIGN_IPC_CHANNELS.LIST,
     async (): Promise<import('@ma-proma/shared').Campaign[]> => {
-      return listCampaigns()
+      // 返回全部 Campaign（含已归档），由 UI 侧「进行中 / 已归档」切换自行过滤
+      return listCampaigns({ includeArchived: true })
     }
   )
 
@@ -3796,6 +3814,55 @@ export function registerIpcHandlers(): void {
     CAMPAIGN_IPC_CHANNELS.ADVANCE_PHASE,
     async (_, id: string): Promise<import('@ma-proma/shared').Campaign | null> => {
       return advanceCampaignPhase(id)
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.ARCHIVE,
+    async (_, id: string, archived: boolean): Promise<import('@ma-proma/shared').Campaign | null> => {
+      return setCampaignArchived(id, archived)
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.DELETE,
+    async (_, id: string): Promise<boolean> => {
+      return deleteCampaign(id)
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.LIST_TRASHED,
+    async (): Promise<import('@ma-proma/shared').Campaign[]> => {
+      return listTrashedCampaigns()
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.RESTORE,
+    async (_, id: string): Promise<import('@ma-proma/shared').Campaign | null> => {
+      return restoreCampaign(id)
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.PURGE,
+    async (_, id: string): Promise<boolean> => {
+      return purgeCampaign(id)
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.ADD_BUILD_LOG,
+    async (_, input: import('@ma-proma/shared').AddCampaignBuildLogInput): Promise<import('@ma-proma/shared').CampaignBuildLog> => {
+      return addCampaignBuildLog(input)
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.LIST_BUILD_LOGS,
+    async (_, campaignId: string): Promise<import('@ma-proma/shared').CampaignBuildLog[]> => {
+      return listCampaignBuildLogs(campaignId)
     }
   )
 

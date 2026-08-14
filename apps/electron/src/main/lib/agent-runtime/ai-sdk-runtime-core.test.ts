@@ -11,6 +11,11 @@ mock.module('electron', () => ({
   desktopCapturer: { getSources: async () => [] },
   screen: { getPrimaryDisplay: () => ({ id: 1, size: { width: 1, height: 1 }, bounds: { x: 0, y: 0 }, scaleFactor: 1 }), getAllDisplays: () => [] },
   session: { fromPartition: () => ({ setPermissionRequestHandler: () => undefined }) },
+  safeStorage: {
+    isEncryptionAvailable: () => false,
+    encryptString: (plain: string) => Buffer.from(plain, 'utf-8'),
+    decryptString: (buf: Buffer) => buf.toString('utf-8'),
+  },
 }))
 
 const { AISDKRuntimeCore, buildAISDKMessagesFromSteps, buildAISDKModelMessages } = await import('./ai-sdk-runtime-core')

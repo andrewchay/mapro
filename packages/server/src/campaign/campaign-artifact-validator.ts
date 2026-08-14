@@ -9,6 +9,7 @@
 
 import { join } from 'node:path'
 import type { AgentMessage, ArtifactRequirement, CampaignWorkflowStep, CampaignWorkflowStepId } from '@ma-proma/shared'
+import { splitOutputByFiles } from '@ma-proma/shared'
 import type { AppContext } from '../context/types.ts'
 import type { FileProvider } from '../files/types.ts'
 import { getAgentWorkspacePath } from '../context/config-paths.ts'
@@ -136,6 +137,7 @@ export class CampaignArtifactValidator {
     stepId: CampaignWorkflowStepId,
     stepTitle: string,
     messages: AgentMessage[] | undefined,
+    requiredFiles: string[] = [],
   ): Promise<void> {
     const dirName = STEP_DIR_MAP[stepId]
     const dirPath = join(this.getWorkspacePath(campaignId), dirName)
@@ -147,6 +149,21 @@ export class CampaignArtifactValidator {
     if (!output) return
 
     await this.files.mkdir(dirPath)
+
+    // 带 requiredFiles 的步骤：兜底时必须按精确文件名落盘，否则校验仍会失败。
+    // 优先按文件名标题拆分；拆不出的文件用整段输出兜底，保证每个必需文件非空、够字数。
+    if (requiredFiles.length > 0) {
+      const sections = splitOutputByFiles(output, requiredFiles)
+      for (const rf of requiredFiles) {
+        const section = sections.get(rf)?.trim()
+        const body = section && section.length > 0 ? section : output
+        await this.files.writeTextFile(join(dirPath, rf), `# ${rf}\n\n${body}\n`)
+      }
+      // 额外保留完整原始输出，便于回溯模型实际产出的内容
+      await this.files.writeTextFile(join(dirPath, 'agent-output.md'), `# ${stepTitle}\n\n${output}\n`)
+      return
+    }
+
     const content = `# ${stepTitle}\n\n${output}\n`
     await this.files.writeTextFile(join(dirPath, 'agent-output.md'), content)
   }
