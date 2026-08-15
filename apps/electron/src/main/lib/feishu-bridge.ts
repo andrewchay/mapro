@@ -779,14 +779,15 @@ class FeishuBridge {
    * 稿件审核反馈 CSV 表头维护：确保工作区 draft-review-feedback.csv 存在且为标准 6 列表头
    *
    * - 文件路径：{工作区根}/draft-review-feedback.csv（绝对路径，与 bridge 其余落盘基准一致）
-   * - 表头：@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,已反馈内容（首次创建时写入，含 UTF-8 BOM 保证 Excel 中文不乱码）
+   * - 表头：@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,返工项确认（首次创建时写入，含 UTF-8 BOM 保证 Excel 中文不乱码）
    * - 数据行由 Agent 审核回复后自行追加落盘（ma-draft-review SKILL Step 6.5）——稿件全文/图片真值只在 Agent 会话里，
    *   bridge 只读到消息文本，代写会产出假数据（此坑已出现两次），故 bridge 不再写数据行；
-   *   本方法只在稿件审核消息到达时确保表头就绪：旧格式迁移为 6 列（去红/黄/绿卡列、@谁 缺失时从回复提取、旧行"已反馈内容"补空）
+   *   本方法只在稿件审核消息到达时确保表头就绪：旧格式一次性迁移（去红/黄/绿卡列、@谁 缺失时从回复提取、
+   *   旧"已反馈内容"列值原样保留到"返工项确认"，旧 5 列补空）
    */
   private ensureDraftReviewFeedbackCsv(workspaceSlug: string): void {
     const csvPath = join(getWorkspaceFilesDir(workspaceSlug), 'draft-review-feedback.csv')
-    const headerLine = '\uFEFF@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,已反馈内容'
+    const headerLine = '\uFEFF@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,返工项确认'
     try {
       if (!existsSync(csvPath)) {
         writeFileSync(csvPath, `${headerLine}\n`, 'utf-8')
@@ -796,32 +797,36 @@ class FeishuBridge {
       const existing = readFileSync(csvPath, 'utf-8')
       const records = this.splitCsvRecords(existing)
       const oldHeader = records[0] ?? []
-      if ((oldHeader[0] ?? '').includes('@谁') && oldHeader.includes('已反馈内容')) return
-      // 旧格式迁移：历史文件可能是「红/黄/绿卡,@谁,…」6 列、「红/黄/绿卡,达人名称,…」5 列（无 @谁）
-      // 或标准 5 列 [@谁,达人,正文,图片,回复]，统一重写为目标 6 列 [@谁,达人,正文,图片,回复,已反馈内容]
-      // （引号内换行/逗号不能被 \n 盲拆，需 RFC4180 解析）
+      if (oldHeader.includes('返工项确认')) return
+      // 旧格式迁移：历史文件可能是 6 列含"已反馈内容"、标准 5 列 [@谁,达人,正文,图片,回复]、
+      // 或红/黄/绿卡 6 列 / 5 列（无 @谁），统一重写为目标 6 列 [@谁,达人,正文,图片,回复,返工项确认]；
+      // 旧"已反馈内容"列值原样保留到"返工项确认"列（列名更新、历史数据不丢，引号内换行/逗号需 RFC4180 解析）
       const escapeCsvField = (value: string): string => {
         const s = value ?? ''
         return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
       }
+      const hasFeedback = oldHeader.includes('已反馈内容')
       const hasMention = oldHeader.includes('@谁')
       const dataRows = records.slice(1).map((fields) => {
         let base: string[]
-        if (hasMention) {
-          // 标准 5 列 [@谁,达人,正文,图片,回复] → 补空"已反馈内容"
-          base = [fields[0] ?? '', fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '']
+        if (hasFeedback && hasMention) {
+          // 旧 6 列 [@谁,达人,正文,图片,回复,已反馈内容] → 数据保留到"返工项确认"
+          base = [fields[0] ?? '', fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', fields[5] ?? '']
+        } else if (hasMention) {
+          // 标准 5 列 [@谁,达人,正文,图片,回复] → 补空"返工项确认"
+          base = [fields[0] ?? '', fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', '']
         } else if (fields.length >= 6) {
-          // 红/黄/绿卡,@谁,达人,正文,图片,回复 → 去掉卡列
-          base = [fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', fields[5] ?? '']
+          // 红/黄/绿卡,@谁,达人,正文,图片,回复 → 去掉卡列 + 补空
+          base = [fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', fields[5] ?? '', '']
         } else {
-          // 红/黄/绿卡,达人,正文,图片,回复 → 从该行回复字段提取 @谁
+          // 红/黄/绿卡,达人,正文,图片,回复 → 从该行回复字段提取 @谁 + 补空
           const replyField = fields[4] ?? ''
-          base = [this.extractMentionedName(replyField), fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '']
+          base = [this.extractMentionedName(replyField), fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', '']
         }
-        return [...base, '']
+        return base
       })
       writeFileSync(csvPath, `${headerLine}\n${dataRows.map((f) => f.map(escapeCsvField).join(',')).join('\n')}${dataRows.length ? '\n' : ''}`, 'utf-8')
-      console.log(`[飞书 Bridge] 已迁移稿件审核反馈 CSV 为标准 6 列: ${csvPath}`)
+      console.log(`[飞书 Bridge] 已迁移稿件审核反馈 CSV 为"返工项确认"6 列: ${csvPath}`)
     } catch (error) {
       console.warn(`[飞书 Bridge] 维护稿件审核反馈 CSV 表头失败:`, error)
     }
@@ -833,8 +838,8 @@ class FeishuBridge {
    * 数据源：工作区 draft-review-feedback.csv（Agent 每次审核后落盘的反馈记录，6 列）。
    * 匹配：按达人列过滤 → 解析每行 bot 回复的版本号与三态判定 → 取版本号最大且为红卡的行 →
    * 提取"必须修改"区块（[位置] 问题 → 建议）。用于：
-   * 新版本稿件审核时注入 `[上一版红卡反馈]`，让 Agent 逐条核对硬伤是否已修改（回复输出"返工项确认"），
-   * 并原样写入本次审核 CSV 的"已反馈内容"列（记录 bot 反馈给第三方的修改意见）。
+   * 新版本稿件审核时注入 `[上一版红卡反馈]`，让 Agent 逐条核对硬伤是否已修改（回复中无论是否已修改都输出"返工项确认"），
+   * 并在本次审核 CSV"返工项确认"列记录核对结果（F 处/已修改 K 处 + 逐条 ✅）。
    */
   private extractLastRedFeedback(workspaceSlug: string, influencer: string): string {
     if (!influencer || influencer === '未命名') return ''
@@ -2109,19 +2114,19 @@ class FeishuBridge {
           // 硬伤→红卡 @执行-返工；争议→黄卡 @Account-拍板；无硬伤→绿卡 @Account-放行；审核失败→@Account；不输出分数；
           // 判定依据不写入回复（仅黄卡/绿卡"可优化"区块内允许写）；产品名词序/同义变体不得判红卡、不得列入红卡"必须修改"清单（归入黄/绿卡"可优化"）；黄卡/绿卡末尾"可优化（结合 brief 方向，非硬性）"区块必须对照 brief 方向逐一产出建议（每条含优化方向+判定依据，仅确实无方向性差距才"- 无建议"）
           contextParts.push(
-            '[审核硬约束: 硬伤→红卡 @本次稿件提交人（[发送者] 即发稿件的执行方）本人给逐条返工意见（执行方多人时必须 @提交人本人，禁止 @名单中全部执行成员）；无硬伤但有争议→黄卡 @Account成员 拍板；无硬伤无争议→绿卡 @Account成员 确认放行；审核失败（稿件无法自动审核）→@Account成员 转人工；不输出分数；产品名词序/同义变体不得判红卡、不得列入红卡"必须修改"清单（归入黄/绿卡"可优化"）；判定依据不写入回复（仅黄卡/绿卡"可优化"区块内允许写判定依据）；黄卡/绿卡末尾必须输出"可优化（结合 brief 方向，非硬性）"区块并对照 brief 方向逐一产出建议——每条建议对照 brief 方向与稿件内容差距产出，含优化方向+判定依据，仅确实无方向性差距才输出"- 无建议"；若注入了"上一版红卡反馈"：先逐条核对硬伤是否已修改，在"达人：X"行后插入"返工项确认（上版红卡 {F} 处，已修改 {K} 处）"区块逐条列出已修改项（✅ [{位置}] {硬伤} → 已修改），未修改项继续列入红卡"必须修改"清单；必须按 ma-draft-review 三态模板格式输出]',
+            '[审核硬约束: 硬伤→红卡 @本次稿件提交人（[发送者] 即发稿件的执行方）本人给逐条返工意见（执行方多人时必须 @提交人本人，禁止 @名单中全部执行成员）；无硬伤但有争议→黄卡 @Account成员 拍板；无硬伤无争议→绿卡 @Account成员 确认放行；审核失败（稿件无法自动审核）→@Account成员 转人工；不输出分数；产品名词序/同义变体不得判红卡、不得列入红卡"必须修改"清单（归入黄/绿卡"可优化"）；判定依据不写入回复（仅黄卡/绿卡"可优化"区块内允许写判定依据）；黄卡/绿卡末尾必须输出"可优化（结合 brief 方向，非硬性）"区块并对照 brief 方向逐一产出建议——每条建议对照 brief 方向与稿件内容差距产出，含优化方向+判定依据，仅确实无方向性差距才输出"- 无建议"；若注入了"上一版红卡反馈"：先逐条核对硬伤是否已修改，无论是否已修改都必须在"达人：X"行后输出"返工项确认（上版红卡 {F} 处，已修改 {K} 处）"区块（{F} 为上版红卡总条数、{K} 为已修改条数，无修改项填 0），逐条列出已修改项（✅ [{位置}] {硬伤} → 已修改），未修改项继续列入红卡"必须修改"清单；必须按 ma-draft-review 三态模板格式输出]',
           )
 
           const docName = docxDraft?.name ?? fileAttachments[0]?.fileName ?? ''
           const influencer = this.extractInfluencerName(userText, docName)
           if (influencer) {
             // 上一版红卡反馈（返工核对）：该达人最近一次红卡审核的"必须修改"清单，
-            // Agent 审核本版时先逐条核对硬伤是否已修改，并在回复中输出"返工项确认"区块
+            // Agent 审核本版时先逐条核对硬伤是否已修改，并在回复中输出"返工项确认"区块（无论是否已修改都必须输出）
             if (workspace) {
               const lastRedFeedback = this.extractLastRedFeedback(workspace.slug, influencer)
               if (lastRedFeedback) {
                 contextParts.push(
-                  `[上一版红卡反馈: ${lastRedFeedback}]（审核本版前先逐条核对这些硬伤是否已修改：已修改的列入回复"返工项确认"区块；仍未修改的继续列入红卡"必须修改"清单）`,
+                  `[上一版红卡反馈: ${lastRedFeedback}]（审核本版前先逐条核对这些硬伤是否已修改：无论是否已修改，都必须在回复中输出"返工项确认（上版红卡 {F} 处，已修改 {K} 处）"区块，{F} 为上版红卡总条数、{K} 为已修改条数（无修改项填 0），并逐条列出已修改项（✅ [{位置}] {硬伤} → 已修改）；仍未修改的硬伤继续列入红卡"必须修改"清单）`,
                 )
               }
             }
