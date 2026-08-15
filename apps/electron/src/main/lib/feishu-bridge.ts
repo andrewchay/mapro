@@ -36,7 +36,7 @@ import {
   getWorkspaceCapabilities,
 } from './agent-workspace-manager'
 import { getFeishuBotBindingsPath, getWorkspaceFilesDir, getConfigDir } from './config-paths'
-import { writeFileSync, readFileSync, existsSync, readdirSync, mkdirSync, appendFileSync, statSync } from 'node:fs'
+import { writeFileSync, readFileSync, existsSync, readdirSync, mkdirSync, appendFileSync } from 'node:fs'
 import { basename, extname, join, dirname } from 'node:path'
 import { regenerateDraftReviewVizCsv } from './draft-review-csv-viz'
 import { extractTextFromFile, isSupportedDocumentExtension } from './document-parser'
@@ -115,18 +115,6 @@ interface DraftReviewStateRecord {
   archivePath: string
   /** 入库时间戳 */
   ts: number
-}
-
-/** 稿件审核反馈 CSV 待写入记录（session 完成时与 bot 回复一并落盘到工作区 draft-review-feedback.csv） */
-interface PendingDraftFeedback {
-  /** 达人名 */
-  influencer: string
-  /** 稿件文字部分（docx 内容 / 文件抽取文本 / 消息文本，兜底从归档补全） */
-  textPart: string
-  /** 稿件图片部分（飞书图片附件文件名列表，无则空） */
-  imagePart: string
-  /** 上一轮红卡反馈的"必须修改"清单（本次审核的返工核对基准，写入 CSV"已反馈内容"列） */
-  lastFeedback: string
 }
 
 /**
@@ -208,8 +196,6 @@ class FeishuBridge {
   private pendingImages = new Map<string, FeishuImageAttachment[]>()
   /** chatId → 待合并的文件（纯文件消息暂存，等待后续文本一起发送） */
   private pendingFiles = new Map<string, FeishuFileAttachment[]>()
-  /** sessionId → 待写入 CSV 的稿件审核反馈（稿件信息在 handleUserMessage 收集，bot 回复在 session 完成时写入工作区 CSV） */
-  private pendingDraftFeedback = new Map<string, PendingDraftFeedback>()
 
   /** chatId → 最近收到的用户消息 ID（用于群聊 thread reply） */
   private lastUserMessageId = new Map<string, string>()
@@ -369,7 +355,6 @@ class FeishuBridge {
     this.lastNicknameFetchAt.clear()
     this.groupRoleCache.clear()
     this.auditStandardCache.clear()
-    this.pendingDraftFeedback.clear()
     this.defaultNotifyChatId = null
     this.botOpenId = null
 
@@ -791,213 +776,65 @@ class FeishuBridge {
   }
 
   /**
-   * 读取指定达人的最新归档全文（draft-archives/{达人名}/{达人名}_v{N}.md，N 最大）
-   *
-   * 用于 CSV"稿件文字部分"兜底：bridge 未能读到稿件正文（如云文档 API 读取降级）时，
-   * 从 Agent 兜底落盘的归档补全文字内容。返回 { influencer, content }；无效达人名/无归档返回 null。
-   */
-  private readLatestDraftArchive(workspaceSlug: string, influencer: string): { influencer: string; content: string } | null {
-    if (!influencer || influencer === '未命名') return null
-    const dir = join(getWorkspaceFilesDir(workspaceSlug), 'draft-archives', influencer)
-    const latest = this.latestMdInDir(dir)
-    if (!latest) return null
-    try {
-      const content = readFileSync(join(dir, latest), 'utf-8')
-      return { influencer, content }
-    } catch {
-      return null
-    }
-  }
-
-  /**
-   * 扫描 draft-archives/ 下全部达人目录，取最近修改的归档（mtime 最新），返回 { influencer, content }
-   *
-   * 用于达人名/正文兜底：bridge 提取不到达人名（'未命名'）时，以 Agent 落盘归档的目录名作为达人名。
-   */
-  private findLatestDraftArchive(workspaceSlug: string): { influencer: string; content: string } | null {
-    const root = join(getWorkspaceFilesDir(workspaceSlug), 'draft-archives')
-    if (!existsSync(root)) return null
-    let entries: string[]
-    try {
-      entries = readdirSync(root)
-    } catch {
-      return null
-    }
-    let best: { influencer: string; content: string; mtime: number } | null = null
-    for (const entry of entries) {
-      const dir = join(root, entry)
-      if (!existsSync(dir)) continue
-      let files: string[]
-      try {
-        files = readdirSync(dir).filter((f) => f.endsWith('.md'))
-      } catch {
-        continue
-      }
-      for (const f of files) {
-        const p = join(dir, f)
-        let mtime = 0
-        try {
-          mtime = statSync(p).mtimeMs
-        } catch {
-          continue
-        }
-        if (!best || mtime > best.mtime) {
-          try {
-            best = { influencer: entry, content: readFileSync(p, 'utf-8'), mtime }
-          } catch {
-            continue
-          }
-        }
-      }
-    }
-    return best
-  }
-
-  /** 返回目录内版本号最大的 md 文件名（如 {达人名}_v{N}.md 取 N 最大者），无则 null */
-  private latestMdInDir(dir: string): string | null {
-    if (!existsSync(dir)) return null
-    let files: string[]
-    try {
-      files = readdirSync(dir).filter((f) => f.endsWith('.md'))
-    } catch {
-      return null
-    }
-    if (files.length === 0) return null
-    const versionOf = (f: string) => {
-      const m = f.match(/_v(\d+)\.md$/)
-      return m ? Number(m[1]) : 0
-    }
-    files.sort((a, b) => versionOf(b) - versionOf(a))
-    return files[0] ?? null
-  }
-
-  /** 从归档全文提取图片信息（优先"图片：N 张…"行，兜底 markdown 图片引用计数） */
-  private extractImageInfoFromArchive(content: string): string {
-    if (!content) return ''
-    const m = content.match(/(?:图片|图)[:：]\s*([^\n]+)/)
-    if (m?.[1]?.trim()) return m[1].trim()
-    const count = (content.match(/!\[[^\]]*\]\([^)]+\)/g) || []).length
-    if (count > 0) return `图片 ${count} 张`
-    return ''
-  }
-
-  /**
-   * 稿件审核反馈 CSV 落盘：session 完成时把（@谁/达人名称/稿件文字/稿件图片/bot 回复）追加到工作区 CSV
+   * 稿件审核反馈 CSV 表头维护：确保工作区 draft-review-feedback.csv 存在且为标准 6 列表头
    *
    * - 文件路径：{工作区根}/draft-review-feedback.csv（绝对路径，与 bridge 其余落盘基准一致）
    * - 表头：@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,已反馈内容（首次创建时写入，含 UTF-8 BOM 保证 Excel 中文不乱码）
-   * - @谁 列：审核模板开头"@姓名"（bot 实际 @ 的接收人）；历史格式（含红/黄/绿卡列）自动迁移为 6 列
-   * - 已反馈内容 列：上一轮红卡反馈的"必须修改"清单（本次审核的返工核对基准，bot 反馈给第三方的修改意见）
-   * - 稿件文字部分兜底：bridge 未读到正文（云文档 API 降级，仅有链接文本）时从 draft-archives 最新归档补全
+   * - 数据行由 Agent 审核回复后自行追加落盘（ma-draft-review SKILL Step 6.5）——稿件全文/图片真值只在 Agent 会话里，
+   *   bridge 只读到消息文本，代写会产出假数据（此坑已出现两次），故 bridge 不再写数据行；
+   *   本方法只在稿件审核消息到达时确保表头就绪：旧格式迁移为 6 列（去红/黄/绿卡列、@谁 缺失时从回复提取、旧行"已反馈内容"补空）
    */
-  private recordDraftFeedbackCsv(sessionId: string, reply: string): void {
-    const pending = this.pendingDraftFeedback.get(sessionId)
-    this.pendingDraftFeedback.delete(sessionId)
-    if (!pending || !reply.trim()) return
-
-    const chatId = this.sessionToChat.get(sessionId)
-    const binding = chatId ? this.chatBindings.get(chatId) : undefined
-    const ws = binding?.workspaceId ? getAgentWorkspace(binding.workspaceId) : undefined
-    if (!ws) return
-
-    // 达人归属：优先用消息提取的达人名（pending.influencer）；缺失（'未命名'）时以 bot 回复模板中的"达人：X"为准
-    // （三态模板固定输出该行，是本次审核意见的事实归属），二者皆无才保留 '未命名'
-    let influencer = pending.influencer
-    if (!influencer || influencer === '未命名') {
-      influencer = this.extractInfluencerFromReply(reply) || '未命名'
-    }
-    let textPart = pending.textPart
-    let imagePart = pending.imagePart
-    const isPlaceholderText = !textPart || textPart.length < 30 || /https?:\/\//.test(textPart)
-
-    // 稿件信息兜底：正文/图片缺失时，优先按本次审核归属的达人名精确读取对应归档（draft-archives/{达人名}/），
-    // 杜绝按全局 mtime 扫描把其他达人的归档（正文/达人名）错填到本行（同一工作区多达人时归属错乱）
-    let archived = influencer !== '未命名' && (isPlaceholderText || !imagePart)
-      ? this.readLatestDraftArchive(ws.slug, influencer)
-      : null
-    // 达人名完全无法归属（罕见）时，最后才退化为全局最新归档
-    if (!archived && (influencer === '未命名' || isPlaceholderText)) {
-      archived = this.findLatestDraftArchive(ws.slug)
-    }
-    if (archived?.content) {
-      if (influencer === '未命名') influencer = archived.influencer
-      if (isPlaceholderText) textPart = archived.content
-      if (!imagePart) imagePart = this.extractImageInfoFromArchive(archived.content)
-    }
-
-    const csvPath = join(getWorkspaceFilesDir(ws.slug), 'draft-review-feedback.csv')
-    const escapeCsvField = (value: string): string => {
-      const s = value ?? ''
-      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-    }
-    // @谁 放第 1 列：回复中 @ 的接收人（审核模板开头 @姓名）
-    const mentioned = this.extractMentionedName(reply)
-    // 第 6 列"已反馈内容"：上一轮红卡反馈的"必须修改"清单（本次审核的返工核对基准）
-    const line = `${escapeCsvField(mentioned)},${escapeCsvField(influencer)},${escapeCsvField(textPart)},${escapeCsvField(imagePart)},${escapeCsvField(reply)},${escapeCsvField(pending.lastFeedback ?? '')}\n`
+  private ensureDraftReviewFeedbackCsv(workspaceSlug: string): void {
+    const csvPath = join(getWorkspaceFilesDir(workspaceSlug), 'draft-review-feedback.csv')
     const headerLine = '\uFEFF@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,已反馈内容'
     try {
       if (!existsSync(csvPath)) {
-        // 首次写入加 UTF-8 BOM（Excel 打开中文不乱码）+ 表头行
-        appendFileSync(csvPath, `${headerLine}\n${line}`, 'utf-8')
-        console.log(`[飞书 Bridge] 已追加稿件审核反馈 CSV: ${csvPath}`)
-      } else {
-        // 旧格式迁移：历史文件可能是「红/黄/绿卡,@谁,…」6 列、「红/黄/绿卡,达人名称,…」5 列（无 @谁）
-        // 或标准 5 列 [@谁,达人,正文,图片,回复]，统一重写为目标 6 列 [@谁,达人,正文,图片,回复,已反馈内容]
-        // （去掉红/黄/绿卡列、@谁 缺失时从回复提取、旧行"已反馈内容"补空），
-        // 避免新行与旧表头错列（引号内换行/逗号不能被 \n 盲拆，需 RFC4180 解析）
-        const existing = readFileSync(csvPath, 'utf-8')
-        const records = this.splitCsvRecords(existing)
-        const oldHeader = records[0] ?? []
-        if ((oldHeader[0] ?? '').includes('@谁') && oldHeader.includes('已反馈内容')) {
-          appendFileSync(csvPath, line, 'utf-8')
-        } else {
-          const hasMention = oldHeader.includes('@谁')
-          const dataRows = records.slice(1).map((fields) => {
-            let base: string[]
-            if (hasMention) {
-              // 标准 5 列 [@谁,达人,正文,图片,回复] → 补空"已反馈内容"
-              base = [fields[0] ?? '', fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '']
-            } else if (fields.length >= 6) {
-              // 红/黄/绿卡,@谁,达人,正文,图片,回复 → 去掉卡列
-              base = [fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', fields[5] ?? '']
-            } else {
-              // 红/黄/绿卡,达人,正文,图片,回复 → 从该行回复字段提取 @谁
-              const replyField = fields[4] ?? ''
-              base = [this.extractMentionedName(replyField), fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '']
-            }
-            return [...base, '']
-          })
-          writeFileSync(csvPath, `${headerLine}\n${dataRows.map((f) => f.map(escapeCsvField).join(',')).join('\n')}\n${line}`, 'utf-8')
-        }
-        console.log(`[飞书 Bridge] 已追加稿件审核反馈 CSV: ${csvPath}`)
+        writeFileSync(csvPath, `${headerLine}\n`, 'utf-8')
+        console.log(`[飞书 Bridge] 已初始化稿件审核反馈 CSV（Agent 将自行追加审核记录）: ${csvPath}`)
+        return
       }
-      // 无论首次创建还是追加，都重新生成清洗版 viz CSV（含当前工作区全部记录）
-      regenerateDraftReviewVizCsv(getWorkspaceFilesDir(ws.slug))
+      const existing = readFileSync(csvPath, 'utf-8')
+      const records = this.splitCsvRecords(existing)
+      const oldHeader = records[0] ?? []
+      if ((oldHeader[0] ?? '').includes('@谁') && oldHeader.includes('已反馈内容')) return
+      // 旧格式迁移：历史文件可能是「红/黄/绿卡,@谁,…」6 列、「红/黄/绿卡,达人名称,…」5 列（无 @谁）
+      // 或标准 5 列 [@谁,达人,正文,图片,回复]，统一重写为目标 6 列 [@谁,达人,正文,图片,回复,已反馈内容]
+      // （引号内换行/逗号不能被 \n 盲拆，需 RFC4180 解析）
+      const escapeCsvField = (value: string): string => {
+        const s = value ?? ''
+        return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+      }
+      const hasMention = oldHeader.includes('@谁')
+      const dataRows = records.slice(1).map((fields) => {
+        let base: string[]
+        if (hasMention) {
+          // 标准 5 列 [@谁,达人,正文,图片,回复] → 补空"已反馈内容"
+          base = [fields[0] ?? '', fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '']
+        } else if (fields.length >= 6) {
+          // 红/黄/绿卡,@谁,达人,正文,图片,回复 → 去掉卡列
+          base = [fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', fields[5] ?? '']
+        } else {
+          // 红/黄/绿卡,达人,正文,图片,回复 → 从该行回复字段提取 @谁
+          const replyField = fields[4] ?? ''
+          base = [this.extractMentionedName(replyField), fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '']
+        }
+        return [...base, '']
+      })
+      writeFileSync(csvPath, `${headerLine}\n${dataRows.map((f) => f.map(escapeCsvField).join(',')).join('\n')}${dataRows.length ? '\n' : ''}`, 'utf-8')
+      console.log(`[飞书 Bridge] 已迁移稿件审核反馈 CSV 为标准 6 列: ${csvPath}`)
     } catch (error) {
-      console.warn(`[飞书 Bridge] 追加稿件审核反馈 CSV 失败:`, error)
+      console.warn(`[飞书 Bridge] 维护稿件审核反馈 CSV 表头失败:`, error)
     }
-  }
-
-  /**
-   * 从 bot 审核回复模板中提取"达人：X"作为本次审核的达人归属
-   *
-   * 三态模板（红卡/黄卡/绿卡/审核失败）固定输出"达人：X"行，是本行审核意见的事实归属；
-   * 消息侧达人名提取失败（'未命名'）时以此为准，确保达人/正文/审核意见三者一致。
-   */
-  private extractInfluencerFromReply(reply: string): string {
-    if (!reply) return ''
-    const m = reply.match(/达人[：:]\s*([^\n，,。]+)/)
-    return m?.[1]?.trim() ?? ''
   }
 
   /**
    * 提取该达人最近一次红卡（red）审核的"必须修改"清单（返工核对基准）
    *
-   * 数据源：工作区 draft-review-feedback.csv（bot 每次审核落盘的反馈记录）。
+   * 数据源：工作区 draft-review-feedback.csv（Agent 每次审核后落盘的反馈记录，6 列）。
    * 匹配：按达人列过滤 → 解析每行 bot 回复的版本号与三态判定 → 取版本号最大且为红卡的行 →
    * 提取"必须修改"区块（[位置] 问题 → 建议）。用于：
-   * 1. 新版本稿件审核时注入 `[上一版红卡反馈]`，让 Agent 逐条核对硬伤是否已修改（回复输出"返工项确认"）；
-   * 2. 写入本次审核 CSV 的"已反馈内容"列（记录 bot 反馈给第三方的修改意见）。
+   * 新版本稿件审核时注入 `[上一版红卡反馈]`，让 Agent 逐条核对硬伤是否已修改（回复输出"返工项确认"），
+   * 并原样写入本次审核 CSV 的"已反馈内容"列（记录 bot 反馈给第三方的修改意见）。
    */
   private extractLastRedFeedback(workspaceSlug: string, influencer: string): string {
     if (!influencer || influencer === '未命名') return ''
@@ -2340,25 +2177,14 @@ class FeishuBridge {
       const modelId = this.botConfig.defaultModelId || latestSettings.agentModelId || binding.modelId
 
       // 稿件审核消息：注入 mentionedSkills 让编排层提示 Agent 主动调用 ma-draft-review Skill，
-      // 使完整 SKILL 正文（含 Step 2.5 落盘要求）进入 Agent 上下文——与 bridge 确定性落盘构成双保险
+      // 使完整 SKILL 正文（含 Step 2.5 归档 / Step 6.5 反馈 CSV 落盘要求）进入 Agent 上下文
       const isDraftMsg = this.isDraftReviewMessage(userText, hasAnyAttachment || !!docxDraft)
 
-      // 稿件审核反馈 CSV：收集稿件信息（达人名/稿件文字/稿件图片），session 完成时与 bot 回复一并写入工作区 CSV
+      // 稿件审核反馈 CSV：仅确保表头就绪（标准 6 列，旧格式一次性迁移），数据行由 Agent 审核回复后
+      // 自行追加落盘（SKILL Step 6.5）——稿件全文/图片真值只在 Agent 会话里，bridge 只读到消息文本，
+      // 代写会产出假数据（"审核"顶替正文的假数据坑已出现两次），故 bridge 不再收集稿件信息写行
       if (isDraftMsg && workspace) {
-        const docName = docxDraft?.name ?? fileAttachments[0]?.fileName ?? ''
-        const influencer = this.extractInfluencerName(userText, docName)
-        // 注意：空字符串/降级（docxDraft 为 null、文件文本为空）时用 || 逐级兜底到消息文本，禁止用 ??（只跳过 null/undefined）
-        const textPart = docxDraft?.content || fileExtractedText || userText
-        const imagePart = imageAttachments.length > 0
-          ? imageAttachments.map((img) => `feishu-${img.imageKey}.${inferExtension(img.mediaType)}`).join('; ')
-          : ''
-        this.pendingDraftFeedback.set(binding.sessionId, {
-          influencer,
-          textPart,
-          imagePart,
-          // 上一轮红卡反馈的"必须修改"清单（本次审核的返工核对基准，落盘为 CSV"已反馈内容"列）
-          lastFeedback: workspace ? this.extractLastRedFeedback(workspace.slug, influencer) : '',
-        })
+        this.ensureDraftReviewFeedbackCsv(workspace.slug)
       }
 
       const input: AgentSendInput = {
@@ -2452,7 +2278,6 @@ class FeishuBridge {
           this.sendCardMessage(chatId, buildErrorCard(`${prefix}${aMsg.error.message}`)).catch(console.error)
         }
         this.sessionBuffers.delete(sessionId)
-        this.pendingDraftFeedback.delete(sessionId)
       }
     }
 
@@ -2627,8 +2452,13 @@ class FeishuBridge {
       this.sendAgentReply(chatId, result).catch(console.error)
     }
 
-    // 稿件审核反馈 CSV：Agent 完成时把稿件信息 + bot 回复追加到工作区 CSV（绝对路径）
-    this.recordDraftFeedbackCsv(sessionId, cleanedText)
+    // 稿件审核反馈 CSV：数据行由 Agent 审核回复后自行追加（SKILL Step 6.5，稿件全文/图片真值只在会话里，
+    // bridge 只读到消息文本、不再代写假数据），此处仅重新生成清洗版 viz CSV（幂等整体重写，纳入 Agent 新落盘的行）
+    const vizBinding = chatId ? this.chatBindings.get(chatId) : undefined
+    const vizWs = vizBinding?.workspaceId ? getAgentWorkspace(vizBinding.workspaceId) : undefined
+    if (vizWs && existsSync(join(getWorkspaceFilesDir(vizWs.slug), 'draft-review-feedback.csv'))) {
+      regenerateDraftReviewVizCsv(getWorkspaceFilesDir(vizWs.slug))
+    }
 
     this.sessionBuffers.delete(sessionId)
   }

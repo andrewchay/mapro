@@ -1,7 +1,7 @@
 /**
  * 审核反馈 CSV 可视化转换（内联版，替代原 python3 normalize_review_feedback.py）
  *
- * 输入：draft-review-feedback.csv（bot 每次审核落盘的原始 CSV，6 列：
+ * 输入：draft-review-feedback.csv（Agent 每次审核后自行落盘的原始 CSV，6 列：
  *       @谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,已反馈内容）
  * 输出：draft-review-feedback-viz.csv（14 列结构化可视化版，UTF-8 with BOM，Excel 直接打开不乱码）
  * 结构化拆分：稿件标题/话题标签按 md 区块（## 标题 / ## 话题标签，兼容 ###/# 层级、空行、内联写法）提取；
