@@ -564,6 +564,53 @@ class FeishuBridge {
   }
 
   /**
+   * 读取飞书云文档（新版 docx）中的全部图片
+   *
+   * rawContent API 只返回纯文本，图片需要用 docx v1 document.block list 分页列出所有块，
+   * 过滤 image 块（block_type=27），再通过 image.token 用 drive v1 media download 下载。
+   * 返回 [{ data, mediaType }]；无图片 / 读取失败返回空数组（权限不足时仅 warn，不影响文本审核）。
+   */
+  private async fetchFeishuDocxImages(documentId: string): Promise<{ data: Buffer; mediaType: string }[]> {
+    if (!this.client) return []
+
+    const images: { data: Buffer; mediaType: string }[] = []
+    try {
+      let pageToken: string | undefined
+      do {
+        const resp = await this.client.docx.documentBlock.list({
+          path: { document_id: documentId },
+          params: { page_size: 500, ...(pageToken ? { page_token: pageToken } : {}) },
+        })
+        for (const block of resp.data?.items ?? []) {
+          // block_type=27 为 image 块，token 即 drive media file_token
+          if (block.block_type === 27 && block.image?.token) {
+            const token = block.image.token
+            try {
+              const media = await this.client.drive.media.download({ path: { file_token: token } })
+              const stream = media.getReadableStream()
+              const chunks: Buffer[] = []
+              for await (const chunk of stream) {
+                chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+              }
+              const data = Buffer.concat(chunks)
+              // 优先用响应头 content-type 推断 MIME，兜底 image/png
+              const mediaType = String(media.headers?.['content-type'] ?? 'image/png').split(';')[0]?.trim() || 'image/png'
+              images.push({ data, mediaType })
+              console.log(`[飞书 Bridge] 云文档图片已下载: ${token} (${data.length} bytes)`)
+            } catch (imgErr) {
+              console.warn(`[飞书 Bridge] 下载云文档图片 ${token} 失败:`, imgErr)
+            }
+          }
+        }
+        pageToken = resp.data?.has_more ? resp.data.page_token : undefined
+      } while (pageToken)
+    } catch (error) {
+      console.error(`[飞书 Bridge] 读取云文档 ${documentId} 图片失败:`, error)
+    }
+    return images
+  }
+
+  /**
    * 文本内容含 brief 关键词 → 提取全文并按来源文件名分存为 briefs/{文件名}.md
    *
    * 每份 brief 独立一个 md（如「第二批达人 Brief 合集.pdf」→ briefs/vonbon 忘本甄果 · 第二批达人 Brief 合集.md），
@@ -1220,6 +1267,12 @@ class FeishuBridge {
             text = `${text ? text + '\n' : ''}（群成员分享了云文档「${docName}」，以下是文档内容）\n\n${docContent}`
             // 暂存稿件云文档信息，用于 handleUserMessage 中按版本号入库
             docxDraft = { name: docName, content: docContent }
+            // 抓取云文档内全部图片并合并进图片附件（rawContent 只有纯文本，图片需按块下载），
+            // 后续随消息图片一起保存到工作区并注入 Agent 会话，供视觉审核与 CSV"稿件图片部分"列填写
+            const docImages = await this.fetchFeishuDocxImages(documentId)
+            docImages.forEach((img, idx) => {
+              imageAttachments.push({ imageKey: `docx-${documentId}-${idx}`, data: img.data, mediaType: img.mediaType })
+            })
             console.log(`[飞书 Bridge] 已读取云文档「${docName}」内容 (${docContent.length} 字)`)
           } else {
             await this.sendTextMessage(chatId, `已收到云文档「${docName}」，但无法读取文档内容（可能无读取权限）。`)
@@ -1243,6 +1296,11 @@ class FeishuBridge {
         if (docContent) {
           text = `${text}\n\n（群成员分享了云文档「飞书云文档」，以下是文档内容）\n\n${docContent}`
           docxDraft = { name: '飞书云文档', content: docContent }
+          // 同 docx 消息分支：抓取云文档内全部图片合并进图片附件
+          const docImages = await this.fetchFeishuDocxImages(docLinkId)
+          docImages.forEach((img, idx) => {
+            imageAttachments.push({ imageKey: `docx-${docLinkId}-${idx}`, data: img.data, mediaType: img.mediaType })
+          })
           console.log(`[飞书 Bridge] 已识别文本中的云文档链接并读取内容 (${docContent.length} 字)`)
         } else {
           console.warn(`[飞书 Bridge] 云文档链接 ${docLinkId} 读取失败，降级由 Agent 通过 CDP 浏览器读取`)
