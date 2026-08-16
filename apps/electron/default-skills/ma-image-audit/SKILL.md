@@ -1,7 +1,7 @@
 ---
 name: ma-image-audit
 description: 达人稿件图片审核。用 Kimi 视觉模型逐图审核场景/构图/品牌露出/合规等维度，输出逐图问题（含 severity 严重度标记）与内部评分。供 ma-draft-review 审核稿件图片时调用（据 has_critical 判红卡）；当需要审核图片、判断画面质量与品牌露出时使用。
-version: "1.0.1"
+version: "1.0.2"
 ---
 
 # 达人稿件图片审核
@@ -54,7 +54,7 @@ version: "1.0.1"
 ## 工作流
 
 ### Step 1 · 配置检查
-用 `KIMI_API_KEY` + OpenAI 兼容协议调 `moonshot-v1-8k-vision-preview`（`KIMI_BASE_URL` 默认 `https://api.moonshot.cn/v1`，`KIMI_MODEL` 可覆盖）。未配置或调用失败 → 返回 `{ "image_score": null, "has_critical": false, "error": "Kimi 未配置" }`，由调用方降级为纯文字审核。可用 MAPro 渠道多模态模型替代。
+用 `KIMI_API_KEY` + OpenAI 兼容协议调 Kimi 多模态模型，**优先 `kimi-k2.6` / `kimi-k2.5`**（原生多模态，支持 `image_url` base64 直传；`KIMI_MODEL` 可覆盖，保守兜底 `moonshot-v1-8k-vision-preview`，`KIMI_BASE_URL` 默认 `https://api.moonshot.cn/v1`）。也可用 MAPro 渠道配置的 OpenAI 兼容多模态模型——图片已作为多模态附件随消息注入（image_url base64），渠道模型需支持视觉输入（如 kimi-k2.6 / kimi-k2.5）。未配置或调用失败 → 返回 `{ "image_score": null, "has_critical": false, "error": "Kimi 未配置" }`，由调用方降级为纯文字审核。
 
 ### Step 2 · 逐图审核
 

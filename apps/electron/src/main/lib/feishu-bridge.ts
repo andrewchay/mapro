@@ -13,6 +13,7 @@ import { BrowserWindow } from 'electron'
 import type {
   AgentStreamPayload,
   AgentSendInput,
+  FileAttachment,
   FeishuBridgeState,
   FeishuChatBinding,
   FeishuTestResult,
@@ -1988,6 +1989,9 @@ class FeishuBridge {
     // 保存飞书图片和文件到 session 工作目录，构建文件引用
     // 文档类文件（PDF/word/txt 等）额外提取正文文本注入，让 Agent 无需额外工具即可读取文件内容
     const attachedRefs: string[] = []
+    // 图片多模态附件：随 AgentSendInput.attachments 注入会话，让 Agent 真正拿到图片内容
+    //（视觉审核 ma-image-audit 依赖此链路读图；此前只注入文件路径，Agent 看不到图，只能去 Bash 找视觉脚本/配置）
+    const imageFileAttachments: FileAttachment[] = []
     const workspace = binding.workspaceId ? getAgentWorkspace(binding.workspaceId) : undefined
     // 稿件文件抽取文本缓存（首个文档文件，用于审核反馈 CSV"稿件文字部分"）
     let fileExtractedText = ''
@@ -1997,6 +2001,13 @@ class FeishuBridge {
           workspace.slug, binding.sessionId, `feishu-${img.imageKey}`, img.mediaType, img.data,
         )
         attachedRefs.push(`- feishu-${img.imageKey}.${inferExtension(img.mediaType)}: ${savedPath}`)
+        imageFileAttachments.push({
+          id: `feishu-${img.imageKey}`,
+          filename: `feishu-${img.imageKey}.${inferExtension(img.mediaType)}`,
+          mediaType: img.mediaType,
+          localPath: savedPath,
+          size: img.data.length,
+        })
       }
       for (const file of fileAttachments) {
         const savedPath = saveFileToSessionShared(
@@ -2200,6 +2211,8 @@ class FeishuBridge {
         workspaceId: binding.workspaceId,
         permissionModeOverride: 'bypassPermissions',
         isHeadless: true,
+        // 多模态图片附件：让 Agent 会话拿到图片内容（视觉审核 ma-image-audit 依赖），避免只给路径无法看图
+        ...(imageFileAttachments.length > 0 ? { attachments: imageFileAttachments } : {}),
         ...(customMcpServers && { customMcpServers }),
         ...(isDraftMsg ? { mentionedSkills: ['ma-draft-review'] } : {}),
       }
