@@ -165,6 +165,22 @@ function extractDocxDocumentId(text: string): string | null {
   return null
 }
 
+/**
+ * 从 docx 块中提取 Text 结构（text/heading1-9/bullet/ordered/code/quote/todo/callout/page 等）
+ * elements 里的内嵌图片元素（运行时字段 image.token，SDK 类型未覆盖）。
+ */
+function extractInlineImageElements(block: Record<string, unknown>): Array<{ image?: { token?: string } }> {
+  const result: Array<{ image?: { token?: string } }> = []
+  for (const value of Object.values(block)) {
+    const data = value as { elements?: Array<{ image?: { token?: string } }> } | null
+    if (!data || !Array.isArray(data.elements)) continue
+    for (const el of data.elements) {
+      if (el.image?.token) result.push(el)
+    }
+  }
+  return result
+}
+
 // ===== Bridge =====
 
 class FeishuBridge {
@@ -543,6 +559,32 @@ class FeishuBridge {
   }
 
   /**
+   * 从文本中解析飞书云文档链接的 document_id（兼容 docx 与 wiki 链接）
+   *
+   * - feishu.cn/docx/{id} / larksuite.com/docx/{id} → 直接返回 id
+   * - feishu.cn/wiki/{token} / larksuite.com/wiki/{token} → 调 wiki space get_node 换 obj_token（即 docx document_id）
+   * 失败返回 null（无权限 / 非飞书链接 / 无 client）。
+   */
+  private async resolveFeishuDocId(text: string): Promise<string | null> {
+    const docxId = extractDocxDocumentId(text)
+    if (docxId) return docxId
+    if (!this.client) return null
+    const wikiMatch = text.match(/(?:https?:\/\/)?[\w.-]*feishu\.cn\/wiki\/([A-Za-z0-9_-]+)/i)
+    const larkMatch = text.match(/(?:https?:\/\/)?[\w.-]*larksuite\.com\/wiki\/([A-Za-z0-9_-]+)/i)
+    const wikiToken = wikiMatch?.[1] ?? larkMatch?.[1]
+    if (!wikiToken) return null
+    try {
+      const resp = await this.client.wiki.space.getNode({ params: { token: wikiToken, obj_type: 'wiki' } })
+      const objToken = resp.data?.node?.obj_token
+      if (objToken) console.log(`[飞书 Bridge] wiki 链接 ${wikiToken} → 文档 ${objToken}`)
+      return objToken ?? null
+    } catch (error) {
+      console.warn(`[飞书 Bridge] 解析 wiki 链接 ${wikiToken} 失败:`, error)
+      return null
+    }
+  }
+
+  /**
    * 读取飞书云文档（新版 docx）的纯文本内容
    *
    * 使用 docx.document.raw_content API，需要应用开启 docx:document 读取权限。
@@ -567,7 +609,8 @@ class FeishuBridge {
    * 读取飞书云文档（新版 docx）中的全部图片
    *
    * rawContent API 只返回纯文本，图片需要用 docx v1 document.block list 分页列出所有块，
-   * 过滤 image 块（block_type=27），再通过 image.token 用 drive v1 media download 下载。
+   * 过滤图片块（block_type=27 image.token）与 Text 块 elements 里的内嵌图片，再通过
+   * image token 用 drive v1 media download 下载。
    * 返回 [{ data, mediaType }]；无图片 / 读取失败返回空数组（权限不足时仅 warn，不影响文本审核）。
    */
   private async fetchFeishuDocxImages(documentId: string): Promise<{ data: Buffer; mediaType: string }[]> {
@@ -581,25 +624,34 @@ class FeishuBridge {
           path: { document_id: documentId },
           params: { page_size: 500, ...(pageToken ? { page_token: pageToken } : {}) },
         })
+        // 收集本页全部图片 token（块级 + 内嵌，去重）
+        const tokens: string[] = []
         for (const block of resp.data?.items ?? []) {
-          // block_type=27 为 image 块，token 即 drive media file_token
-          if (block.block_type === 27 && block.image?.token) {
-            const token = block.image.token
-            try {
-              const media = await this.client.drive.media.download({ path: { file_token: token } })
-              const stream = media.getReadableStream()
-              const chunks: Buffer[] = []
-              for await (const chunk of stream) {
-                chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-              }
-              const data = Buffer.concat(chunks)
-              // 优先用响应头 content-type 推断 MIME，兜底 image/png
-              const mediaType = String(media.headers?.['content-type'] ?? 'image/png').split(';')[0]?.trim() || 'image/png'
-              images.push({ data, mediaType })
-              console.log(`[飞书 Bridge] 云文档图片已下载: ${token} (${data.length} bytes)`)
-            } catch (imgErr) {
-              console.warn(`[飞书 Bridge] 下载云文档图片 ${token} 失败:`, imgErr)
+          // 1) 块级图片：block_type=27（image）块，image.token 即 drive media file_token
+          if (block.block_type === 27 && block.image?.token) tokens.push(block.image.token)
+          // 2) 内嵌图片：text/heading/bullet 等 Text 块 elements 里的 image 元素（SDK 类型未覆盖，运行时存在）
+          for (const el of extractInlineImageElements(block as unknown as Record<string, unknown>)) {
+            if (el.image?.token) tokens.push(el.image.token)
+          }
+        }
+        const seen = new Set<string>()
+        for (const token of tokens) {
+          if (seen.has(token)) continue
+          seen.add(token)
+          try {
+            const media = await this.client.drive.media.download({ path: { file_token: token } })
+            const stream = media.getReadableStream()
+            const chunks: Buffer[] = []
+            for await (const chunk of stream) {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
             }
+            const data = Buffer.concat(chunks)
+            // 优先用响应头 content-type 推断 MIME，兜底 image/png
+            const mediaType = String(media.headers?.['content-type'] ?? 'image/png').split(';')[0]?.trim() || 'image/png'
+            images.push({ data, mediaType })
+            console.log(`[飞书 Bridge] 云文档图片已下载: ${token} (${data.length} bytes)`)
+          } catch (imgErr) {
+            console.warn(`[飞书 Bridge] 下载云文档图片 ${token} 失败:`, imgErr)
           }
         }
         pageToken = resp.data?.has_more ? resp.data.page_token : undefined
@@ -1154,7 +1206,7 @@ class FeishuBridge {
           try {
             const parsed = JSON.parse(message.content as string) as { text?: string }
             const linkText = parsed.text ?? ''
-            const docLinkId = extractDocxDocumentId(linkText)
+            const docLinkId = await this.resolveFeishuDocId(linkText)
             if (docLinkId) {
               await this.archiveGroupFile(chatId, messageId, 'docx', JSON.stringify({ document_id: docLinkId, doc_name: '飞书云文档' }))
             }
@@ -1290,7 +1342,7 @@ class FeishuBridge {
     // 尝试从文本中提取 document_id 并读取内容，成功则注入 docxDraft 走确定性落盘；
     // 读取失败（无读取权限/文档不可访问）时降级——保留链接文本，由 Agent 通过 CDP 浏览器读取。
     if (!docxDraft && text) {
-      const docLinkId = extractDocxDocumentId(text)
+      const docLinkId = await this.resolveFeishuDocId(text)
       if (docLinkId) {
         const docContent = await this.fetchFeishuDocxContent(docLinkId)
         if (docContent) {
