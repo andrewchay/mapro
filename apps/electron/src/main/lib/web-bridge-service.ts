@@ -43,6 +43,14 @@ export interface WebBridgeDownload {
   contentType: string
 }
 
+/** 页面图片信息（只读提取，含懒加载图片）。 */
+export interface WebBridgeImageInfo {
+  url: string
+  alt: string
+  naturalWidth: number
+  naturalHeight: number
+}
+
 /** 上传结果不包含原始绝对路径，避免将用户本地目录暴露给 Agent。 */
 export interface WebBridgeUpload {
   files: Array<{ name: string; bytes: number; contentType: string }>
@@ -113,16 +121,29 @@ class WebBridgeService {
   async download(sessionId: string, rawUrl: string): Promise<WebBridgeDownload> {
     this.requireActiveSession(sessionId)
     const url = normalizeWebUrl(rawUrl)
-    const response = await fetch(url, { redirect: 'error' })
-    if (!response.ok || !response.body) throw new Error(`下载失败：${response.status}`)
-    const bytes = Buffer.from(await response.arrayBuffer())
+    // 在页面上下文 fetch：复用页面登录态 Cookie，避免登录资源（如飞书文档图片）401
+    const fetchScript = `(async () => {
+      const res = await fetch(${JSON.stringify(url)}, { redirect: 'follow' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const buf = await res.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+      return { b64: btoa(binary), ct: res.headers.get('content-type') || '' };
+    })()`
+    const connected = this.sessions.get(sessionId)?.cdp
+    const result = connected
+      ? await connected.evaluate(fetchScript)
+      : await this.requireWindow(sessionId).webContents.executeJavaScript(fetchScript, true)
+    if (!isRecord(result) || typeof result.b64 !== 'string' || !result.b64) throw new Error('下载失败：页面未返回数据')
+    const bytes = Buffer.from(result.b64, 'base64')
     if (bytes.length > MAX_UPLOAD_BYTES) throw new Error('下载文件超过 50MB 限制')
-    const fileName = safeDownloadFileName(response.headers.get('content-disposition'), url)
+    const fileName = downloadFileNameFromUrl(url, typeof result.ct === 'string' ? result.ct : '')
     const directory = join(getConfigDir(), 'web-bridge-downloads', sessionId)
     await mkdir(directory, { recursive: true })
     const filePath = join(directory, fileName)
     await writeFile(filePath, bytes)
-    return { filePath, bytes: bytes.length, contentType: response.headers.get('content-type') ?? 'application/octet-stream' }
+    return { filePath, bytes: bytes.length, contentType: typeof result.ct === 'string' && result.ct ? result.ct : 'application/octet-stream' }
   }
 
   /**
@@ -193,6 +214,24 @@ class WebBridgeService {
     const window = this.requireWindow(sessionId)
     await window.webContents.executeJavaScript(`window.scrollBy({ top: ${distance}, behavior: 'instant' })`, true)
     return this.snapshot(sessionId)
+  }
+
+  /** 提取当前页面全部图片 URL（含懒加载图片），只读不改变页面状态。 */
+  async extractImages(sessionId: string): Promise<WebBridgeImageInfo[]> {
+    const connected = this.sessions.get(sessionId)?.cdp
+    const raw = connected
+      ? await connected.evaluate(EXTRACT_IMAGES_SCRIPT)
+      : await this.requireWindow(sessionId).webContents.executeJavaScript(EXTRACT_IMAGES_SCRIPT, true)
+    if (!Array.isArray(raw)) return []
+    return raw.flatMap((item) => {
+      if (!isRecord(item) || typeof item.url !== 'string' || !item.url) return []
+      return [{
+        url: item.url,
+        alt: typeof item.alt === 'string' ? item.alt : '',
+        naturalWidth: typeof item.naturalWidth === 'number' ? item.naturalWidth : 0,
+        naturalHeight: typeof item.naturalHeight === 'number' ? item.naturalHeight : 0,
+      }]
+    })
   }
 
   close(sessionId: string): void {
@@ -494,6 +533,30 @@ const SNAPSHOT_SCRIPT = `(() => {
   return { title: document.title, text: (document.body?.innerText || '').slice(0, 16000), accessibility: elements, accessibilityTree: tree };
 })()`
 
+const EXTRACT_IMAGES_SCRIPT = `(() => {
+  const candidatesOf = (el) => {
+    const urls = [];
+    if (el.currentSrc) urls.push(el.currentSrc);
+    if (el.src && el.src !== el.currentSrc) urls.push(el.src);
+    for (const attr of ['data-src', 'data-original', 'data-lazy-src', 'data-actualsrc', 'data-url']) {
+      const value = el.getAttribute(attr);
+      if (value) urls.push(value);
+    }
+    if (el.srcset) urls.push(...el.srcset.split(',').map((s) => s.trim().split(/\\s+/)[0]).filter(Boolean));
+    return urls;
+  };
+  const seen = new Set();
+  const out = [];
+  for (const el of document.querySelectorAll('img, source')) {
+    for (const url of candidatesOf(el)) {
+      if (!url || url.startsWith('data:') || seen.has(url)) continue;
+      seen.add(url);
+      out.push({ url, alt: (el && el.alt) || '', naturalWidth: el.naturalWidth || 0, naturalHeight: el.naturalHeight || 0 });
+    }
+  }
+  return out;
+})()`
+
 function snapshotFromRaw(url: unknown, raw: unknown): WebBridgeSnapshot {
   const accessibility = isRecord(raw) && Array.isArray(raw.accessibility)
     ? raw.accessibility.flatMap((node): WebBridgeAccessibilityNode[] => {
@@ -516,11 +579,20 @@ function snapshotFromRaw(url: unknown, raw: unknown): WebBridgeSnapshot {
   }
 }
 
-function safeDownloadFileName(contentDisposition: string | null, rawUrl: string): string {
-  const fromHeader = contentDisposition?.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i)?.[1]
+/** 由 URL 末段 + MIME 推导下载文件名（页面上下文 fetch 拿不到 content-disposition 头） */
+function downloadFileNameFromUrl(rawUrl: string, contentType: string): string {
   const fallback = new URL(rawUrl).pathname.split('/').pop() || 'download'
-  const candidate = decodeURIComponent(fromHeader ?? fallback)
-  return candidate.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || 'download'
+  const base = decodeURIComponent(fallback).replace(/[^a-zA-Z0-9._-]/g, '_') || 'download'
+  if (/\.(png|jpe?g|webp|gif|pdf|txt|md|csv|json|zip|docx|xlsx)$/i.test(base)) return base
+  const mime = contentType.split(';')[0]?.trim() ?? ''
+  const extByMime: Record<string, string> = {
+    'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif',
+    'application/pdf': 'pdf', 'text/plain': 'txt', 'text/markdown': 'md', 'text/csv': 'csv',
+    'application/json': 'json', 'application/zip': 'zip',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  }
+  return `${base}.${extByMime[mime] ?? 'bin'}`
 }
 
 function contentTypeForFileName(fileName: string): string {

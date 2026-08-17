@@ -8,6 +8,7 @@ import { appendWebBridgeAudit } from '../../web-bridge-audit-service'
 export const WEB_BRIDGE_NAVIGATE_TOOL_NAME = 'WebBridgeNavigate'
 export const WEB_BRIDGE_SNAPSHOT_TOOL_NAME = 'WebBridgeSnapshot'
 export const WEB_BRIDGE_SCREENSHOT_TOOL_NAME = 'WebBridgeScreenshot'
+export const WEB_BRIDGE_EXTRACT_IMAGES_TOOL_NAME = 'WebBridgeExtractImages'
 export const WEB_BRIDGE_CLICK_TOOL_NAME = 'WebBridgeClick'
 export const WEB_BRIDGE_TYPE_TOOL_NAME = 'WebBridgeType'
 export const WEB_BRIDGE_SCROLL_TOOL_NAME = 'WebBridgeScroll'
@@ -30,6 +31,9 @@ export function createWebBridgeSnapshotToolDefinition() {
 }
 export function createWebBridgeScreenshotToolDefinition() {
   return { name: WEB_BRIDGE_SCREENSHOT_TOOL_NAME, description: '获取当前 Web Bridge 页面截图，用于页面文本不足时理解界面，不改变页面状态。', parameters: { type: 'object' as const, properties: {} } }
+}
+export function createWebBridgeExtractImagesToolDefinition() {
+  return { name: WEB_BRIDGE_EXTRACT_IMAGES_TOOL_NAME, description: '提取当前 Web Bridge 页面全部图片的 URL（含懒加载图片：滚动加载后才出现的配图），返回 url/alt/尺寸列表，不改变页面状态。适合读取飞书云文档等含图片的页面。', parameters: { type: 'object' as const, properties: {} } }
 }
 export function createWebBridgeClickToolDefinition() {
   return { name: WEB_BRIDGE_CLICK_TOOL_NAME, description: '点击当前网页中匹配 CSS selector 的元素。提交、购买、删除、发布或授权等有后果的操作必须先向用户确认。', parameters: { type: 'object' as const, properties: { selector: { type: 'string', description: '目标元素的 CSS selector' } }, required: ['selector'] } }
@@ -66,6 +70,9 @@ export async function executeWebBridgeSnapshotTool(_input: unknown, ctx: ToolCon
 export async function executeWebBridgeScreenshotTool(_input: unknown, ctx: ToolContext): Promise<ToolResult> {
   const screenshot = await webBridgeService.screenshot(ctx.sessionId)
   return { toolCallId: '', content: 'Web Bridge 页面截图已附加。', imageData: [{ mediaType: screenshot.mediaType, data: screenshot.data }] }
+}
+export async function executeWebBridgeExtractImagesTool(_input: unknown, ctx: ToolContext): Promise<ToolResult> {
+  return { toolCallId: '', content: JSON.stringify(await webBridgeService.extractImages(ctx.sessionId), null, 2) }
 }
 export async function executeWebBridgeClickTool(input: unknown, ctx: ToolContext): Promise<ToolResult> {
   const selector = readString(input, 'selector')

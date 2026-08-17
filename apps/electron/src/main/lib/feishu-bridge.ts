@@ -619,6 +619,9 @@ class FeishuBridge {
     const images: { data: Buffer; mediaType: string }[] = []
     try {
       let pageToken: string | undefined
+      let blockCount = 0
+      let imageBlockCount = 0
+      let inlineImageCount = 0
       do {
         const resp = await this.client.docx.documentBlock.list({
           path: { document_id: documentId },
@@ -627,11 +630,18 @@ class FeishuBridge {
         // 收集本页全部图片 token（块级 + 内嵌，去重）
         const tokens: string[] = []
         for (const block of resp.data?.items ?? []) {
+          blockCount += 1
           // 1) 块级图片：block_type=27（image）块，image.token 即 drive media file_token
-          if (block.block_type === 27 && block.image?.token) tokens.push(block.image.token)
+          if (block.block_type === 27 && block.image?.token) {
+            imageBlockCount += 1
+            tokens.push(block.image.token)
+          }
           // 2) 内嵌图片：text/heading/bullet 等 Text 块 elements 里的 image 元素（SDK 类型未覆盖，运行时存在）
           for (const el of extractInlineImageElements(block as unknown as Record<string, unknown>)) {
-            if (el.image?.token) tokens.push(el.image.token)
+            if (el.image?.token) {
+              inlineImageCount += 1
+              tokens.push(el.image.token)
+            }
           }
         }
         const seen = new Set<string>()
@@ -656,6 +666,12 @@ class FeishuBridge {
         }
         pageToken = resp.data?.has_more ? resp.data.page_token : undefined
       } while (pageToken)
+      console.log(
+        `[飞书 Bridge] 云文档 ${documentId} 块统计: 共 ${blockCount} 块, 图片块 ${imageBlockCount}, 内嵌图片 ${inlineImageCount}`,
+      )
+      if (blockCount > 0 && imageBlockCount === 0 && inlineImageCount === 0) {
+        console.warn(`[飞书 Bridge] 云文档 ${documentId} 未发现任何图片块（图片可能以画布/表格/其它形式存在，或需更高权限）`)
+      }
     } catch (error) {
       console.error(`[飞书 Bridge] 读取云文档 ${documentId} 图片失败:`, error)
     }
@@ -1357,6 +1373,10 @@ class FeishuBridge {
         } else {
           console.warn(`[飞书 Bridge] 云文档链接 ${docLinkId} 读取失败，降级由 Agent 通过 CDP 浏览器读取`)
         }
+      } else {
+        // 文本疑似含飞书链接但未被识别（可能是 /docs/ 旧版、分享卡片、短链等），打印链接供诊断
+        const feishuLink = text.match(/https?:\/\/[^\s，。；、,]+feishu\.cn\/[^\s，。；、,]+/i)?.[0]
+        if (feishuLink) console.warn(`[飞书 Bridge] 未识别的飞书链接形式: ${feishuLink.slice(0, 120)}`)
       }
     }
 
