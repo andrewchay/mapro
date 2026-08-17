@@ -1,9 +1,9 @@
 /**
  * 审核反馈 CSV 可视化转换（内联版，替代原 python3 normalize_review_feedback.py）
  *
- * 输入：draft-review-feedback.csv（Agent 每次审核后自行落盘的原始 CSV，6 列：
- *       @谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,返工项确认）
- * 输出：draft-review-feedback-viz.csv（14 列结构化可视化版，UTF-8 with BOM，Excel 直接打开不乱码）
+ * 输入：draft-review-feedback.csv（Agent 每次审核后自行落盘的原始 CSV，7 列：
+ *       @谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,返工项确认,飞书链接网址）
+ * 输出：draft-review-feedback-viz.csv（15 列结构化可视化版，UTF-8 with BOM，Excel 直接打开不乱码）
  * 结构化拆分：稿件标题/话题标签按 md 区块（## 标题 / ## 话题标签，兼容 ###/# 层级、空行、内联写法）提取；
  *       稿件文字列只保留正文（去掉归档头 `# 稿件 v{N} · 达人` 与标题/话题标签区块）
  * 幂等：每次审核后整体重写 viz CSV，保持整洁
@@ -14,7 +14,7 @@ import { join } from 'node:path'
 const VIZ_HEADER = [
   '@谁', '达人名称', '审核结论', '版本号', '审核时间',
   '必改条数', '争议条数', '可优化条数',
-  '稿件标题', '话题标签', '稿件图片', '稿件文字', 'bot最终审核意见', '返工项确认',
+  '稿件标题', '话题标签', '稿件图片', '稿件文字', 'bot最终审核意见', '返工项确认', '飞书链接网址',
 ]
 
 /** 审核结论：从 bot 回复模板提取 red/yellow/green/fail，无模板标记（旧格式）时按区块结构兜底推断 */
@@ -278,6 +278,7 @@ export function regenerateDraftReviewVizCsv(workspaceFilesDir: string): void {
       const reply = r[4] ?? ''
       // 返工项确认：本次审核回复中"返工项确认"区块（上版红卡核对结果：F 处/已修改 K 处 + 逐条 ✅；旧 5 列历史行补空）
       const reworkConfirm = r[5] ?? ''
+      const feishuLink = r[6] ?? ''
       const clean = cleanReply(reply)
       const version = extractVersion(clean)
       outRows.push([
@@ -296,6 +297,7 @@ export function regenerateDraftReviewVizCsv(workspaceFilesDir: string): void {
         extractBody(rawText),
         clean,
         reworkConfirm,
+        feishuLink,
       ])
     }
 

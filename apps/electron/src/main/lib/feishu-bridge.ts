@@ -892,18 +892,18 @@ class FeishuBridge {
   }
 
   /**
-   * 稿件审核反馈 CSV 表头维护：确保工作区 draft-review-feedback.csv 存在且为标准 6 列表头
+   * 稿件审核反馈 CSV 表头维护：确保工作区 draft-review-feedback.csv 存在且为标准 7 列表头
    *
    * - 文件路径：{工作区根}/draft-review-feedback.csv（绝对路径，与 bridge 其余落盘基准一致）
-   * - 表头：@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,返工项确认（首次创建时写入，含 UTF-8 BOM 保证 Excel 中文不乱码）
+   * - 表头：@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,返工项确认,飞书链接网址（首次创建时写入，含 UTF-8 BOM 保证 Excel 中文不乱码）
    * - 数据行由 Agent 审核回复后自行追加落盘（ma-draft-review SKILL Step 6.5）——稿件全文/图片真值只在 Agent 会话里，
    *   bridge 只读到消息文本，代写会产出假数据（此坑已出现两次），故 bridge 不再写数据行；
    *   本方法只在稿件审核消息到达时确保表头就绪：旧格式一次性迁移（去红/黄/绿卡列、@谁 缺失时从回复提取、
-   *   旧"已反馈内容"列值原样保留到"返工项确认"，旧 5 列补空）
+   *   旧"已反馈内容"列值原样保留到"返工项确认"，旧 5/6 列补空、旧 6 列补空"飞书链接网址"）
    */
   private ensureDraftReviewFeedbackCsv(workspaceSlug: string): void {
     const csvPath = join(getWorkspaceFilesDir(workspaceSlug), 'draft-review-feedback.csv')
-    const headerLine = '\uFEFF@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,返工项确认'
+    const headerLine = '\uFEFF@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,返工项确认,飞书链接网址'
     try {
       if (!existsSync(csvPath)) {
         writeFileSync(csvPath, `${headerLine}\n`, 'utf-8')
@@ -913,36 +913,38 @@ class FeishuBridge {
       const existing = readFileSync(csvPath, 'utf-8')
       const records = this.splitCsvRecords(existing)
       const oldHeader = records[0] ?? []
-      if (oldHeader.includes('返工项确认')) return
-      // 旧格式迁移：历史文件可能是 6 列含"已反馈内容"、标准 5 列 [@谁,达人,正文,图片,回复]、
-      // 或红/黄/绿卡 6 列 / 5 列（无 @谁），统一重写为目标 6 列 [@谁,达人,正文,图片,回复,返工项确认]；
-      // 旧"已反馈内容"列值原样保留到"返工项确认"列（列名更新、历史数据不丢，引号内换行/逗号需 RFC4180 解析）
+      if (oldHeader.includes('飞书链接网址')) return
+      // 旧格式迁移：历史文件可能是 6 列含"返工项确认"、6 列含"已反馈内容"、标准 5 列 [@谁,达人,正文,图片,回复]、
+      // 或红/黄/绿卡 6 列 / 5 列（无 @谁），统一重写为目标 7 列 [@谁,达人,正文,图片,回复,返工项确认,飞书链接网址]；
+      // 旧"已反馈内容"列值原样保留到"返工项确认"列（列名更新、历史数据不丢，引号内换行/逗号需 RFC4180 解析），
+      // 旧 6 列（含"返工项确认"）补空"飞书链接网址"列
       const escapeCsvField = (value: string): string => {
         const s = value ?? ''
         return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
       }
+      const hasRework = oldHeader.includes('返工项确认')
       const hasFeedback = oldHeader.includes('已反馈内容')
       const hasMention = oldHeader.includes('@谁')
       const dataRows = records.slice(1).map((fields) => {
         let base: string[]
-        if (hasFeedback && hasMention) {
-          // 旧 6 列 [@谁,达人,正文,图片,回复,已反馈内容] → 数据保留到"返工项确认"
-          base = [fields[0] ?? '', fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', fields[5] ?? '']
+        if (hasRework || (hasFeedback && hasMention)) {
+          // 旧 6 列 [@谁,达人,正文,图片,回复,返工项确认|已反馈内容] → 数据保留 + 补空"飞书链接网址"
+          base = [fields[0] ?? '', fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', fields[5] ?? '', '']
         } else if (hasMention) {
-          // 标准 5 列 [@谁,达人,正文,图片,回复] → 补空"返工项确认"
-          base = [fields[0] ?? '', fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', '']
+          // 标准 5 列 [@谁,达人,正文,图片,回复] → 补空"返工项确认"与"飞书链接网址"
+          base = [fields[0] ?? '', fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', '', '']
         } else if (fields.length >= 6) {
           // 红/黄/绿卡,@谁,达人,正文,图片,回复 → 去掉卡列 + 补空
-          base = [fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', fields[5] ?? '', '']
+          base = [fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', fields[5] ?? '', '', '']
         } else {
           // 红/黄/绿卡,达人,正文,图片,回复 → 从该行回复字段提取 @谁 + 补空
           const replyField = fields[4] ?? ''
-          base = [this.extractMentionedName(replyField), fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', '']
+          base = [this.extractMentionedName(replyField), fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', '', '']
         }
         return base
       })
       writeFileSync(csvPath, `${headerLine}\n${dataRows.map((f) => f.map(escapeCsvField).join(',')).join('\n')}${dataRows.length ? '\n' : ''}`, 'utf-8')
-      console.log(`[飞书 Bridge] 已迁移稿件审核反馈 CSV 为"返工项确认"6 列: ${csvPath}`)
+      console.log(`[飞书 Bridge] 已迁移稿件审核反馈 CSV 为"飞书链接网址"7 列: ${csvPath}`)
     } catch (error) {
       console.warn(`[飞书 Bridge] 维护稿件审核反馈 CSV 表头失败:`, error)
     }
@@ -951,7 +953,7 @@ class FeishuBridge {
   /**
    * 提取该达人最近一次红卡（red）审核的"必须修改"清单（返工核对基准）
    *
-   * 数据源：工作区 draft-review-feedback.csv（Agent 每次审核后落盘的反馈记录，6 列）。
+   * 数据源：工作区 draft-review-feedback.csv（Agent 每次审核后落盘的反馈记录，7 列）。
    * 匹配：按达人列过滤 → 解析每行 bot 回复的版本号与三态判定 → 取版本号最大且为红卡的行 →
    * 提取"必须修改"区块（[位置] 问题 → 建议）。用于：
    * 新版本稿件审核时注入 `[上一版红卡反馈]`，让 Agent 逐条核对硬伤是否已修改（回复中无论是否已修改都输出"返工项确认"），
@@ -2326,7 +2328,7 @@ class FeishuBridge {
       // 使完整 SKILL 正文（含 Step 2.5 归档 / Step 6.5 反馈 CSV 落盘要求）进入 Agent 上下文
       const isDraftMsg = this.isDraftReviewMessage(userText, hasAnyAttachment || !!docxDraft)
 
-      // 稿件审核反馈 CSV：仅确保表头就绪（标准 6 列，旧格式一次性迁移），数据行由 Agent 审核回复后
+      // 稿件审核反馈 CSV：仅确保表头就绪（标准 7 列，旧格式一次性迁移），数据行由 Agent 审核回复后
       // 自行追加落盘（SKILL Step 6.5）——稿件全文/图片真值只在 Agent 会话里，bridge 只读到消息文本，
       // 代写会产出假数据（"审核"顶替正文的假数据坑已出现两次），故 bridge 不再收集稿件信息写行
       if (isDraftMsg && workspace) {
