@@ -22,7 +22,8 @@ import urllib.request
 
 FEISHU_WEB_URL = "https://www.feishu.cn/"
 
-# 页面上下文提取图片的 JS：收集 img/source 的 currentSrc / src / srcset / 懒加载属性，跳过 data: URL 并去重
+# 页面上下文提取图片的 JS：收集 img/source 的 currentSrc / src / srcset / 懒加载属性，跳过 data: URL 并去重；
+# 另兜底提取宫格/画廊布局的 CSS background-image（容器内无 img 时，用容器尺寸近似宽高）
 EXTRACT_IMAGES_JS = r"""
 (() => {
   const candidatesOf = (el) => {
@@ -36,6 +37,21 @@ EXTRACT_IMAGES_JS = r"""
     if (el.srcset) urls.push(...el.srcset.split(',').map((s) => s.trim().split(/\s+/)[0]).filter(Boolean));
     return urls;
   };
+  const bgUrlsOf = (el) => {
+    const urls = [];
+    const sources = [
+      el.getAttribute('style') || '',
+      el.currentStyle ? el.currentStyle.backgroundImage : '',
+      (() => { try { return getComputedStyle(el).backgroundImage; } catch (e) { return ''; } })(),
+    ];
+    const re = /url\((['"]?)([^'")]+)\1\)/g;
+    for (const src of sources) {
+      if (!src) continue;
+      let m;
+      while ((m = re.exec(src)) !== null) urls.push(m[2]);
+    }
+    return urls;
+  };
   const seen = new Set();
   const out = [];
   for (const el of document.querySelectorAll('img, source')) {
@@ -43,6 +59,17 @@ EXTRACT_IMAGES_JS = r"""
       if (!url || url.startsWith('data:') || seen.has(url)) continue;
       seen.add(url);
       out.push({ url, alt: (el && el.alt) || '', naturalWidth: el.naturalWidth || 0, naturalHeight: el.naturalHeight || 0 });
+    }
+  }
+  // 宫格/画廊兜底：无 img 子元素的容器背景图（img 已收集过的容器跳过，避免重复装饰背景）
+  for (const el of document.querySelectorAll('div, section, a, li, span')) {
+    if (el.querySelector('img, source')) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 200 || rect.height < 200) continue;
+    for (const url of bgUrlsOf(el)) {
+      if (!url || url.startsWith('data:') || seen.has(url)) continue;
+      seen.add(url);
+      out.push({ url, alt: '', naturalWidth: Math.round(rect.width) || 0, naturalHeight: Math.round(rect.height) || 0 });
     }
   }
   return out;
