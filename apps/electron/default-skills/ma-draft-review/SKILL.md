@@ -1,7 +1,7 @@
 ---
 name: ma-draft-review
 description: 达人稿件三态审核专家（红卡硬伤需修改/黄卡需人工判断/绿卡待确认放行）。读取飞书文档/文件/消息内文案形式的达人稿件，匹配 brief + 本群审核口径（系统注入，优先于 brief）审核：硬伤→红卡 @本次稿件提交人（发对应稿件的执行方）本人-返工；争议→黄卡 @Account-拍板；无硬伤→绿卡 @Account-放行；审核失败→@Account；不输出分数。含 brief 管理与群名单（名单：）。当群聊出现"初稿/改稿/终稿/成片/发布预览/请查收/辛苦审核/审稿/稿件"或"录入brief/导入brief"时触发。
-version: "1.1.35"
+version: "1.1.36"
 ---
 
 # 达人稿件三态审核
@@ -62,22 +62,22 @@ version: "1.1.35"
   → 文字审核(强制) + 图片审核(Kimi) → 合并 → 三态回复（标注第 N 版）
 ```
 
-### Step 0 · 飞书浏览器前置（仅 wiki / 网页链接稿件）
+### Step 0 · 飞书浏览器前置 + CDP 抓图（所有飞书云文档链接稿件：docx / wiki / 网页，强制）
 
-文件与 docx 云文档稿件跳过此步（通常已由系统读取并入库）。
+**docx 云文档一律文字+图片同审**：文字以系统注入的正文为准（bridge 已读取 docx 纯文本），图片一律用下方标准脚本（`kol_collector.py --extract-images`）抓取，保证懒加载配图不遗漏；wiki / 网页链接同理（正文以 `WebBridgeSnapshot` 核对完整性）。
 
-1. `curl -s --max-time 3 http://127.0.0.1:9222/json/version` 检查 CDP 是否开启
-2. 未开启 → 群内引导用户启动并登录飞书，二选一：
+本步命令已配置 Bash 放行规则（免人工确认）；**不要用 `curl` 检查 CDP**（curl 属危险命令会触发人工确认，且不属于固化流程）。
+
+1. **自检**：`python3 scripts/kol_collector.py --check --port 9222`，需 `[OK] CDP 已开启` + `[OK] 飞书登录态正常`；未开启 → 群内引导用户启动并登录飞书，二选一：
    - A（隔离配置）：`/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome_pgy_debug`
    - B（复用主 Chrome）：先退出所有 Chrome，同样命令不带 `--user-data-dir`
-3. 自检：`python3 scripts/kol_collector.py --check --port 9222`，需 `[OK] CDP 已开启` + `[OK] 飞书登录态正常`
-4. 连接并打开（只操作自己新建的页面，不关用户浏览器）：`WebBridgeChromeTargets`（端口 9222）→ `WebBridgeConnectChrome` 连接飞书已登录页面 → `WebBridgeNavigate` 打开稿件链接
-5. **细粒度滚动 + 懒加载配图提取（强制，文档含图时必须做）**：
-   - 循环执行 `WebBridgeScroll`（direction=down，amount=400）→ `WebBridgeExtractImages`，每步收集图片 URL（url/alt/尺寸）
-   - 飞书文档图片是懒加载的，**必须滚动到对应位置才会加载**；持续滚动直到连续 2 次 `WebBridgeExtractImages` 的 URL 列表**无新增**（已到文档底部、懒加载图全部出现），随后 `WebBridgeScroll`（direction=up，amount=800）回滚一次再提取，确认顶部图片也已出现
-   - 从结果中筛出**稿件配图**（naturalWidth ≥ 200 且显著大于页面图标/头像），得到配图 URL 全集；正文文本以 `WebBridgeSnapshot` 读取
-6. **下载配图到本地（强制）**：对每个配图 URL 调用 `WebBridgeDownload`（复用页面登录态 Cookie，飞书图片需登录态才能下载），记下返回的本地文件路径，作为图片审核与落盘的依据
-7. 确认全文（含文末话题标签区）已加载完整后，立即落盘再审核（落盘根基准见 Step 2.5：使用系统注入的 `[工作区根路径]` 绝对路径，禁止相对路径落到会话目录）
+2. **CDP 抓图（强制，含懒加载）**：输出目录用 `{工作区根}/draft-archives/{达人名}/v{N}-images`（`{工作区根}` = 系统注入的 `[工作区根路径]` 绝对路径），执行：
+   `python3 scripts/kol_collector.py --extract-images --port 9222 --url '<稿件链接>' --out '<输出目录>'`
+   - 脚本自动：新开页面打开稿件 → 逐段滚动触发懒加载 → 提取全部配图（naturalWidth ≥ 200）→ 页面上下文下载到输出目录并写 `images.json` 清单
+   - 检查 stdout 的 `[OK] 提取配图 N 张` 与 `images.json`，得到配图本地路径列表；无配图（文档纯文字）则跳过图片审核
+   - 稿件链接含 `&` 等 shell 特殊字符时先做 URL 编码再传入
+3. **正文核对**：`WebBridgeSnapshot` 读取页面正文（含文末话题标签区），与系统注入正文做一致性核对；不一致以页面为准
+4. 确认全文（含文末话题标签区）已加载完整后，立即落盘再审核（落盘根基准见 Step 2.5：使用系统注入的 `[工作区根路径]` 绝对路径，禁止相对路径落到会话目录）
 
 ### Step 1 · 提取达人名
 
@@ -90,7 +90,7 @@ version: "1.1.35"
 ### Step 2 · 读取稿件内容（按序降级）
 
 按优先级尝试，失败自动降级下一档（**在线文档/最新提交优先于归档**）：
-1. **飞书文档/wiki 链接**：先执行 Step 0，WebBridge 打开链接 + **细粒度滚动（逐段滚动触发懒加载）提取全部配图并下载到本地**，滚动到底确认文末标签区完整
+1. **飞书云文档/wiki/网页链接（含 docx）**：先执行 Step 0——**文字+图片同审**：文字以系统注入正文为准（docx 已由系统读取纯文本），配图一律 `kol_collector.py --extract-images` 标准脚本抓取（细粒度滚动触发懒加载 + 页面上下文下载到 `draft-archives/{达人名}/v{N}-images`），正文含文末标签区用 `WebBridgeSnapshot` 核对完整
 2. **文件**（docx/txt/md）：解析正文 + 提取 docx 内联图片（视为最新提交内容）
 3. **消息内文案**：直接用消息文本
 4. **仓库归档核对**：查 `{工作区根}/draft-archives/{达人名}/{达人名}_v*.md` 最大版本号（工作区根 = 系统注入的 `[工作区根路径]` 绝对路径，未注入时用 `workspace-files/`），与已读最新内容**核对一致性**——归档含"标签（无）"/`verdict: red` 等缺省或异常标记时，**必须回源在线文档/最新提交复核**（无在线来源时不得直接采信该归档，转人工）；无在线/文件/文案来源时归档可作为稿件主体，但须确认其完整（含文末标签区）
@@ -251,7 +251,7 @@ version: "1.1.35"
 | `@谁` | 你回复模板开头 @ 的成员名（红卡=本次稿件提交人，黄/绿/失败=Account 成员） |
 | `达人名称` | 提取的达人名（与归档 draft-archives 一致） |
 | `稿件文字部分` | 本次审核读到的**稿件全文真值**（与归档 `{达人名}_v{N}.md` 内容一致，含 `## 标题` / `## 话题标签` 区块） |
-| `稿件图片部分` | 稿件附带图片列表（docx 内联图片 / 消息图片 / 下载到 `web-bridge-downloads` 的本地配图，用 `; ` 分隔），无则空 |
+| `稿件图片部分` | 稿件附带图片列表（docx 内联图片 / 消息图片 / `kol_collector.py --extract-images` 下载到 `draft-archives/{达人名}/v{N}-images/` 的本地配图，用 `; ` 分隔），无则空 |
 | `bot回复审核内容` | 你最终输出的审核回复全文（含 `📋 稿件审核` 模板与第 N 版标注） |
 | `返工项确认` | 你在本版回复中输出的"返工项确认"区块内容（`返工项确认（上版红卡 {F} 处，已修改 {K} 处）` + 逐条 ✅ 已修改项）；收到注入 `[上一版红卡反馈]` 时必有，未注入则空 |
 | `飞书链接网址` | 本条稿件对应的飞书链接网址（消息文本中的飞书链接 / Step 0 用 `WebBridgeNavigate` 打开的稿件链接原文，取完整 URL），无链接则空 |

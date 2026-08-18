@@ -188,6 +188,8 @@ export interface AppSettings {
   lastEnvironmentCheck?: EnvironmentCheckResult
   /** 是否启用桌面通知 */
   notificationsEnabled?: boolean
+  /** 持久化 Bash 放行规则（命令前缀白名单，命中后免人工确认，如 "python3 scripts/kol_collector.py"） */
+  agentBashAllowRules?: string[]
   /** 是否启用通知提示音（阻塞 Hook 触发时播放） */
   notificationSoundEnabled?: boolean
   /** 各场景通知音选择 */
