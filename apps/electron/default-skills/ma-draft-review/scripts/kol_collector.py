@@ -183,6 +183,33 @@ def _collect_images(page) -> list[dict]:
     ]
 
 
+def _wait_images_settled(page, timeout_ms: int = 3000) -> None:
+    """等视口内图片 src 稳定（从占位符变为真实地址）且加载完成，超时兜底。
+
+    飞书文档虚拟化渲染下，滚动后新渲染的 img 可能先挂占位 src，真实地址稍后写入；
+    这里用 src 快照稳定性 + img.complete 双重判断，确保真实地址渲染出来后再提取。
+    """
+    page.evaluate(
+        """() => new Promise((resolve) => {
+            const deadline = Date.now() + %d;
+            const snapshot = () => [...document.querySelectorAll('img')]
+                .map((i) => i.currentSrc || i.src || '').join('|');
+            let last = snapshot();
+            const poll = () => {
+                const cur = snapshot();
+                const allLoaded = [...document.querySelectorAll('img')]
+                    .every((i) => i.complete || !(i.currentSrc || i.src));
+                if (Date.now() > deadline) return resolve(true);
+                if (cur === last && allLoaded) return resolve(true);
+                last = cur;
+                setTimeout(poll, 250);
+            };
+            setTimeout(() => { last = snapshot(); poll(); }, 600);
+        })"""
+        % timeout_ms,
+    )
+
+
 def _download_via_page(page, url: str, out_dir: str, seq: int) -> str | None:
     """页面上下文 fetch 下载单张图片到 out_dir，返回本地文件名；失败返回 None"""
     try:
@@ -209,7 +236,7 @@ def _download_via_page(page, url: str, out_dir: str, seq: int) -> str | None:
 
 
 def extract_images(port: int, url: str, out_dir: str) -> bool:
-    """打开稿件链接，细粒度滚动触发懒加载，提取全部配图并下载到本地"""
+    """打开稿件链接，逐屏双程滚动触发懒加载（适配飞书虚拟化渲染），提取全部配图并下载到本地"""
     p, browser = _playwright(port)
     page = browser.contexts[0].new_page()
     try:
@@ -217,40 +244,61 @@ def extract_images(port: int, url: str, out_dir: str) -> bool:
         page.goto(url, wait_until="domcontentloaded", timeout=30000)
         page.wait_for_timeout(1500)  # 等待首屏渲染
 
-        # 细粒度滚动 + 懒加载提取：逐段滚动 400px 后提取，连续 2 轮无新增视为到底
-        seen_urls: set[str] = set()
-        empty_rounds = 0
-        max_rounds = 60
-        for _round in range(max_rounds):
-            page.mouse.wheel(0, 400)
-            page.wait_for_timeout(500)  # 等待懒加载触发
-            found = False
-            for item in _collect_images(page):
-                u = item["url"]
-                if u not in seen_urls:
-                    seen_urls.add(u)
-                    found = True
-            empty_rounds = 0 if found else empty_rounds + 1
-            if empty_rounds >= 2:
-                break
-        # 回滚一次再提取，确认顶部图片（懒加载可能在初始位置未触发）
-        page.mouse.wheel(0, -800)
+        # 双程扫描（先滚到底、再回滚到顶）：飞书文档虚拟化渲染只保留视口附近 DOM，
+        # 单程滚动中间段可能被跳过/回收，回程可让所有行至少完整渲染一次。
+        # 每轮按"约一屏"步进滚动，滚动后等图片 src 从占位符变为真实地址并加载完成再提取；
+        # 提取结果按 url 去重累积到 seen 字典（DOM 回收后仍保留元数据，避免最终漏抓）。
+        viewport_h = int(page.evaluate("window.innerHeight") or 0) or 800
+        step = max(int(viewport_h * 0.8), 400)
+        seen: dict[str, dict] = {}
+        for direction in (1, -1):  # 1 = 滚到底，-1 = 回滚到顶
+            empty_rounds = 0
+            for _round in range(80):
+                page.mouse.wheel(0, step * direction)
+                page.wait_for_timeout(800)  # 等待虚拟化渲染新行
+                _wait_images_settled(page, timeout_ms=3000)  # 等真实图片地址加载完成
+                found = False
+                for item in _collect_images(page):
+                    u = item["url"]
+                    if u not in seen:
+                        seen[u] = item
+                        found = True
+                    elif (item.get("naturalWidth") or 0) > (seen[u].get("naturalWidth") or 0):
+                        # 同一 URL 首次提取时宽高可能为 0（占位），真实加载后补全
+                        seen[u] = item
+                # 到达页面边界即终止（虚拟化下"无新增"可能只是中间段被跳过，不能作为到底依据）
+                at_end = page.evaluate(
+                    """(direction) => direction > 0
+                        ? window.scrollY + window.innerHeight >= document.body.scrollHeight - 50
+                        : window.scrollY <= 0""",
+                    direction,
+                )
+                if at_end:
+                    break
+                empty_rounds = 0 if found else empty_rounds + 1
+                if empty_rounds >= 3:
+                    break
+        # 回滚顶部兜底一次，确认首屏图片
+        page.mouse.wheel(0, -step)
         page.wait_for_timeout(500)
+        _wait_images_settled(page, timeout_ms=2000)
         for item in _collect_images(page):
-            seen_urls.add(item["url"])
+            u = item["url"]
+            if u not in seen:
+                seen[u] = item
         page.wait_for_timeout(500)
 
-        # 筛选配图：naturalWidth >= 200 且显著大于页面图标/头像
-        images = [item for item in _collect_images(page) if (item["naturalWidth"] or 0) >= 200]
-        # 用 seen_urls 兜底补全（部分图片宽高在滚动后仍为 0，只要出现在页面即保留）
+        # 筛选配图：宽高 ≥ 200 的配图；宽高为 0（虚拟化回收时未及加载出真实尺寸）但 URL 已捕获的也保留，
+        # 避免被漏抓；0 < 宽高 < 200 视为图标/头像过滤
+        images = [item for item in seen.values() if (item.get("naturalWidth") or 0) >= 200]
         known = {item["url"] for item in images}
-        for item in _collect_images(page):
-            if item["url"] in seen_urls and item["url"] not in known:
+        for url, item in seen.items():
+            if url not in known:
                 images.append(item)
-                known.add(item["url"])
+                known.add(url)
 
         if not images:
-            print(f"[WARN] 未在页面中提取到配图（页面图片总数: {len(seen_urls)}，均小于 200px 或为图标）")
+            print(f"[WARN] 未在页面中提取到配图（页面图片总数: {len(seen)}，均小于 200px 或为图标）")
             print("[CDP 抓图] 图片清单: []")
             return True
 
@@ -270,7 +318,7 @@ def extract_images(port: int, url: str, out_dir: str) -> bool:
                 )
         with open(os.path.join(out_dir, "images.json"), "w", encoding="utf-8") as fh:
             json.dump(manifest, fh, ensure_ascii=False, indent=2)
-        print(f"[OK] 提取配图 {len(manifest)} 张（页面图片总数 {len(seen_urls)}），已保存到 {out_dir}")
+        print(f"[OK] 提取配图 {len(manifest)} 张（页面图片总数 {len(seen)}），已保存到 {out_dir}")
         print(f"[CDP 抓图] 图片清单: {os.path.join(out_dir, 'images.json')}")
         return len(manifest) > 0
     except Exception as exc:  # noqa: BLE001
