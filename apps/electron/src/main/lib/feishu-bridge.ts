@@ -1002,6 +1002,42 @@ class FeishuBridge {
     return ''
   }
 
+  /**
+   * 按消息中的飞书链接兜底提取上一版红卡反馈
+   *
+   * 纯链接消息（文本无达人名、云文档按通用名"飞书云文档"落库）时按达人名匹配不到 CSV 记录，
+   * 改用消息里 docx/wiki 链接 token 匹配「飞书链接网址」列，取该链接最近一次红卡行的"必须修改"清单。
+   * 同一文档的改稿（第 N 版审核）即使消息只发链接也能注入返工核对基准。
+   */
+  private extractLastRedFeedbackByLinks(workspaceSlug: string, userText: string): string {
+    const tokens = Array.from(userText.matchAll(/feishu\.cn\/(?:docx|wiki|docs)\/([A-Za-z0-9]+)/g))
+      .map((m) => m[1])
+      .filter((t): t is string => Boolean(t))
+    if (tokens.length === 0) return ''
+    const csvPath = join(getWorkspaceFilesDir(workspaceSlug), 'draft-review-feedback.csv')
+    if (!existsSync(csvPath)) return ''
+    try {
+      const text = readFileSync(csvPath, 'utf-8').replace(/^\uFEFF/, '')
+      const records = this.splitCsvRecords(text)
+      const header = records[0] ?? []
+      const replyCol = header.includes('bot回复审核内容') ? header.indexOf('bot回复审核内容') : 4
+      const linkCol = header.includes('飞书链接网址') ? header.indexOf('飞书链接网址') : 6
+      let best: { version: number; reply: string } | null = null
+      for (const r of records.slice(1)) {
+        const link = r[linkCol] ?? ''
+        if (!link || !tokens.some((t) => link.includes(t))) continue
+        const reply = r[replyCol] ?? ''
+        if (this.extractDraftVerdict(reply) !== 'red') continue
+        const version = this.extractDraftVersion(reply)
+        if (!best || version > best.version) best = { version, reply }
+      }
+      return best ? this.extractMustFixBlock(best.reply) : ''
+    } catch (error) {
+      console.warn('[飞书 Bridge] 按链接提取上一版红卡反馈失败:', error)
+      return ''
+    }
+  }
+
   /** 从红卡回复中提取"必须修改"区块（逐条 [位置] 问题 → 建议），作为返工核对基准 */
   private extractMustFixBlock(reply: string): string {
     if (!reply) return ''
@@ -2266,7 +2302,11 @@ class FeishuBridge {
             // 上一版红卡反馈（返工核对）：该达人最近一次红卡审核的"必须修改"清单，
             // Agent 审核本版时先逐条核对硬伤是否已修改，并在回复中输出"返工项确认"区块（无论是否已修改都必须输出）
             if (workspace) {
-              const lastRedFeedback = this.extractLastRedFeedback(workspace.slug, influencer)
+              let lastRedFeedback = this.extractLastRedFeedback(workspace.slug, influencer)
+              // 兜底：达人名未识别（"未命名"/"飞书云文档"）或按名未命中时，按消息中的飞书链接匹配 CSV「飞书链接网址」列
+              if (!lastRedFeedback) {
+                lastRedFeedback = this.extractLastRedFeedbackByLinks(workspace.slug, userText)
+              }
               if (lastRedFeedback) {
                 contextParts.push(
                   `[上一版红卡反馈: ${lastRedFeedback}]（审核本版前先逐条核对这些硬伤是否已修改：无论是否已修改，都必须在回复中输出"返工项确认（上版红卡 {F} 处，已修改 {K} 处）"区块，{F} 为上版红卡总条数、{K} 为已修改条数（无修改项填 0），并逐条列出已修改项（✅ [{位置}] {硬伤} → 已修改）；仍未修改的硬伤继续列入红卡"必须修改"清单）`,
