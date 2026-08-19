@@ -288,6 +288,28 @@ def extract_images(port: int, url: str, out_dir: str) -> bool:
                 seen[u] = item
         page.wait_for_timeout(500)
 
+        # 分栏/宫格图片块兜底：飞书分栏（grid_column）/宫格内的 image 块在整体滚动中可能不触发渲染
+        # （虚拟化只渲染视口内的块），逐块 scrollIntoView 强制懒加载渲染后再收集；
+        # 跑两轮——第一轮渲染可能让后续块进入 DOM，块数会动态增长
+        for _pass in range(2):
+            block_count = page.evaluate("document.querySelectorAll('[data-block-type=image]').length")
+            for i in range(block_count):
+                page.evaluate(
+                    "(i) => document.querySelectorAll('[data-block-type=image]')[i]?.scrollIntoView({block: 'center'})",
+                    i,
+                )
+                page.wait_for_timeout(600)
+                _wait_images_settled(page, timeout_ms=2000)
+                for item in _collect_images(page):
+                    u = item["url"]
+                    if u not in seen:
+                        seen[u] = item
+                    elif (item.get("naturalWidth") or 0) > (seen[u].get("naturalWidth") or 0):
+                        seen[u] = item
+        # 回滚顶部恢复视口
+        page.evaluate("document.querySelector('.bear-web-x-container')?.scrollTo(0, 0) || window.scrollTo(0, 0)")
+        page.wait_for_timeout(500)
+
         # 筛选配图：宽高 ≥ 200 的配图；宽高为 0（虚拟化回收时未及加载出真实尺寸）但 URL 已捕获的也保留，
         # 避免被漏抓；0 < 宽高 < 200 视为图标/头像过滤
         images = [item for item in seen.values() if (item.get("naturalWidth") or 0) >= 200]
