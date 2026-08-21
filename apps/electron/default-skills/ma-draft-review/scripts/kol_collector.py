@@ -89,6 +89,28 @@ FETCH_B64_JS = r"""
 })()
 """
 
+# 飞书文档真实滚动容器（正文在 .bear-web-x-container 内滚动，window/document 不滚动，
+# 不能用 window.scrollY / document.body.scrollHeight 判断到底，否则首轮即误判到底）
+SCROLL_STATE_JS = r"""
+() => {
+  const c = document.querySelector('.bear-web-x-container')
+    || document.scrollingElement
+    || document.documentElement;
+  return { scrollTop: c.scrollTop, scrollHeight: c.scrollHeight, clientHeight: c.clientHeight };
+}
+"""
+
+# 滚动容器单步滚动并返回滚动后状态
+SCROLL_STEP_JS = r"""
+({step, direction}) => {
+  const c = document.querySelector('.bear-web-x-container')
+    || document.scrollingElement
+    || document.documentElement;
+  c.scrollBy(0, step * direction);
+  return { scrollTop: c.scrollTop, scrollHeight: c.scrollHeight, clientHeight: c.clientHeight };
+}
+"""
+
 # MIME → 扩展名映射（下载文件命名用）
 MIME_EXT = {
     "image/png": "png",
@@ -248,13 +270,14 @@ def extract_images(port: int, url: str, out_dir: str) -> bool:
         # 单程滚动中间段可能被跳过/回收，回程可让所有行至少完整渲染一次。
         # 每轮按"约一屏"步进滚动，滚动后等图片 src 从占位符变为真实地址并加载完成再提取；
         # 提取结果按 url 去重累积到 seen 字典（DOM 回收后仍保留元数据，避免最终漏抓）。
-        viewport_h = int(page.evaluate("window.innerHeight") or 0) or 800
+        state = page.evaluate(SCROLL_STATE_JS)
+        viewport_h = int(state.get("clientHeight") or page.evaluate("window.innerHeight") or 0) or 800
         step = max(int(viewport_h * 0.8), 400)
         seen: dict[str, dict] = {}
         for direction in (1, -1):  # 1 = 滚到底，-1 = 回滚到顶
             empty_rounds = 0
-            for _round in range(80):
-                page.mouse.wheel(0, step * direction)
+            for _round in range(120):
+                st = page.evaluate(SCROLL_STEP_JS, {"step": step, "direction": direction})
                 page.wait_for_timeout(800)  # 等待虚拟化渲染新行
                 _wait_images_settled(page, timeout_ms=3000)  # 等真实图片地址加载完成
                 found = False
@@ -266,20 +289,18 @@ def extract_images(port: int, url: str, out_dir: str) -> bool:
                     elif (item.get("naturalWidth") or 0) > (seen[u].get("naturalWidth") or 0):
                         # 同一 URL 首次提取时宽高可能为 0（占位），真实加载后补全
                         seen[u] = item
-                # 到达页面边界即终止（虚拟化下"无新增"可能只是中间段被跳过，不能作为到底依据）
-                at_end = page.evaluate(
-                    """(direction) => direction > 0
-                        ? window.scrollY + window.innerHeight >= document.body.scrollHeight - 50
-                        : window.scrollY <= 0""",
-                    direction,
-                )
+                # 到达容器边界即终止（虚拟化下"无新增"可能只是中间段被跳过，不能作为到底依据）
+                if direction > 0:
+                    at_end = st["scrollTop"] + st["clientHeight"] >= st["scrollHeight"] - 50
+                else:
+                    at_end = st["scrollTop"] <= 0
                 if at_end:
                     break
                 empty_rounds = 0 if found else empty_rounds + 1
                 if empty_rounds >= 3:
                     break
         # 回滚顶部兜底一次，确认首屏图片
-        page.mouse.wheel(0, -step)
+        page.evaluate(SCROLL_STEP_JS, {"step": step, "direction": -1})
         page.wait_for_timeout(500)
         _wait_images_settled(page, timeout_ms=2000)
         for item in _collect_images(page):

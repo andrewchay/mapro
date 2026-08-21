@@ -1,7 +1,7 @@
 ---
 name: ma-draft-review
 description: 达人稿件三态审核专家（红卡硬伤需修改/黄卡需人工判断/绿卡待确认放行）。读取飞书文档/文件/消息内文案形式的达人稿件，匹配 brief + 本群审核口径（系统注入，优先于 brief）审核：硬伤→红卡 @本次稿件提交人（发对应稿件的执行方）本人-返工；争议→黄卡 @Account-拍板；无硬伤→绿卡 @Account-放行；审核失败→@Account；不输出分数。含 brief 管理与群名单（名单：）。当群聊出现"初稿/改稿/终稿/成片/发布预览/请查收/辛苦审核/审稿/稿件"或"录入brief/导入brief"时触发。
-version: "1.1.43"
+version: "1.1.44"
 ---
 
 # 达人稿件三态审核
@@ -77,7 +77,7 @@ version: "1.1.43"
    - B（复用主 Chrome）：先退出所有 Chrome，同样命令不带 `--user-data-dir`
 2. **CDP 抓图（强制，含懒加载）**：输出目录用 `{工作区根}/draft-archives/{达人名}/v{N}-images`（`{工作区根}` = 系统注入的 `[工作区根路径]` 绝对路径），执行：
    `python3 scripts/kol_collector.py --extract-images --port 9222 --url '<稿件链接>' --out '<输出目录>'`
-   - 脚本自动：新开页面打开稿件 → **逐屏双程滚动触发懒加载（先滚到底再回滚到顶，适配飞书虚拟化渲染）** → 提取全部配图（naturalWidth ≥ 200，宽高为 0 的候选兜底保留）→ 页面上下文下载到输出目录并写 `images.json` 清单
+   - 脚本自动：新开页面打开稿件 → **逐屏双程滚动触发懒加载（先滚到底再回滚到顶，适配飞书虚拟化渲染；飞书正文在 `.bear-web-x-container` 容器内滚动、`window`/`document` 不滚动，脚本以容器 scrollTop/clientHeight/scrollHeight 判断到底）** → 提取全部配图（naturalWidth ≥ 200，宽高为 0 的候选兜底保留）→ 页面上下文下载到输出目录并写 `images.json` 清单
    - 检查 stdout 的 `[OK] 提取配图 N 张` 与 `images.json`，得到配图本地路径列表；无配图（文档纯文字）则跳过图片审核
    - **过滤页面头像（强制）**：飞书页面头像/编辑者头像可能 ≥200px 被脚本误收，若 `images.json` 中出现头像类图片（alt 含"头像/avatar"、正方形小尺寸、位于页面固定角落/导航区），必须剔除，不计入稿件配图与图片审核
    - **锚点按稿件图序编号（强制）**：图片审核的 `图片N` 编号必须与过滤头像后 `images.json` 的序号一致（第 1 张稿件配图 = 图片1，头像剔除后从 1 重新编号），确保 ma-image-audit `overall_issues.location` 与你的修改意见 `[图片N]` 锚点一一对应
@@ -341,3 +341,5 @@ Agent 审核失败（稿件无法自动审核）时，按"⚠️ 审核失败"�
 2. **锚点按稿件图序编号**：头像未过滤会导致 `images.json` 序号与稿件真实图序整体偏移，使修改意见 `[图片N]` 与 ma-image-audit `overall_issues.location`（`图片N`）锚点对不上。修正方向：过滤头像后按**文档中出现顺序**编号（而非提取到的 URL 顺序），并明确"图片N 编号 = images.json 序号"。未修前，Agent 必须按 Step 0 规则剔除头像后从 1 重新编号。
 3. **宫格/画廊布局提取兜底**：脚本已兜底提取 `background-image` 候选（容器无 img 时），但交互式图集（点击展开、横向滚动懒加载容器）、canvas 渲染等仍可能漏图。修正方向：脚本后续支持点击展开交互与 canvas 提取。未修前，Agent 按 Step 0 规则在张数不足时用 `WebBridgeScreenshot` 补充截图。
 4. ~~**分栏（grid_column）图片块漏抓**~~（已修复）：飞书分栏布局内的 image 块在整体滚动中不触发渲染（虚拟化只渲染视口内块），曾导致稿件 9 张图只抓到 4 张。脚本已在整体双程滚动后追加"逐块 scrollIntoView"兜底（跑两轮，块数会随渲染动态增长），修复后分栏图片可全量抓取。
+5. ~~**滚动容器误判到底（整篇只抓到 1 张页面头像）**~~（已修复）：飞书 docx 正文在 `.bear-web-x-container` 容器内滚动，`window`/`document` 不滚动（`window.scrollY` 恒为 0、`document.body.scrollHeight` 仅数百）。旧脚本用 `window.scrollY + innerHeight >= document.body.scrollHeight - 50` 判断到底，`0 + 800 >= 数百` 恒真，**首轮向下滚动即误判到底 break**，实际未滚动正文，只抓到首屏页面头像（`v3_0013j_...`，640×640，多篇文档固定出现在 001 位）。脚本已改为滚动 `.bear-web-x-container` 容器并用其 `scrollTop + clientHeight >= scrollHeight` 判断边界（`SCROLL_STATE_JS` / `SCROLL_STEP_JS`）。修复后 13+ 张懒加载配图（含 `blob:` URL 图）可全量抓取。
+6. **CDP 浏览器 0 页面导致连接失败**：调试 Chrome 若以 `--remote-debugging-port=9222` 启动但**未实际打开任何窗口/页面**，`connect_over_cdp` 会报 `Browser context management is not supported`，抓图脚本连不上。规避：启动调试 Chrome 时确保至少打开一个窗口/页面（或先用 `curl -X PUT "http://127.0.0.1:9222/json/new?about:blank"` 建一个页面再抓图）。`--check` 通过不代表能抓图，遇"抓不到图片"先确认 CDP 浏览器有页面（`curl http://127.0.0.1:9222/json` 看是否为空）。
