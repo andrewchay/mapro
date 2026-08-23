@@ -19,7 +19,7 @@
   python3 collect_creator_xhs.py \
       --cdp-port 9222 \
       --user-id <user_id1> --user-id <user_id2> \
-      --max-notes 20 --max-comments 50 \
+      --max-notes 10 --max-comments 25 \
       --output-dir <数据目录>
   可选 --skip-comments 只采笔记不采评论（用于第二层嫌疑号主页画像）。
 """
@@ -316,7 +316,7 @@ class XiaoHongShuClient:
 
 
 async def crawl_creator(client: XiaoHongShuClient, user_id: str, output_dir: str,
-                        max_notes: int = 20, max_comments: int = 50,
+                        max_notes: int = 10, max_comments: int = 25,
                         get_comments: bool = True, crawl_interval: float = 1.0) -> None:
     """抓取单个达人的笔记 + 评论"""
     print(f"\n[{user_id}] 开始采集（最多 {max_notes} 篇笔记）")
@@ -397,8 +397,8 @@ async def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--cdp-port", type=int, default=9222, help="Chrome CDP 端口")
     parser.add_argument("--user-id", action="append", required=True,
                         help="站内 user_id，可多次指定")
-    parser.add_argument("--max-notes", type=int, default=20, help="单达人最大笔记数")
-    parser.add_argument("--max-comments", type=int, default=50, help="单笔记最大一级评论数")
+    parser.add_argument("--max-notes", type=int, default=10, help="单达人最大笔记数")
+    parser.add_argument("--max-comments", type=int, default=25, help="单笔记最大一级评论数")
     parser.add_argument("--skip-comments", action="store_true", help="只采笔记不采评论(第二层画像)")
     parser.add_argument("--output-dir", required=True, help="JSONL 输出目录")
     parser.add_argument("--interval", type=float, default=1.0, help="抓取间隔(秒)")

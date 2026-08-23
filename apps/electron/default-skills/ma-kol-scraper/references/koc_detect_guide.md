@@ -122,7 +122,7 @@ python3 scripts/mutual_warm_pipeline.py \
 ```bash
 python3 scripts/collect_creator_xhs.py --cdp-port 9222 \
     --user-id <站内user_id1> --user-id <站内user_id2> \
-    --max-notes 20 --max-comments 50 --output-dir <数据目录>
+    --max-notes 10 --max-comments 25 --output-dir <数据目录>
 ```
 
 **步骤3：第一轮检测（出嫌疑名单）**
@@ -180,7 +180,7 @@ python3 scripts/koc_detect.py --data-dir <数据目录> \
 ## 七、注意事项
 
 1. **合规**：`user_id` 属于个人信息，仅限本地分析使用，勿公开或用于追踪个人
-2. **样本量**：建议单达人抓 20-50 篇笔记、评论上限 10-50 条，样本过少时评分置信度下降
+2. **样本量**：第一层采集默认单达人抓 10 篇笔记、每篇评论上限 25 条（`--max-notes` / `--max-comments` 可调），样本过少时评分置信度下降
 3. **对照组**：互暖检测依赖多达人横向对比，单达人检测时第二层（KOC画像）置信度会降低
 4. **时效**：小红书 xsec_token 有时效，抓取前需从浏览器获取新鲜主页 URL
 5. **风控**：大流量抓取注意控制间隔（`--interval`），优先使用 CDP 模式复用真实登录态
