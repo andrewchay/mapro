@@ -1,7 +1,7 @@
 ---
 name: ma-draft-review
 description: 达人稿件三态审核专家（红卡硬伤需修改/黄卡需人工判断/绿卡待确认放行）。读取飞书文档/文件/消息内文案形式的达人稿件，匹配 brief + 本群审核口径（系统注入，优先于 brief）审核：硬伤→红卡 @本次稿件提交人（发对应稿件的执行方）本人-返工；争议→黄卡 @Account-拍板；无硬伤→绿卡 @Account-放行；审核失败→@Account；不输出分数。含 brief 管理与群名单（名单：）。当群聊出现"初稿/改稿/终稿/成片/发布预览/请查收/辛苦审核/审稿/稿件"或"录入brief/导入brief"时触发。
-version: "1.1.44"
+version: "1.1.45"
 ---
 
 # 达人稿件三态审核
@@ -68,22 +68,25 @@ version: "1.1.44"
 
 ### Step 0 · 飞书浏览器前置 + CDP 抓图（所有飞书云文档链接稿件：docx / wiki / 网页，强制）
 
-**docx 云文档一律文字+图片同审**：文字以系统注入的正文为准（bridge 已读取 docx 纯文本），图片一律用下方标准脚本（`kol_collector.py --extract-images`）抓取，保证懒加载配图不遗漏；wiki / 网页链接同理（正文以 `WebBridgeSnapshot` 核对完整性）。
+**docx 云文档一律文字+图片同审**：文字以系统注入的正文为准（bridge 已读取 docx 纯文本，未注入时以快速抓取的 `text.txt` 为准），配图一律用下方**快速脚本**（`fetch_feishu_fast.py`，单份约 5 秒）抓取，保证懒加载配图不遗漏；wiki / 网页链接同理（正文以 `WebBridgeSnapshot` 核对完整性）。
 
 本步命令已配置 Bash 放行规则（免人工确认）；**不要用 `curl` 检查 CDP**（curl 属危险命令会触发人工确认，且不属于固化流程）。
 
 1. **自检**：`python3 scripts/kol_collector.py --check --port 9222`，需 `[OK] CDP 已开启` + `[OK] 飞书登录态正常`；未开启 → 群内引导用户启动并登录飞书，二选一：
    - A（隔离配置）：`/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome_pgy_debug`
    - B（复用主 Chrome）：先退出所有 Chrome，同样命令不带 `--user-data-dir`
-2. **CDP 抓图（强制，含懒加载）**：输出目录用 `{工作区根}/draft-archives/{达人名}/v{N}-images`（`{工作区根}` = 系统注入的 `[工作区根路径]` 绝对路径），执行：
-   `python3 scripts/kol_collector.py --extract-images --port 9222 --url '<稿件链接>' --out '<输出目录>'`
-   - 脚本自动：新开页面打开稿件 → **逐屏双程滚动触发懒加载（先滚到底再回滚到顶，适配飞书虚拟化渲染；飞书正文在 `.bear-web-x-container` 容器内滚动、`window`/`document` 不滚动，脚本以容器 scrollTop/clientHeight/scrollHeight 判断到底）** → 提取全部配图（naturalWidth ≥ 200，宽高为 0 的候选兜底保留）→ 页面上下文下载到输出目录并写 `images.json` 清单
-   - 检查 stdout 的 `[OK] 提取配图 N 张` 与 `images.json`，得到配图本地路径列表；无配图（文档纯文字）则跳过图片审核
-   - **过滤页面头像（强制）**：飞书页面头像/编辑者头像可能 ≥200px 被脚本误收，若 `images.json` 中出现头像类图片（alt 含"头像/avatar"、正方形小尺寸、位于页面固定角落/导航区），必须剔除，不计入稿件配图与图片审核
-   - **锚点按稿件图序编号（强制）**：图片审核的 `图片N` 编号必须与过滤头像后 `images.json` 的序号一致（第 1 张稿件配图 = 图片1，头像剔除后从 1 重新编号），确保 ma-image-audit `overall_issues.location` 与你的修改意见 `[图片N]` 锚点一一对应
-   - **宫格/画廊兜底（强制）**：图片可能以宫格/画廊布局渲染（多图拼格、横向滚动图集、CSS 背景图），脚本已兜底提取 `background-image` 候选；若 `images.json` 张数明显少于文档实际配图，用 `WebBridgeScreenshot` 对宫格/画廊区域截图，作为图片审核的补充依据并在修改意见中标注
+2. **快速抓取（首选，秒级）**：输出目录用 `{工作区根}/draft-archives/{达人名}/v{N}-images`（`{工作区根}` = 系统注入的 `[工作区根路径]` 绝对路径），执行：
+   `python3 scripts/fetch_feishu_fast.py --port 9222 --url '<稿件链接>' --out '<输出目录>'`
+   - 脚本自动：新开页面打开稿件 → 注入 MutationObserver + **高速双程滚动**（先滚到底再回滚，实时收集进入 DOM 的 `[data-block-id]` 文本块与 `<img>`，避免滚动后二次读 DOM 漏块）→ 输出 `text.txt`（正文全文，已滤 UI 噪音/连续去重）+ `raw_texts.txt`（原始）+ **并发下载全部配图**（`context.request` 复用登录 Cookie，单张 50-300KB，8 张约 1-2 秒）+ 写 `images.json`
+   - 单份约 **5 秒**；原 `kol_collector.py --extract-images`（逐屏滚动 1-3 分钟）降级为兜底
+   - **正文以 `text.txt` 为准**（系统未注入正文时）；仍以 `WebBridgeSnapshot` 核对完整性与文末标签区
+   - 检查 stdout 的 `[OK] 配图 N 张` 与 `images.json`；无配图（文档纯文字）则跳过图片审核
+   - **页面头像已自动剔除**（`static-resource` 域 v3_0013j_ 资源，不入 `images.json`）
+   - **锚点按稿件图序编号（强制）**：`images.json` 序号即稿件图序（第 1 张稿件配图 = 图片1），确保 ma-image-audit `overall_issues.location` 与你的修改意见 `[图片N]` 锚点一一对应
+   - **宫格/画廊兜底（强制）**：`images.json` 张数明显少于文档实际配图时，用 `WebBridgeScreenshot` 对宫格/画廊区域截图，作为图片审核补充依据并在修改意见中标注
+   - **降级**：快速脚本抓取失败（登录态异常/CDP 无页面/文本为空）→ 用 `python3 scripts/kol_collector.py --extract-images --port 9222 --url '<稿件链接>' --out '<输出目录>'` 兜底
    - 稿件链接含 `&` 等 shell 特殊字符时先做 URL 编码再传入
-3. **正文核对**：`WebBridgeSnapshot` 读取页面正文（含文末话题标签区），与系统注入正文做一致性核对；不一致以页面为准
+3. **正文核对**：`WebBridgeSnapshot` 读取页面正文（含文末话题标签区），与 `text.txt`/系统注入正文做一致性核对；不一致以页面为准
 4. 确认全文（含文末话题标签区）已加载完整后，立即落盘再审核（落盘根基准见 Step 2.5：使用系统注入的 `[工作区根路径]` 绝对路径，禁止相对路径落到会话目录）
 
 ### Step 1 · 提取达人名
@@ -97,7 +100,7 @@ version: "1.1.44"
 ### Step 2 · 读取稿件内容（按序降级）
 
 按优先级尝试，失败自动降级下一档（**在线文档/最新提交优先于归档**）：
-1. **飞书云文档/wiki/网页链接（含 docx）**：先执行 Step 0——**文字+图片同审**：文字以系统注入正文为准（docx 已由系统读取纯文本），配图一律 `kol_collector.py --extract-images` 标准脚本抓取（逐屏双程滚动触发懒加载 + 页面上下文下载到 `draft-archives/{达人名}/v{N}-images`），正文含文末标签区用 `WebBridgeSnapshot` 核对完整
+1. **飞书云文档/wiki/网页链接（含 docx）**：先执行 Step 0——**文字+图片同审**：文字以系统注入正文或 `fetch_feishu_fast.py` 产出的 `text.txt` 为准（docx 已由系统读取纯文本），配图一律 `fetch_feishu_fast.py` 快速脚本抓取（MutationObserver + 高速双程滚动，单份约 5 秒，下载到 `draft-archives/{达人名}/v{N}-images`），正文含文末标签区用 `WebBridgeSnapshot` 核对完整；失败降级 `kol_collector.py --extract-images`
 2. **文件**（docx/txt/md）：解析正文 + 提取 docx 内联图片（视为最新提交内容）
 3. **消息内文案**：直接用消息文本
 4. **仓库归档核对**：查 `{工作区根}/draft-archives/{达人名}/{达人名}_v*.md` 最大版本号（工作区根 = 系统注入的 `[工作区根路径]` 绝对路径，未注入时用 `workspace-files/`），与已读最新内容**核对一致性**——归档含"标签（无）"/`verdict: red` 等缺省或异常标记时，**必须回源在线文档/最新提交复核**（无在线来源时不得直接采信该归档，转人工）；无在线/文件/文案来源时归档可作为稿件主体，但须确认其完整（含文末标签区）
@@ -258,7 +261,7 @@ version: "1.1.44"
 | `@谁` | 你回复模板开头 @ 的成员名（红卡=本次稿件提交人，黄/绿/失败=Account 成员） |
 | `达人名称` | 提取的达人名（与归档 draft-archives 一致） |
 | `稿件文字部分` | 本次审核读到的**稿件全文真值**（与归档 `{达人名}_v{N}.md` 内容一致，含 `## 标题` / `## 话题标签` 区块） |
-| `稿件图片部分` | 稿件附带图片列表（docx 内联图片 / 消息图片 / `kol_collector.py --extract-images` 下载到 `draft-archives/{达人名}/v{N}-images/` 的本地配图，用 `; ` 分隔），无则空 |
+| `稿件图片部分` | 稿件附带图片列表（docx 内联图片 / 消息图片 / `fetch_feishu_fast.py` 下载到 `draft-archives/{达人名}/v{N}-images/` 的本地配图，用 `; ` 分隔），无则空 |
 | `bot回复审核内容` | 你最终输出的审核回复全文（含 `📋 稿件审核` 模板与第 N 版标注） |
 | `返工项确认` | 你在本版回复中输出的"返工项确认"区块内容（`返工项确认（上版红卡 {F} 处，已修改 {K} 处）` + 逐条 ✅ 已修改项）；收到注入或自查发现历史红卡记录时必有，否则空 |
 | `飞书链接网址` | 本条稿件对应的飞书链接网址（消息文本中的飞书链接 / Step 0 用 `WebBridgeNavigate` 打开的稿件链接原文，取完整 URL），无链接则空 |
@@ -334,6 +337,8 @@ Agent 审核失败（稿件无法自动审核）时，按"⚠️ 审核失败"�
 - `ma-publish-data-track`：负责发布后数据（发布记录/报数/异常预警），本 skill 只管审稿
 
 ## 维护注意（已知问题）
+
+> **优先用快速脚本 `fetch_feishu_fast.py`**：MutationObserver 实时收集文本/图片 + 高速双程滚动，已在 DOM 侧规避下方问题 1/2/3/4/5（头像按 `static-resource` 域剔除、图片按出现顺序编号、滚动容器判断正确）；问题 6（CDP 无页面）对两个脚本通用。`kol_collector.py --extract-images` 仅在快速脚本失败时兜底。
 
 以下问题已记录待脚本侧（`scripts/kol_collector.py --extract-images`）修正，修正前按 Step 0 的"强制"说明规避：
 
