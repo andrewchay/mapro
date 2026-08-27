@@ -86,6 +86,21 @@ def click_detail_by_row(page, name):
 def close_drawer(page):
     page.evaluate("() => { const c=document.querySelector('.invite-detail-drawer [class*=close]'); if(c) c.click(); }")
     time.sleep(0.6)
+    page.evaluate("() => document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true}))")
+    time.sleep(0.5)
+    exists = page.evaluate("() => !!document.querySelector('.invite-detail-drawer')")
+    if exists:
+        page.evaluate("() => { const d=document.querySelector('.invite-detail-drawer'); const c=d&&d.querySelector('[class*=close],[class*=Close]'); if(c) c.click(); }")
+        time.sleep(0.6)
+
+
+def drawer_matches(page, name):
+    """校验当前详情抽屉是否属于指定博主（含博主名）。"""
+    return page.evaluate("""({name}) => {
+        const d = document.querySelector('.invite-detail-drawer');
+        if (!d) return false;
+        return (d.textContent||'').includes(name);
+    }""", {"name": name})
 
 
 def read_wechat(page):
@@ -97,8 +112,14 @@ def read_wechat(page):
         for (const row of rows) {
             const left = row.querySelector('.item-left');
             const right = row.querySelector('.item-right');
-            if (left && right && (left.textContent||'').trim() === '博主微信') {
-                return {value: (right.textContent||'').trim(), masked: /^\\*+$/.test((right.textContent||'').trim())};
+            if (left && right && (left.textContent||'').trim() === '博主微信' && right) {
+                // 只读值 span（d-text-nowrap），避免带上末尾的提示文案
+                const valNode = right.querySelector('span.d-text-nowrap');
+                let value = (valNode ? valNode.textContent : right.textContent).trim();
+                const hint = '联系方式属于博主的重要个人信息';
+                const hi = value.indexOf(hint);
+                if (hi >= 0) value = value.slice(0, hi).trim();
+                return {value, masked: /\\*/.test(value)};
             }
         }
         return null;
@@ -107,7 +128,7 @@ def read_wechat(page):
 
 
 def click_wechat_value(page):
-    """点击微信值区域，尝试触发脱敏字段解密（掩码->明文）。"""
+    """点击微信行的眼睛图标(.cursor-animation)，触发脱敏字段解密（掩码->明文）。"""
     page.evaluate("""() => {
         const d = document.querySelector('.invite-detail-drawer');
         const rows = d.querySelectorAll('.detail-list .flex.gap-16');
@@ -115,10 +136,13 @@ def click_wechat_value(page):
             const left = row.querySelector('.item-left');
             const right = row.querySelector('.item-right');
             if (left && right && (left.textContent||'').trim() === '博主微信' && right) {
-                right.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
-                right.dispatchEvent(new MouseEvent('mouseup', {bubbles:true}));
-                right.dispatchEvent(new MouseEvent('click', {bubbles:true}));
-                return true;
+                const eye = right.querySelector('span.d-icon.cursor-animation, .cursor-animation');
+                if (eye) {
+                    eye.scrollIntoView({block:'center'});
+                    ['mousedown','mouseup','click'].forEach(t =>
+                        eye.dispatchEvent(new MouseEvent(t, {bubbles:true, cancelable:true})));
+                    return true;
+                }
             }
         }
         return false;
@@ -180,6 +204,13 @@ def main():
                 results.append((name, ""))
                 continue
             time.sleep(2)
+            if not drawer_matches(page, name):
+                time.sleep(2)
+            if not drawer_matches(page, name):
+                log(f"  !! 抽屉未切换到 {name}，跳过")
+                close_drawer(page)
+                results.append((name, ""))
+                continue
 
             info = read_wechat(page)
             wechat = ""
