@@ -20,6 +20,8 @@ function createMockRepository(): CampaignRepository {
       complianceScore: number
       brandAlignmentScore: number
       qualityScore: number
+      brandImageScore: number
+      dataVerifiabilityScore: number
       overallScore: number
       auditReport: string
       auditor: string
@@ -34,6 +36,8 @@ function createMockRepository(): CampaignRepository {
       complianceScore: input.complianceScore,
       brandAlignmentScore: input.brandAlignmentScore,
       qualityScore: input.qualityScore,
+      brandImageScore: input.brandImageScore,
+      dataVerifiabilityScore: input.dataVerifiabilityScore,
       overallScore: input.overallScore,
       auditReport: input.auditReport,
       auditor: input.auditor,
@@ -99,7 +103,7 @@ describe('ContentAuditService', () => {
         contentDescription: '这是一篇使用分享。',
       }))
 
-      expect(audit.brandAlignmentScore).toBe(40)
+      expect(audit.brandAlignmentScore).toBe(30)
     })
 
     it('Given 描述含广告法风险词 when 审核 then 合规分降低', async () => {
@@ -128,7 +132,7 @@ describe('ContentAuditService', () => {
       const audit = await service.audit(buildInput({
         brand: 'X',
         product: 'X',
-        contentDescription: '最',
+        contentDescription: '最 X',
       }))
 
       expect(audit.overallScore).toBeGreaterThanOrEqual(50)

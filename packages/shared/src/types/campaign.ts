@@ -581,6 +581,8 @@ export interface ContentAudit {
   complianceScore: number
   brandAlignmentScore: number
   qualityScore: number
+  brandImageScore: number        // ← 新增：品牌形象一致性（奥格威框架）
+  dataVerifiabilityScore: number // ← 新增：数据可验证性（奥格威框架）
   overallScore: number
   auditReport: string
   auditor: string
@@ -598,6 +600,21 @@ export interface CreateContentAuditInput {
   contentType: string
   contentDescription: string
   contentUrl?: string
+  // === 新增：品牌形象一致性评估所需上下文（奥格威框架）===
+  /** 品牌人格卡片：语言风格/情绪基调/角色定位（如：专家朋友/潮流引领者） */
+  brandPersona?: string
+  /** 视觉规范：色调/场景/产品展示要求 */
+  visualGuidelines?: string
+  /** 核心传播信息 / Key Message */
+  keyMessage?: string
+  /** 核心卖点（JSON 字符串数组） */
+  sellingPoints?: string
+  /** 目标受众画像 */
+  targetAudience?: string
+  /** 创意概念的数据支撑/洞察来源 */
+  dataSupport?: string
+  /** 历史 Benchmark 数据（JSON 字符串） */
+  benchmarkData?: string
 }
 
 export const CONTENT_AUDIT_IPC_CHANNELS = {

@@ -14,9 +14,11 @@ import { tmpdir } from 'node:os'
 import type { CreateCampaignInput } from '@ma-proma/shared'
 import type {
   Campaign,
+  CampaignBrief,
   CampaignKOLPoolItem,
   ImportKOLsToPoolInput,
   KOLSearchResult,
+  SaveCampaignBriefInput,
 } from '@ma-proma/shared'
 
 mock.module('electron', () => ({
@@ -44,6 +46,8 @@ interface CampaignManagerModule {
   getPoolKOLs: (campaignId: string) => CampaignKOLPoolItem[]
   importKOLsToPool: (input: ImportKOLsToPoolInput) => { imported: number }
   listAvailableKOLs: (filters?: { limit?: number }) => KOLSearchResult
+  getBrief: (campaignId: string, kolId: string) => CampaignBrief | null
+  saveBrief: (input: SaveCampaignBriefInput) => CampaignBrief
 }
 
 let campaignManager: CampaignManagerModule
@@ -152,5 +156,57 @@ describe('Campaign 集成测试', () => {
     const result = campaignManager.listAvailableKOLs({ limit: 10 })
     expect(Array.isArray(result.kols)).toBe(true)
     expect(typeof result.total).toBe('number')
+  })
+
+  it('Slice 4: Brief 携带 JTBD 结构化字段落库并回读', () => {
+    const jobSpec = JSON.stringify({
+      functional: '快速获得新鲜即食的水果甜点',
+      emotional: '缓解疲惫与自责感',
+      social: '呈现精致自律的生活态度',
+      competing_solutions: ['奶茶', '蛋糕', '代餐奶昔'],
+      anxieties: ['担心糖分', '担心不新鲜'],
+      tradeoffs: '愿意为新鲜支付溢价，不愿牺牲便捷',
+    })
+    const forcesMap = JSON.stringify({
+      push: '放大"想吃甜又怕负担"的场景痛点',
+      pull: '突出"下班路上顺手犒赏"的憧憬',
+      inertia: '强调和点奶茶一样方便',
+      anxiety: '用冷链溯源与明码标价消解担忧',
+    })
+
+    const saved = campaignManager.saveBrief({
+      campaignId: testCampaignId,
+      kolId: 'mock_小红书_美妆达人小美',
+      kolName: '美妆达人小美',
+      content: '# 测试 Brief\nJTBD 任务陈述与四力分析。',
+      jobSpec,
+      forcesMap,
+      aiGenerated: true,
+    })
+
+    expect(saved.jobSpec).toBe(jobSpec)
+    expect(saved.forcesMap).toBe(forcesMap)
+
+    const fetched = campaignManager.getBrief(testCampaignId, 'mock_小红书_美妆达人小美')
+    expect(fetched).not.toBeNull()
+    expect(fetched!.jobSpec).toBe(jobSpec)
+    expect(fetched!.forcesMap).toBe(forcesMap)
+    expect(JSON.parse(fetched!.jobSpec!).competing_solutions).toContain('奶茶')
+  })
+
+  it('Slice 4: 更新 Brief 时不传 JTBD 字段则保留原值', () => {
+    const before = campaignManager.getBrief(testCampaignId, 'mock_小红书_美妆达人小美')
+    expect(before).not.toBeNull()
+
+    const updated = campaignManager.saveBrief({
+      campaignId: testCampaignId,
+      kolId: 'mock_小红书_美妆达人小美',
+      kolName: '美妆达人小美',
+      content: '# 更新后的 Brief 内容',
+    })
+
+    expect(updated.content).toBe('# 更新后的 Brief 内容')
+    expect(updated.jobSpec).toBe(before!.jobSpec)
+    expect(updated.forcesMap).toBe(before!.forcesMap)
   })
 })

@@ -113,13 +113,15 @@ export const CAMPAIGN_AGENT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'ma_campaign_brief_update',
-    description: 'Update KOL brief content.',
+    description: 'Update KOL brief content, optionally with JTBD job spec and forces map (JSON strings).',
     parameters: {
       type: 'object',
       properties: {
         campaign_id: { type: 'string', description: 'Campaign ID' },
         kol_id: { type: 'string', description: 'KOL ID' },
         content: { type: 'string', description: 'New brief content (markdown)' },
+        job_spec: { type: 'string', description: 'JTBD job spec as JSON string: functional/emotional/social 三维任务陈述、competing_solutions 跨品类竞争集、anxieties 障碍与焦虑、tradeoffs 关键取舍' },
+        forces_map: { type: 'string', description: 'Four forces map as JSON string: push/pull/inertia/anxiety 四力及对应内容动作' },
       },
       required: ['campaign_id', 'kol_id', 'content'],
     },
@@ -285,6 +287,8 @@ export async function executeCampaignAgentTool(tc: ToolCall): Promise<ToolResult
           kolId,
           kolName: String(args.kol_name ?? kolId),
           content,
+          jobSpec: args.job_spec != null ? String(args.job_spec) : undefined,
+          forcesMap: args.forces_map != null ? String(args.forces_map) : undefined,
           aiGenerated: false,
         })
         return {

@@ -287,6 +287,8 @@ export class CampaignRepository {
         compliance_score INTEGER DEFAULT 0,
         brand_alignment_score INTEGER DEFAULT 0,
         quality_score INTEGER DEFAULT 0,
+        brand_image_score INTEGER DEFAULT 0,
+        data_verifiability_score INTEGER DEFAULT 0,
         overall_score INTEGER DEFAULT 0,
         audit_report TEXT,
         auditor TEXT,
@@ -789,6 +791,8 @@ ${kol.price ? `- **合作报价**：${kol.price}` : ''}
     complianceScore: number
     brandAlignmentScore: number
     qualityScore: number
+    brandImageScore: number
+    dataVerifiabilityScore: number
     overallScore: number
     auditReport: string
     auditor: string
@@ -799,9 +803,10 @@ ${kol.price ? `- **合作报价**：${kol.price}` : ''}
     await this.db.execute(
       `INSERT INTO content_audits (
         audit_id, campaign_id, kol_id, kol_name, content_url, platform,
-        audit_status, compliance_score, brand_alignment_score, quality_score, overall_score,
+        audit_status, compliance_score, brand_alignment_score, quality_score,
+        brand_image_score, data_verifiability_score, overall_score,
         audit_report, auditor, owner_id, tenant_id, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
       [
         auditId,
         input.campaignId,
@@ -813,6 +818,8 @@ ${kol.price ? `- **合作报价**：${kol.price}` : ''}
         input.complianceScore,
         input.brandAlignmentScore,
         input.qualityScore,
+        input.brandImageScore,
+        input.dataVerifiabilityScore,
         input.overallScore,
         input.auditReport,
         input.auditor,
@@ -1208,6 +1215,8 @@ function rowToContentAudit(row: Record<string, unknown>): ContentAudit {
     complianceScore: Number(row.compliance_score ?? 0),
     brandAlignmentScore: Number(row.brand_alignment_score ?? 0),
     qualityScore: Number(row.quality_score ?? 0),
+    brandImageScore: Number(row.brand_image_score ?? 0),
+    dataVerifiabilityScore: Number(row.data_verifiability_score ?? 0),
     overallScore: Number(row.overall_score ?? 0),
     auditReport: String(row.audit_report ?? ''),
     auditor: String(row.auditor ?? ''),

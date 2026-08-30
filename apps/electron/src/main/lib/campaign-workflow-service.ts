@@ -533,11 +533,13 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
   {
     id: 'generate_briefs',
     title: '生成达人 Brief',
-    description: '为每个已确认的达人生成个性化的合作 Brief，包含内容方向、Tone & Manner、品牌戏剧性植入、合规检查与交付物',
+    description: '为每个已确认的达人生成个性化的合作 Brief，以 JTBD 任务规格与四力模型为策略内核，包含内容方向、Tone & Manner、品牌戏剧性植入、合规检查与交付物',
     toolName: 'ma-creative-pilot',
     minArtifactLength: 300,
     artifactRequirements: [
       { name: 'Brief 索引', aliases: ['Brief', '索引', 'briefs', '清单', '列表'] },
+      { name: 'JTBD 任务陈述', aliases: ['任务陈述', 'JTBD', '待办任务', 'job spec', '雇用'] },
+      { name: '四力分析', aliases: ['四力', '推力', '拉力', 'forces', '阻碍'] },
       { name: '内容方向', aliases: ['内容方向', '内容策略', '关键信息', '信息点', '核心信息'] },
       { name: 'Tone & Manner', aliases: ['tone', 'manner', '调性', '语气', '语言风格'] },
       { name: '品牌戏剧性', aliases: ['戏剧性', 'inherent drama', '情感张力', '冲突', '植入点'] },
@@ -547,34 +549,49 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
     ],
     agentPrompt: `## 步骤 12: 生成达人 Brief
 
-目标：为当前 Campaign 候选池中的每位已确认达人（status = confirmed）生成个性化 Brief。Brief 不只是内容方向，还要明确 Tone & Manner、品牌戏剧性植入点、合规要求和交付标准。
+目标：为当前 Campaign 候选池中的每位已确认达人（status = confirmed）生成个性化 Brief。Brief 以 JTBD（Jobs-to-be-Done）任务规格和四力模型为策略内核——先想清楚目标用户"雇用"产品/内容来完成什么任务、是什么力量在推动或阻碍他们，再展开内容方向、Tone & Manner、品牌戏剧性植入点、合规要求和交付标准。
 
 产出框架（每个 brief-{kol-id}.md 必须包含）：
-1. **内容方向**：核心信息、内容角度、必须呈现的场景/卖点
-2. **Tone & Manner 校准**：
+1. **JTBD 任务陈述（Job Spec）**：
+   - 任务陈述：当【情境】时，目标用户想要【动机/期望结果】，以便【功能/情感/社会层面的收益】
+   - 三维度拆解：功能维度（要完成什么实际任务）、情感维度（想获得/摆脱什么感受）、社会维度（希望被他人如何看待）
+   - 跨品类竞争集：用户不选我们时会"雇用"什么替代品（不限于同类品牌，可能是完全不同品类的方案）
+   - 障碍与焦虑：用户在尝试新方案时担心什么（价格、效果、麻烦程度、社交风险等）
+   - 关键取舍：用户愿意为哪个维度牺牲另一个维度
+2. **四力分析（Forces of Progress）**：
+   - 推力：现有方案的哪些不满把用户推向新选择 → 内容要放大什么场景痛点
+   - 拉力：新方案的哪些吸引力把用户拉过来 → 内容要突出什么收益与憧憬
+   - 惯性：哪些旧习惯让用户原地不动 → 内容要降低什么改变成本
+   - 焦虑：哪些担忧让用户不敢尝试 → 内容要提供什么保证/证据来消解
+   - 每种力量都要落到该达人内容中的具体动作（说什么、演什么、展示什么）
+3. **内容方向**：核心信息、内容角度、必须呈现的场景/卖点（须与任务陈述和四力映射一致）
+4. **Tone & Manner 校准**：
    - 该达人的语言风格如何适配品牌全局调性
    - 可说的话 / 不可说的话（禁忌词、敏感表达）
    - 参考 ma-tone-manner 中定义的品牌声音
-3. **品牌戏剧性植入点（Inherent Drama）**：
-   - 本次内容要呈现的人性冲突/情感张力
+5. **品牌戏剧性植入点（Inherent Drama）**：
+   - 本次内容要呈现的人性冲突/情感张力（应与四力中的推力/焦虑呼应）
    - 品牌在这个冲突中扮演的角色
    - 达人如何自然地带出这个戏剧性
-4. **合规检查清单**：
+6. **合规检查清单**：
    - 平台规范（小红书/抖音等）
    - 广告法禁用词（最、第一、纯天然等）
    - 必须标注的利益关系声明
-5. **交付物清单**：图文/视频数量、封面要求、话题标签、是否需要露出产品包装等
-6. **时间线**：发布节点、审稿节点、修改截止时间
+7. **交付物清单**：图文/视频数量、封面要求、话题标签、是否需要露出产品包装等
+8. **时间线**：发布节点、审稿节点、修改截止时间
 
 执行要求：
 1. 使用 ma-creative-pilot 工具生成 Brief
 2. 可调用 ma-script-studio 为重要达人生成故事脚本/分镜（可选）
 3. 产出必须保存到：\`briefs/\`
 4. 文件命名建议：\`briefs-index.md\`、\`brief-{kol-id}.md\`（每位达人单独一个文件）
-5. 完成标准（校验时会检查）：
+5. 结构化落库：每位达人的 Brief 保存时，调用 ma_campaign_brief_update 并额外传入两个字段：
+   - \`job_spec\`：JSON 字符串，包含 functional/emotional/social 三维任务陈述、competing_solutions（跨品类竞争集）、anxieties（障碍与焦虑）、tradeoffs（关键取舍）
+   - \`forces_map\`：JSON 字符串，包含 push/pull/inertia/anxiety 四力及其对应的内容动作
+6. 完成标准（校验时会检查）：
    - briefs-index.md 必须包含所有已确认 KOL 列表、Brief 状态、交付时间线（至少300字）
-   - 每个 brief-{kol-id}.md 必须包含：内容方向、Tone & Manner、品牌戏剧性植入点、合规检查、交付物清单、时间节点（至少300字）
-   - 每位达人的 Brief 都体现其个人风格和受众特点
+   - 每个 brief-{kol-id}.md 必须包含：JTBD 任务陈述、四力分析、内容方向、Tone & Manner、品牌戏剧性植入点、合规检查、交付物清单、时间节点（至少300字）
+   - 每位达人的 Brief 都体现其个人风格和受众特点，且任务陈述与该达人的受众情境匹配
 
 前置产物：\`brand-concept/\`、\`creative-concept/\`、\`kol-search/\` 目录中的文件
 完成后，请返回 "已完成：达人 Brief 生成"并附上产物摘要。`,

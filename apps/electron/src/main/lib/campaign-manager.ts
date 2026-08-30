@@ -302,6 +302,8 @@ export function getDb(): Database {
       kol_id TEXT NOT NULL,
       kol_name TEXT NOT NULL,
       content TEXT NOT NULL,
+      job_spec TEXT,
+      forces_map TEXT,
       ai_generated INTEGER DEFAULT 0,
       status TEXT DEFAULT 'draft',
       created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
@@ -312,6 +314,15 @@ export function getDb(): Database {
 
   dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_briefs_campaign ON campaign_briefs(campaign_id)`)
   dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_briefs_kol ON campaign_briefs(kol_id)`)
+
+  // 存量库迁移：补充 JTBD 结构化字段
+  const briefColumns = dbInstance.query(`PRAGMA table_info(campaign_briefs)`).all() as Array<{ name: string }>
+  if (!briefColumns.some((col) => col.name === 'job_spec')) {
+    dbInstance.run(`ALTER TABLE campaign_briefs ADD COLUMN job_spec TEXT`)
+  }
+  if (!briefColumns.some((col) => col.name === 'forces_map')) {
+    dbInstance.run(`ALTER TABLE campaign_briefs ADD COLUMN forces_map TEXT`)
+  }
 
   // 内容数据追踪表（新增）
   dbInstance.run(`
@@ -1491,6 +1502,8 @@ export function getBrief(campaignId: string, kolId: string): import('@ma-proma/s
     kolId: String(row.kol_id),
     kolName: String(row.kol_name),
     content: String(row.content),
+    jobSpec: row.job_spec != null ? String(row.job_spec) : null,
+    forcesMap: row.forces_map != null ? String(row.forces_map) : null,
     aiGenerated: Boolean(row.ai_generated),
     status: row.status as 'draft' | 'final',
     createdAt: Number(row.created_at),
@@ -1510,58 +1523,44 @@ export function saveBrief(input: import('@ma-proma/shared').SaveCampaignBriefInp
   ).get(input.campaignId, input.kolId) as { id: string } | null
 
   if (existing) {
-    // 更新
+    // 更新（jobSpec/forcesMap 不传时保留原值）
     db.run(
       `UPDATE campaign_briefs
-       SET content = ?, kol_name = ?, ai_generated = ?, status = ?, updated_at = ?
+       SET content = ?, kol_name = ?, ai_generated = ?, status = ?,
+           job_spec = COALESCE(?, job_spec), forces_map = COALESCE(?, forces_map),
+           updated_at = ?
        WHERE id = ?`,
       input.content,
       input.kolName,
       input.aiGenerated ? 1 : 0,
       'draft',
+      input.jobSpec ?? null,
+      input.forcesMap ?? null,
       now,
       existing.id,
     )
 
-    return {
-      id: existing.id,
-      campaignId: input.campaignId,
-      kolId: input.kolId,
-      kolName: input.kolName,
-      content: input.content,
-      aiGenerated: input.aiGenerated ?? false,
-      status: 'draft',
-      createdAt: now,
-      updatedAt: now,
-    }
+    return getBrief(input.campaignId, input.kolId)!
   }
 
   // 新建
   db.run(
-    `INSERT INTO campaign_briefs (id, campaign_id, kol_id, kol_name, content, ai_generated, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO campaign_briefs (id, campaign_id, kol_id, kol_name, content, job_spec, forces_map, ai_generated, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     input.campaignId,
     input.kolId,
     input.kolName,
     input.content,
+    input.jobSpec ?? null,
+    input.forcesMap ?? null,
     input.aiGenerated ? 1 : 0,
     'draft',
     now,
     now,
   )
 
-  return {
-    id,
-    campaignId: input.campaignId,
-    kolId: input.kolId,
-    kolName: input.kolName,
-    content: input.content,
-    aiGenerated: input.aiGenerated ?? false,
-    status: 'draft',
-    createdAt: now,
-    updatedAt: now,
-  }
+  return getBrief(input.campaignId, input.kolId)!
 }
 
 // =====================================================================
@@ -1604,6 +1603,21 @@ ${campaign.phasePlans.map((phase) => `### 第 ${phase.phase} 阶段：${phase.na
 - 结合 ${campaign.brand} 品牌调性创作内容
 - 围绕 ${campaign.creativePlan.contentPillars.join('、') || '产品卖点'} 展开
 - 适配 ${kol.platform} 平台内容形态与受众习惯`).join('\n\n')}
+
+## JTBD 任务陈述（待策略细化）
+- **任务陈述**：当【情境】时，目标用户想要【动机】，以便【功能/情感/社会收益】
+- **功能维度**：____
+- **情感维度**：____
+- **社会维度**：____
+- **跨品类竞争集**：用户不选我们时会"雇用"什么替代方案：____
+- **障碍与焦虑**：____
+- **关键取舍**：____
+
+## 四力分析（待策略细化）
+- **推力**（现有方案的不满 → 内容放大的痛点场景）：____
+- **拉力**（新方案的吸引 → 内容突出的收益憧憬）：____
+- **惯性**（旧习惯 → 内容要降低的改变成本）：____
+- **焦虑**（担忧 → 内容要提供的保证/证据）：____
 
 ## 内容要求
 - [ ] 必须露出品牌名「${campaign.brand}」
