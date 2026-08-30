@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import type { Campaign, CampaignKOLPoolItem, ContentAudit } from '@ma-proma/shared'
+import { ContentAuditReportCard } from '@/components/campaign'
 
 interface ContentAuditDialogProps {
   campaign: Campaign
@@ -92,7 +93,7 @@ export function ContentAuditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col p-0">
+      <DialogContent className="sm:max-w-[900px] max-h-[85vh] flex flex-col p-0">
         <DialogHeader className="px-6 pt-5 pb-3">
           <DialogTitle className="text-base flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-primary" />
@@ -155,34 +156,7 @@ export function ContentAuditDialog({
             </div>
           ) : (
             <div className="space-y-4">
-              {/* 审核状态 */}
-              <div className="flex items-center gap-3">
-                <div className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium', statusConfig.color)}>
-                  <StatusIcon className={cn('w-4 h-4', auditResult.auditStatus === 'reviewing' && 'animate-spin')} />
-                  {statusConfig.label}
-                </div>
-                <span className="text-sm text-muted-foreground">
-                  综合评分：<span className={cn('font-bold', auditResult.overallScore >= 60 ? 'text-emerald-600' : 'text-red-600')}>
-                    {auditResult.overallScore}
-                  </span> / 100
-                </span>
-              </div>
-
-              {/* 三维度评分 */}
-              <div className="grid grid-cols-3 gap-3 p-4 rounded-xl border border-border/60 bg-card">
-                <ScoreRing score={auditResult.complianceScore} label="合规性" />
-                <ScoreRing score={auditResult.brandAlignmentScore} label="品牌契合" />
-                <ScoreRing score={auditResult.qualityScore} label="内容质量" />
-              </div>
-
-              {/* 审核报告 */}
-              {auditResult.auditReport && (
-                <div className="prose prose-sm max-w-none">
-                  <div className="text-sm text-muted-foreground whitespace-pre-wrap">
-                    {auditResult.auditReport}
-                  </div>
-                </div>
-              )}
+              <ContentAuditReportCard audit={auditResult} />
 
               <div className="flex justify-end gap-2 pt-2">
                 <Button
