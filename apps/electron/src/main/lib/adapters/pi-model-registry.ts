@@ -91,6 +91,20 @@ export function resolvePiMaxTokens(provider: ProviderType): number {
   return 64_000
 }
 
+export function resolvePiInputModalities(
+  provider: ProviderType,
+  modelId: string,
+): ('text' | 'image')[] {
+  if (provider !== 'kimi-coding') return ['text', 'image']
+
+  const normalizedModelId = modelId.trim().toLowerCase()
+  return normalizedModelId === 'k3'
+    || normalizedModelId === 'k3-256k'
+    || normalizedModelId === 'kimi-k3'
+    ? ['text', 'image']
+    : ['text']
+}
+
 function buildPiModelConfig(input: PiModelRegistrationInput, api: Api, baseUrl: string): NonNullable<PiProviderConfigInput['models']>[number] {
   const model: NonNullable<PiProviderConfigInput['models']>[number] = {
     id: input.modelId,
@@ -98,7 +112,7 @@ function buildPiModelConfig(input: PiModelRegistrationInput, api: Api, baseUrl: 
     api,
     baseUrl,
     reasoning: true,
-    input: input.provider === 'kimi-coding' ? ['text'] : ['text', 'image'],
+    input: resolvePiInputModalities(input.provider, input.modelId),
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 200_000,
     maxTokens: resolvePiMaxTokens(input.provider),
