@@ -61,6 +61,8 @@ const baseAudit: ContentAudit = {
   complianceScore: 90,
   brandAlignmentScore: 85,
   qualityScore: 88,
+  brandImageScore: 0,
+  dataVerifiabilityScore: 0,
   overallScore: 87,
   auditReport: '符合要求',
   auditor: 'system',

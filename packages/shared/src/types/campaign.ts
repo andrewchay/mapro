@@ -293,6 +293,10 @@ export interface CampaignBrief {
   kolName: string
   /** Brief 内容（Markdown） */
   content: string
+  /** JTBD 任务规格（JSON 字符串） */
+  jobSpec?: string | null
+  /** JTBD 驱动力分析（JSON 字符串） */
+  forcesMap?: string | null
   /** 是否 AI 生成 */
   aiGenerated: boolean
   /** 状态：draft / final */
@@ -309,6 +313,10 @@ export interface SaveCampaignBriefInput {
   kolId: string
   kolName: string
   content: string
+  /** 不传时保留已有任务规格 */
+  jobSpec?: string
+  /** 不传时保留已有驱动力分析 */
+  forcesMap?: string
   aiGenerated?: boolean
 }
 
@@ -993,4 +1001,3 @@ export const AB_TEST_IPC_CHANNELS = {
   UPDATE_RESULT: 'abTest:updateResult',
   ANALYZE: 'abTest:analyze',
 } as const
-
