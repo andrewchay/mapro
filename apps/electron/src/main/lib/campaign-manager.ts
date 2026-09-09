@@ -256,11 +256,8 @@ function openCampaignDb(): Database {
     )
   `)
 
-  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status)`)
-  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_campaigns_brand ON campaigns(brand)`)
-  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_campaigns_archived ON campaigns(archived)`)
-  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_campaigns_deleted_at ON campaigns(deleted_at)`)
-
+  // 列迁移必须先于索引创建：旧库可能缺少 archived / deleted_at 等列，
+  // 若先建索引会因 "no such column" 中断整个迁移序列。
   const campaignColumns = dbInstance.query(`PRAGMA table_info(campaigns)`).all() as Array<{ name: string }>
   if (!campaignColumns.some((col) => col.name === 'phase_plans')) {
     dbInstance.run(`ALTER TABLE campaigns ADD COLUMN phase_plans TEXT`)
@@ -277,6 +274,11 @@ function openCampaignDb(): Database {
   if (!campaignColumns.some((col) => col.name === 'deleted_at')) {
     dbInstance.run(`ALTER TABLE campaigns ADD COLUMN deleted_at INTEGER`)
   }
+
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status)`)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_campaigns_brand ON campaigns(brand)`)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_campaigns_archived ON campaigns(archived)`)
+  dbInstance.run(`CREATE INDEX IF NOT EXISTS idx_campaigns_deleted_at ON campaigns(deleted_at)`)
 
   // 构建过程记录表（结构化过程史：步骤完成、用户诉求、需求变更等）
   dbInstance.run(`
