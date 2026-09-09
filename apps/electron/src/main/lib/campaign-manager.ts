@@ -198,6 +198,32 @@ function getDbPath(): string {
 
 export function getDb(): Database {
   if (dbInstance) return dbInstance
+  try {
+    return openCampaignDb()
+  } catch (err) {
+    // 迁移中途失败（如瞬时锁库）时丢弃半初始化实例：
+    // 迁移语句均为幂等（IF NOT EXISTS / guarded ALTER），下次调用可安全重试。
+    // 否则会缓存缺表的连接，后续写入报 "no such table" 且进程内无法自愈。
+    closePartialDbInstance()
+    throw err
+  }
+}
+
+/** 丢弃可能半初始化的 Campaign 数据库连接（独立函数以避开 TS 对模块级变量的类型收窄） */
+function closePartialDbInstance(): void {
+  const instance = dbInstance
+  if (instance) {
+    try {
+      instance.close()
+    } catch {
+      // 忽略关闭异常
+    }
+    dbInstance = null
+  }
+}
+
+function openCampaignDb(): Database {
+  if (dbInstance) return dbInstance
 
   const dbPath = getDbPath()
   const dir = join(getTestConfigDir() ?? getConfigDir())
