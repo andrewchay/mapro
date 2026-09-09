@@ -1,9 +1,11 @@
 /**
  * 审核反馈 CSV 可视化转换（内联版，替代原 python3 normalize_review_feedback.py）
  *
- * 输入：draft-review-feedback.csv（bot 每次审核落盘的原始 CSV，5 列：
- *       @谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容）
- * 输出：draft-review-feedback-viz.csv（13 列结构化可视化版，UTF-8 with BOM，Excel 直接打开不乱码）
+ * 输入：draft-review-feedback.csv（Agent 每次审核后自行落盘的原始 CSV，7 列：
+ *       @谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,返工项确认,飞书链接网址）
+ * 输出：draft-review-feedback-viz.csv（15 列结构化可视化版，UTF-8 with BOM，Excel 直接打开不乱码）
+ * 结构化拆分：稿件标题/话题标签按 md 区块（## 标题 / ## 话题标签，兼容 ###/# 层级、空行、内联写法）提取；
+ *       稿件文字列只保留正文（去掉归档头 `# 稿件 v{N} · 达人` 与标题/话题标签区块）
  * 幂等：每次审核后整体重写 viz CSV，保持整洁
  */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
@@ -12,7 +14,7 @@ import { join } from 'node:path'
 const VIZ_HEADER = [
   '@谁', '达人名称', '审核结论', '版本号', '审核时间',
   '必改条数', '争议条数', '可优化条数',
-  '稿件标题', '话题标签', '稿件图片', '稿件文字', 'bot最终审核意见',
+  '稿件标题', '话题标签', '稿件图片', '稿件文字', 'bot最终审核意见', '返工项确认', '飞书链接网址',
 ]
 
 /** 审核结论：从 bot 回复模板提取 red/yellow/green/fail，无模板标记（旧格式）时按区块结构兜底推断 */
@@ -68,44 +70,106 @@ function cleanReply(reply: string): string {
   return reply.trim()
 }
 
-/** 稿件标题：## 标题 后一行 → 标题：行 → 首行 */
-function extractTitle(text: string): string {
+/**
+ * 提取 md 区块内容（标题/话题标签），兼容多种写法：
+ * - 区块式：`## 标题`（支持 `###`/`#` 层级，`## 标题（可选）` 等后缀），内容为后续连续非空行
+ *   （允许区块头与内容之间有空行，遇空行/下一 md 标题结束）
+ * - 内联式：`## 标题：xxx` / `标题：xxx` / `【标题】xxx`
+ * @param keywords 区块关键词（如 "标题" / "话题标签"），首命中优先
+ */
+function extractSection(text: string, keywords: string[]): string {
   const lines = (text ?? '').split('\n')
+  const headingRe = (kw: string) => new RegExp(`^#{1,3}\\s*${kw}`)
+  // 1) 区块式：区块头行 → 跳过内容前的空行 → 收集连续非空内容行（已见内容后遇空行/下一 md 标题结束）
   for (let i = 0; i < lines.length; i++) {
-    if (/^##\s*标题/.test(lines[i] ?? '')) return (lines[i + 1] ?? '').trim()
+    const t = (lines[i] ?? '').trim()
+    if (!keywords.some((kw) => headingRe(kw).test(t))) continue
+    // 内联形式（## 标题：xxx）直接取值，避免误入区块式收集下一行
+    for (const kw of keywords) {
+      const m = t.match(new RegExp(`^#{1,3}\\s*${kw}\\s*[：:]\\s*(.+)`))
+      if (m) return (m[1] ?? '').trim()
+    }
+    const out: string[] = []
+    let seenContent = false
+    for (let j = i + 1; j < lines.length; j++) {
+      const u = (lines[j] ?? '').trim()
+      if (seenContent && !u) break // 已收集内容后遇空行 → 区块结束
+      if (/^#{1,3}\s/.test(u)) break // 下一 md 标题 → 区块结束
+      if (!u) continue // 区块头与内容之间的空行 → 继续找内容
+      seenContent = true
+      out.push(u)
+    }
+    if (out.length) return out.join(' ')
+    break
   }
+  // 2) 内联式：`## 标题：xxx` / `标题：xxx` / `【标题】xxx`
   for (const line of lines) {
-    const m = line.match(/^标题[：:]\s*(.+)/)
-    if (m) return (m[1] ?? '').trim()
-  }
-  for (const line of lines) {
-    const s = line.trim()
-    if (s) return s
+    const t = line.trim()
+    for (const kw of keywords) {
+      const m = t.match(new RegExp(`^#{1,3}\\s*${kw}\\s*[：:]\\s*(.+)`)) ?? t.match(new RegExp(`^${kw}\\s*[：:]\\s*(.+)`))
+      if (m) return (m[1] ?? '').trim()
+    }
+    const bracket = t.match(/^【(.+)】/)
+    if (bracket && keywords.includes('标题')) return (bracket[1] ?? '').trim()
   }
   return ''
 }
 
-/** 话题标签：## 话题标签 后连续行 → 标签：行 → 含 #xxx 的行（排除 markdown 标题行） */
-function extractTags(text: string): string {
-  const lines = (text ?? '').split('\n')
-  for (let i = 0; i < lines.length; i++) {
-    if (!/^##\s*话题标签/.test(lines[i] ?? '')) continue
-    const out: string[] = []
-    for (const l of lines.slice(i + 1)) {
-      const s = l.trim()
-      if (!s) break
-      out.push(s)
-    }
-    return out.join(' ')
+/** 稿件标题：md 区块式/内联式优先，兜底取首个非空且非 md 标题行 */
+export function extractTitle(text: string): string {
+  const section = extractSection(text, ['标题'])
+  if (section) return section
+  for (const line of (text ?? '').split('\n')) {
+    const s = line.trim()
+    if (s && !/^#+\s/.test(s)) return s
   }
-  for (const line of lines) {
-    const m = line.match(/^\s*标签[：:]\s*(.+)/)
-    if (m) return (m[1] ?? '').trim()
-  }
-  for (const line of lines) {
+  return ''
+}
+
+/** 话题标签：md 区块式/内联式优先，兜底取含 #xxx 的行（排除 md 标题行） */
+export function extractTags(text: string): string {
+  const section = extractSection(text, ['话题标签', '话题', '标签'])
+  if (section) return section
+  for (const line of (text ?? '').split('\n')) {
     if (/#[^\s#]+/.test(line) && !/^#+\s/.test(line)) return line.trim()
   }
   return ''
+}
+
+/**
+ * 正文：去掉归档头（`# 稿件 v{N} · 达人`）与"标题/话题标签"区块（含区块内容），
+ * 其余内容（含稿件内 md 子标题）原样保留，避免整份 md 作为"稿件文字"一个整块写入
+ */
+export function extractBody(text: string): string {
+  const s = (text ?? '').trim().replace(/^# 稿件 v\d+[^\n]*\n+/, '')
+  if (!s) return ''
+  const lines = s.split('\n')
+  const out: string[] = []
+  let skipping = false
+  let seenContent = false
+  for (const line of lines) {
+    const t = line.trim()
+    if (skipping) {
+      // 跳过区块头与内容之间的空行；已见内容后遇空行/下一 md 标题 → 区块结束
+      if (seenContent && (!t || /^#{1,3}\s/.test(t))) {
+        skipping = false
+        seenContent = false
+        continue
+      }
+      if (!t) continue
+      seenContent = true
+      continue
+    }
+    // 内联区块行（标题/内容同行）直接丢弃
+    if (/^#{1,3}\s*(标题|话题标签|话题|标签)\s*[：:]\s*\S/.test(t)) continue
+    if (/^#{1,3}\s*(标题|话题标签|话题|标签)\s*$/.test(t)) {
+      skipping = true
+      seenContent = false
+      continue
+    }
+    out.push(line)
+  }
+  return out.join('\n').trim()
 }
 
 /** 加载 draft-review-state.jsonl → {(达人, 版本): ts}（键用 \u0000 分隔避免歧义；达人字段兼容 kol / influencer 两种历史命名） */
@@ -212,6 +276,9 @@ export function regenerateDraftReviewVizCsv(workspaceFilesDir: string): void {
       const rawText = r[2] ?? ''
       const image = r[3] ?? ''
       const reply = r[4] ?? ''
+      // 返工项确认：本次审核回复中"返工项确认"区块（上版红卡核对结果：F 处/已修改 K 处 + 逐条 ✅；旧 5 列历史行补空）
+      const reworkConfirm = r[5] ?? ''
+      const feishuLink = r[6] ?? ''
       const clean = cleanReply(reply)
       const version = extractVersion(clean)
       outRows.push([
@@ -226,8 +293,11 @@ export function regenerateDraftReviewVizCsv(workspaceFilesDir: string): void {
         extractTitle(rawText),
         extractTags(rawText),
         image,
-        rawText,
+        // 稿件文字：按 md 区块拆出正文（去归档头与标题/话题标签区块），避免整份 md 整块写入
+        extractBody(rawText),
         clean,
+        reworkConfirm,
+        feishuLink,
       ])
     }
 

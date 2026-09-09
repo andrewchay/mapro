@@ -13,6 +13,7 @@ import { BrowserWindow } from 'electron'
 import type {
   AgentStreamPayload,
   AgentSendInput,
+  FileAttachment,
   FeishuBridgeState,
   FeishuChatBinding,
   FeishuTestResult,
@@ -36,7 +37,7 @@ import {
   getWorkspaceCapabilities,
 } from './agent-workspace-manager'
 import { getFeishuBotBindingsPath, getWorkspaceFilesDir, getConfigDir } from './config-paths'
-import { writeFileSync, readFileSync, existsSync, readdirSync, mkdirSync, appendFileSync, statSync } from 'node:fs'
+import { writeFileSync, readFileSync, existsSync, readdirSync, mkdirSync, appendFileSync } from 'node:fs'
 import { basename, extname, join, dirname } from 'node:path'
 import { regenerateDraftReviewVizCsv } from './draft-review-csv-viz'
 import { extractTextFromFile, isSupportedDocumentExtension } from './document-parser'
@@ -117,16 +118,6 @@ interface DraftReviewStateRecord {
   ts: number
 }
 
-/** 稿件审核反馈 CSV 待写入记录（session 完成时与 bot 回复一并落盘到工作区 draft-review-feedback.csv） */
-interface PendingDraftFeedback {
-  /** 达人名 */
-  influencer: string
-  /** 稿件文字部分（docx 内容 / 文件抽取文本 / 消息文本，兜底从归档补全） */
-  textPart: string
-  /** 稿件图片部分（飞书图片附件文件名列表，无则空） */
-  imagePart: string
-}
-
 /**
  * 群角色名单（用户手动维护，按群隔离）
  *
@@ -174,6 +165,22 @@ function extractDocxDocumentId(text: string): string | null {
   return null
 }
 
+/**
+ * 从 docx 块中提取 Text 结构（text/heading1-9/bullet/ordered/code/quote/todo/callout/page 等）
+ * elements 里的内嵌图片元素（运行时字段 image.token，SDK 类型未覆盖）。
+ */
+function extractInlineImageElements(block: Record<string, unknown>): Array<{ image?: { token?: string } }> {
+  const result: Array<{ image?: { token?: string } }> = []
+  for (const value of Object.values(block)) {
+    const data = value as { elements?: Array<{ image?: { token?: string } }> } | null
+    if (!data || !Array.isArray(data.elements)) continue
+    for (const el of data.elements) {
+      if (el.image?.token) result.push(el)
+    }
+  }
+  return result
+}
+
 // ===== Bridge =====
 
 class FeishuBridge {
@@ -206,8 +213,6 @@ class FeishuBridge {
   private pendingImages = new Map<string, FeishuImageAttachment[]>()
   /** chatId → 待合并的文件（纯文件消息暂存，等待后续文本一起发送） */
   private pendingFiles = new Map<string, FeishuFileAttachment[]>()
-  /** sessionId → 待写入 CSV 的稿件审核反馈（稿件信息在 handleUserMessage 收集，bot 回复在 session 完成时写入工作区 CSV） */
-  private pendingDraftFeedback = new Map<string, PendingDraftFeedback>()
 
   /** chatId → 最近收到的用户消息 ID（用于群聊 thread reply） */
   private lastUserMessageId = new Map<string, string>()
@@ -367,7 +372,6 @@ class FeishuBridge {
     this.lastNicknameFetchAt.clear()
     this.groupRoleCache.clear()
     this.auditStandardCache.clear()
-    this.pendingDraftFeedback.clear()
     this.defaultNotifyChatId = null
     this.botOpenId = null
 
@@ -555,6 +559,32 @@ class FeishuBridge {
   }
 
   /**
+   * 从文本中解析飞书云文档链接的 document_id（兼容 docx 与 wiki 链接）
+   *
+   * - feishu.cn/docx/{id} / larksuite.com/docx/{id} → 直接返回 id
+   * - feishu.cn/wiki/{token} / larksuite.com/wiki/{token} → 调 wiki space get_node 换 obj_token（即 docx document_id）
+   * 失败返回 null（无权限 / 非飞书链接 / 无 client）。
+   */
+  private async resolveFeishuDocId(text: string): Promise<string | null> {
+    const docxId = extractDocxDocumentId(text)
+    if (docxId) return docxId
+    if (!this.client) return null
+    const wikiMatch = text.match(/(?:https?:\/\/)?[\w.-]*feishu\.cn\/wiki\/([A-Za-z0-9_-]+)/i)
+    const larkMatch = text.match(/(?:https?:\/\/)?[\w.-]*larksuite\.com\/wiki\/([A-Za-z0-9_-]+)/i)
+    const wikiToken = wikiMatch?.[1] ?? larkMatch?.[1]
+    if (!wikiToken) return null
+    try {
+      const resp = await this.client.wiki.space.getNode({ params: { token: wikiToken, obj_type: 'wiki' } })
+      const objToken = resp.data?.node?.obj_token
+      if (objToken) console.log(`[飞书 Bridge] wiki 链接 ${wikiToken} → 文档 ${objToken}`)
+      return objToken ?? null
+    } catch (error) {
+      console.warn(`[飞书 Bridge] 解析 wiki 链接 ${wikiToken} 失败:`, error)
+      return null
+    }
+  }
+
+  /**
    * 读取飞书云文档（新版 docx）的纯文本内容
    *
    * 使用 docx.document.raw_content API，需要应用开启 docx:document 读取权限。
@@ -573,6 +603,79 @@ class FeishuBridge {
       console.error(`[飞书 Bridge] 读取云文档 ${documentId} 内容失败:`, error)
       return null
     }
+  }
+
+  /**
+   * 读取飞书云文档（新版 docx）中的全部图片
+   *
+   * rawContent API 只返回纯文本，图片需要用 docx v1 document.block list 分页列出所有块，
+   * 过滤图片块（block_type=27 image.token）与 Text 块 elements 里的内嵌图片，再通过
+   * image token 用 drive v1 media download 下载。
+   * 返回 [{ data, mediaType }]；无图片 / 读取失败返回空数组（权限不足时仅 warn，不影响文本审核）。
+   */
+  private async fetchFeishuDocxImages(documentId: string): Promise<{ data: Buffer; mediaType: string }[]> {
+    if (!this.client) return []
+
+    const images: { data: Buffer; mediaType: string }[] = []
+    try {
+      let pageToken: string | undefined
+      let blockCount = 0
+      let imageBlockCount = 0
+      let inlineImageCount = 0
+      do {
+        const resp = await this.client.docx.documentBlock.list({
+          path: { document_id: documentId },
+          params: { page_size: 500, ...(pageToken ? { page_token: pageToken } : {}) },
+        })
+        // 收集本页全部图片 token（块级 + 内嵌，去重）
+        const tokens: string[] = []
+        for (const block of resp.data?.items ?? []) {
+          blockCount += 1
+          // 1) 块级图片：block_type=27（image）块，image.token 即 drive media file_token
+          if (block.block_type === 27 && block.image?.token) {
+            imageBlockCount += 1
+            tokens.push(block.image.token)
+          }
+          // 2) 内嵌图片：text/heading/bullet 等 Text 块 elements 里的 image 元素（SDK 类型未覆盖，运行时存在）
+          for (const el of extractInlineImageElements(block as unknown as Record<string, unknown>)) {
+            if (el.image?.token) {
+              inlineImageCount += 1
+              tokens.push(el.image.token)
+            }
+          }
+        }
+        const seen = new Set<string>()
+        for (const token of tokens) {
+          if (seen.has(token)) continue
+          seen.add(token)
+          try {
+            const media = await this.client.drive.media.download({ path: { file_token: token } })
+            const stream = media.getReadableStream()
+            const chunks: Buffer[] = []
+            for await (const chunk of stream) {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+            }
+            const data = Buffer.concat(chunks)
+            // 优先用响应头 content-type 推断 MIME，兜底 image/png
+            const mediaType = String(media.headers?.['content-type'] ?? 'image/png').split(';')[0]?.trim() || 'image/png'
+            images.push({ data, mediaType })
+            console.log(`[飞书 Bridge] 云文档图片已下载: ${token} (${data.length} bytes)`)
+          } catch (imgErr) {
+            console.warn(`[飞书 Bridge] 下载云文档图片 ${token} 失败:`, imgErr)
+          }
+        }
+        pageToken = resp.data?.has_more ? resp.data.page_token : undefined
+      } while (pageToken)
+      console.log(
+        `[飞书 Bridge] 云文档 ${documentId} 块统计: 共 ${blockCount} 块, 图片块 ${imageBlockCount}, 内嵌图片 ${inlineImageCount}`,
+      )
+      if (blockCount > 0 && imageBlockCount === 0 && inlineImageCount === 0) {
+        console.warn(`[飞书 Bridge] 云文档 ${documentId} 未发现任何图片块（图片可能以画布/表格/其它形式存在，或需更高权限）`)
+      }
+    } catch (error) {
+      console.error(`[飞书 Bridge] 读取云文档 ${documentId} 图片失败:`, error)
+    }
+    return images
   }
 
   /**
@@ -789,194 +892,166 @@ class FeishuBridge {
   }
 
   /**
-   * 读取指定达人的最新归档全文（draft-archives/{达人名}/{达人名}_v{N}.md，N 最大）
+   * 稿件审核反馈 CSV 表头维护：确保工作区 draft-review-feedback.csv 存在且为标准 7 列表头
    *
-   * 用于 CSV"稿件文字部分"兜底：bridge 未能读到稿件正文（如云文档 API 读取降级）时，
-   * 从 Agent 兜底落盘的归档补全文字内容。返回 { influencer, content }；无效达人名/无归档返回 null。
+   * - 文件路径：{工作区根}/draft-review-feedback.csv（绝对路径，与 bridge 其余落盘基准一致）
+   * - 表头：@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,返工项确认,飞书链接网址（首次创建时写入，含 UTF-8 BOM 保证 Excel 中文不乱码）
+   * - 数据行由 Agent 审核回复后自行追加落盘（ma-draft-review SKILL Step 6.5）——稿件全文/图片真值只在 Agent 会话里，
+   *   bridge 只读到消息文本，代写会产出假数据（此坑已出现两次），故 bridge 不再写数据行；
+   *   本方法只在稿件审核消息到达时确保表头就绪：旧格式一次性迁移（去红/黄/绿卡列、@谁 缺失时从回复提取、
+   *   旧"已反馈内容"列值原样保留到"返工项确认"，旧 5/6 列补空、旧 6 列补空"飞书链接网址"）
    */
-  private readLatestDraftArchive(workspaceSlug: string, influencer: string): { influencer: string; content: string } | null {
-    if (!influencer || influencer === '未命名') return null
-    const dir = join(getWorkspaceFilesDir(workspaceSlug), 'draft-archives', influencer)
-    const latest = this.latestMdInDir(dir)
-    if (!latest) return null
+  private ensureDraftReviewFeedbackCsv(workspaceSlug: string): void {
+    const csvPath = join(getWorkspaceFilesDir(workspaceSlug), 'draft-review-feedback.csv')
+    const headerLine = '\uFEFF@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容,返工项确认,飞书链接网址'
     try {
-      const content = readFileSync(join(dir, latest), 'utf-8')
-      return { influencer, content }
-    } catch {
-      return null
+      if (!existsSync(csvPath)) {
+        writeFileSync(csvPath, `${headerLine}\n`, 'utf-8')
+        console.log(`[飞书 Bridge] 已初始化稿件审核反馈 CSV（Agent 将自行追加审核记录）: ${csvPath}`)
+        return
+      }
+      const existing = readFileSync(csvPath, 'utf-8')
+      const records = this.splitCsvRecords(existing)
+      const oldHeader = records[0] ?? []
+      if (oldHeader.includes('飞书链接网址')) return
+      // 旧格式迁移：历史文件可能是 6 列含"返工项确认"、6 列含"已反馈内容"、标准 5 列 [@谁,达人,正文,图片,回复]、
+      // 或红/黄/绿卡 6 列 / 5 列（无 @谁），统一重写为目标 7 列 [@谁,达人,正文,图片,回复,返工项确认,飞书链接网址]；
+      // 旧"已反馈内容"列值原样保留到"返工项确认"列（列名更新、历史数据不丢，引号内换行/逗号需 RFC4180 解析），
+      // 旧 6 列（含"返工项确认"）补空"飞书链接网址"列
+      const escapeCsvField = (value: string): string => {
+        const s = value ?? ''
+        return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+      }
+      const hasRework = oldHeader.includes('返工项确认')
+      const hasFeedback = oldHeader.includes('已反馈内容')
+      const hasMention = oldHeader.includes('@谁')
+      const dataRows = records.slice(1).map((fields) => {
+        let base: string[]
+        if (hasRework || (hasFeedback && hasMention)) {
+          // 旧 6 列 [@谁,达人,正文,图片,回复,返工项确认|已反馈内容] → 数据保留 + 补空"飞书链接网址"
+          base = [fields[0] ?? '', fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', fields[5] ?? '', '']
+        } else if (hasMention) {
+          // 标准 5 列 [@谁,达人,正文,图片,回复] → 补空"返工项确认"与"飞书链接网址"
+          base = [fields[0] ?? '', fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', '', '']
+        } else if (fields.length >= 6) {
+          // 红/黄/绿卡,@谁,达人,正文,图片,回复 → 去掉卡列 + 补空
+          base = [fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', fields[5] ?? '', '', '']
+        } else {
+          // 红/黄/绿卡,达人,正文,图片,回复 → 从该行回复字段提取 @谁 + 补空
+          const replyField = fields[4] ?? ''
+          base = [this.extractMentionedName(replyField), fields[1] ?? '', fields[2] ?? '', fields[3] ?? '', fields[4] ?? '', '', '']
+        }
+        return base
+      })
+      writeFileSync(csvPath, `${headerLine}\n${dataRows.map((f) => f.map(escapeCsvField).join(',')).join('\n')}${dataRows.length ? '\n' : ''}`, 'utf-8')
+      console.log(`[飞书 Bridge] 已迁移稿件审核反馈 CSV 为"飞书链接网址"7 列: ${csvPath}`)
+    } catch (error) {
+      console.warn(`[飞书 Bridge] 维护稿件审核反馈 CSV 表头失败:`, error)
     }
   }
 
   /**
-   * 扫描 draft-archives/ 下全部达人目录，取最近修改的归档（mtime 最新），返回 { influencer, content }
+   * 提取该达人最近一次红卡（red）审核的"必须修改"清单（返工核对基准）
    *
-   * 用于达人名/正文兜底：bridge 提取不到达人名（'未命名'）时，以 Agent 落盘归档的目录名作为达人名。
+   * 数据源：工作区 draft-review-feedback.csv（Agent 每次审核后落盘的反馈记录，7 列）。
+   * 匹配：按达人列过滤 → 解析每行 bot 回复的版本号与三态判定 → 取版本号最大且为红卡的行 →
+   * 提取"必须修改"区块（[位置] 问题 → 建议）。用于：
+   * 新版本稿件审核时注入 `[上一版红卡反馈]`，让 Agent 逐条核对硬伤是否已修改（回复中无论是否已修改都输出"返工项确认"），
+   * 并在本次审核 CSV"返工项确认"列记录核对结果（F 处/已修改 K 处 + 逐条 ✅）。
    */
-  private findLatestDraftArchive(workspaceSlug: string): { influencer: string; content: string } | null {
-    const root = join(getWorkspaceFilesDir(workspaceSlug), 'draft-archives')
-    if (!existsSync(root)) return null
-    let entries: string[]
+  private extractLastRedFeedback(workspaceSlug: string, influencer: string): string {
+    if (!influencer || influencer === '未命名') return ''
+    const csvPath = join(getWorkspaceFilesDir(workspaceSlug), 'draft-review-feedback.csv')
+    if (!existsSync(csvPath)) return ''
     try {
-      entries = readdirSync(root)
-    } catch {
-      return null
-    }
-    let best: { influencer: string; content: string; mtime: number } | null = null
-    for (const entry of entries) {
-      const dir = join(root, entry)
-      if (!existsSync(dir)) continue
-      let files: string[]
-      try {
-        files = readdirSync(dir).filter((f) => f.endsWith('.md'))
-      } catch {
-        continue
+      const text = readFileSync(csvPath, 'utf-8').replace(/^\uFEFF/, '')
+      const records = this.splitCsvRecords(text)
+      const header = records[0] ?? []
+      const influencerCol = header.includes('达人名称') ? header.indexOf('达人名称') : 1
+      const replyCol = header.includes('bot回复审核内容') ? header.indexOf('bot回复审核内容') : 4
+      let best: { version: number; reply: string } | null = null
+      for (const r of records.slice(1)) {
+        if ((r[influencerCol] ?? '').trim() !== influencer) continue
+        const reply = r[replyCol] ?? ''
+        if (this.extractDraftVerdict(reply) !== 'red') continue
+        const version = this.extractDraftVersion(reply)
+        if (!best || version > best.version) best = { version, reply }
       }
-      for (const f of files) {
-        const p = join(dir, f)
-        let mtime = 0
-        try {
-          mtime = statSync(p).mtimeMs
-        } catch {
-          continue
-        }
-        if (!best || mtime > best.mtime) {
-          try {
-            best = { influencer: entry, content: readFileSync(p, 'utf-8'), mtime }
-          } catch {
-            continue
-          }
-        }
-      }
+      return best ? this.extractMustFixBlock(best.reply) : ''
+    } catch (error) {
+      console.warn('[飞书 Bridge] 提取上一版红卡反馈失败:', error)
+      return ''
     }
-    return best
   }
 
-  /** 返回目录内版本号最大的 md 文件名（如 {达人名}_v{N}.md 取 N 最大者），无则 null */
-  private latestMdInDir(dir: string): string | null {
-    if (!existsSync(dir)) return null
-    let files: string[]
-    try {
-      files = readdirSync(dir).filter((f) => f.endsWith('.md'))
-    } catch {
-      return null
-    }
-    if (files.length === 0) return null
-    const versionOf = (f: string) => {
-      const m = f.match(/_v(\d+)\.md$/)
-      return m ? Number(m[1]) : 0
-    }
-    files.sort((a, b) => versionOf(b) - versionOf(a))
-    return files[0] ?? null
+  /** 从 bot 审核回复提取版本号（第 N 版），提取失败返回 0 */
+  private extractDraftVersion(reply: string): number {
+    const m = reply.match(/第\s*(\d+)\s*版/)
+    return m ? Number(m[1]) || 0 : 0
   }
 
-  /** 从归档全文提取图片信息（优先"图片：N 张…"行，兜底 markdown 图片引用计数） */
-  private extractImageInfoFromArchive(content: string): string {
-    if (!content) return ''
-    const m = content.match(/(?:图片|图)[:：]\s*([^\n]+)/)
-    if (m?.[1]?.trim()) return m[1].trim()
-    const count = (content.match(/!\[[^\]]*\]\([^)]+\)/g) || []).length
-    if (count > 0) return `图片 ${count} 张`
+  /** 从 bot 审核回复提取三态判定（red/yellow/green/fail），无模板标记时按区块结构兜底 */
+  private extractDraftVerdict(reply: string): string {
+    if (!reply) return ''
+    if (reply.includes('需修改（红卡）') || reply.includes('（红卡）')) return 'red'
+    if (reply.includes('需人工判断（黄卡）') || reply.includes('（黄卡）')) return 'yellow'
+    if (reply.includes('待确认放行（绿卡）') || reply.includes('（绿卡）')) return 'green'
+    if (reply.includes('审核失败')) return 'fail'
+    if (reply.includes('必须修改')) return 'red'
+    if (reply.includes('需你判断')) return 'yellow'
     return ''
   }
 
   /**
-   * 稿件审核反馈 CSV 落盘：session 完成时把（@谁/达人名称/稿件文字/稿件图片/bot 回复）追加到工作区 CSV
+   * 按消息中的飞书链接兜底提取上一版红卡反馈
    *
-   * - 文件路径：{工作区根}/draft-review-feedback.csv（绝对路径，与 bridge 其余落盘基准一致）
-   * - 表头：@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容（首次创建时写入，含 UTF-8 BOM 保证 Excel 中文不乱码）
-   * - @谁 列：审核模板开头"@姓名"（bot 实际 @ 的接收人）；历史格式（含红/黄/绿卡列）自动迁移为 5 列
-   * - 稿件文字部分兜底：bridge 未读到正文（云文档 API 降级，仅有链接文本）时从 draft-archives 最新归档补全
+   * 纯链接消息（文本无达人名、云文档按通用名"飞书云文档"落库）时按达人名匹配不到 CSV 记录，
+   * 改用消息里 docx/wiki 链接 token 匹配「飞书链接网址」列，取该链接最近一次红卡行的"必须修改"清单。
+   * 同一文档的改稿（第 N 版审核）即使消息只发链接也能注入返工核对基准。
    */
-  private recordDraftFeedbackCsv(sessionId: string, reply: string): void {
-    const pending = this.pendingDraftFeedback.get(sessionId)
-    this.pendingDraftFeedback.delete(sessionId)
-    if (!pending || !reply.trim()) return
-
-    const chatId = this.sessionToChat.get(sessionId)
-    const binding = chatId ? this.chatBindings.get(chatId) : undefined
-    const ws = binding?.workspaceId ? getAgentWorkspace(binding.workspaceId) : undefined
-    if (!ws) return
-
-    // 达人归属：优先用消息提取的达人名（pending.influencer）；缺失（'未命名'）时以 bot 回复模板中的"达人：X"为准
-    // （三态模板固定输出该行，是本次审核意见的事实归属），二者皆无才保留 '未命名'
-    let influencer = pending.influencer
-    if (!influencer || influencer === '未命名') {
-      influencer = this.extractInfluencerFromReply(reply) || '未命名'
-    }
-    let textPart = pending.textPart
-    let imagePart = pending.imagePart
-    const isPlaceholderText = !textPart || textPart.length < 30 || /https?:\/\//.test(textPart)
-
-    // 稿件信息兜底：正文/图片缺失时，优先按本次审核归属的达人名精确读取对应归档（draft-archives/{达人名}/），
-    // 杜绝按全局 mtime 扫描把其他达人的归档（正文/达人名）错填到本行（同一工作区多达人时归属错乱）
-    let archived = influencer !== '未命名' && (isPlaceholderText || !imagePart)
-      ? this.readLatestDraftArchive(ws.slug, influencer)
-      : null
-    // 达人名完全无法归属（罕见）时，最后才退化为全局最新归档
-    if (!archived && (influencer === '未命名' || isPlaceholderText)) {
-      archived = this.findLatestDraftArchive(ws.slug)
-    }
-    if (archived?.content) {
-      if (influencer === '未命名') influencer = archived.influencer
-      if (isPlaceholderText) textPart = archived.content
-      if (!imagePart) imagePart = this.extractImageInfoFromArchive(archived.content)
-    }
-
-    const csvPath = join(getWorkspaceFilesDir(ws.slug), 'draft-review-feedback.csv')
-    const escapeCsvField = (value: string): string => {
-      const s = value ?? ''
-      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-    }
-    // @谁 放第 1 列：回复中 @ 的接收人（审核模板开头 @姓名）
-    const mentioned = this.extractMentionedName(reply)
-    const line = `${escapeCsvField(mentioned)},${escapeCsvField(influencer)},${escapeCsvField(textPart)},${escapeCsvField(imagePart)},${escapeCsvField(reply)}\n`
-    const headerLine = '\uFEFF@谁,达人名称,稿件文字部分,稿件图片部分,bot回复审核内容'
+  private extractLastRedFeedbackByLinks(workspaceSlug: string, userText: string): string {
+    const tokens = Array.from(userText.matchAll(/feishu\.cn\/(?:docx|wiki|docs)\/([A-Za-z0-9]+)/g))
+      .map((m) => m[1])
+      .filter((t): t is string => Boolean(t))
+    if (tokens.length === 0) return ''
+    const csvPath = join(getWorkspaceFilesDir(workspaceSlug), 'draft-review-feedback.csv')
+    if (!existsSync(csvPath)) return ''
     try {
-      if (!existsSync(csvPath)) {
-        // 首次写入加 UTF-8 BOM（Excel 打开中文不乱码）+ 表头行
-        appendFileSync(csvPath, `${headerLine}\n${line}`, 'utf-8')
-        console.log(`[飞书 Bridge] 已追加稿件审核反馈 CSV: ${csvPath}`)
-      } else {
-        // 旧格式迁移：历史文件可能是「红/黄/绿卡,@谁,…」6 列或「红/黄/绿卡,达人名称,…」5 列（无 @谁），
-        // 统一重写为目标 5 列 [@谁,达人,正文,图片,回复]（去掉红/黄/绿卡列、@谁 缺失时从回复提取），
-        // 避免新行与旧表头错列（引号内换行/逗号不能被 \n 盲拆，需 RFC4180 解析）
-        const existing = readFileSync(csvPath, 'utf-8')
-        const records = this.splitCsvRecords(existing)
-        const oldHeader = records[0] ?? []
-        if ((oldHeader[0] ?? '').includes('@谁')) {
-          appendFileSync(csvPath, line, 'utf-8')
-        } else {
-          const hasMention = oldHeader.includes('@谁')
-          const dataRows = records.slice(1).map((fields) => {
-            if (hasMention) {
-              // 红/黄/绿卡,@谁,达人,正文,图片,回复 → 去掉卡列
-              return [fields[1] ?? '', ...fields.slice(2, 6)]
-            }
-            // 红/黄/绿卡,达人,正文,图片,回复 → 从该行回复字段提取 @谁
-            const replyField = fields[4] ?? ''
-            return [this.extractMentionedName(replyField), ...fields.slice(1, 5)]
-          })
-          writeFileSync(csvPath, `${headerLine}\n${dataRows.map((f) => f.map(escapeCsvField).join(',')).join('\n')}\n${line}`, 'utf-8')
-        }
-        console.log(`[飞书 Bridge] 已追加稿件审核反馈 CSV: ${csvPath}`)
+      const text = readFileSync(csvPath, 'utf-8').replace(/^\uFEFF/, '')
+      const records = this.splitCsvRecords(text)
+      const header = records[0] ?? []
+      const replyCol = header.includes('bot回复审核内容') ? header.indexOf('bot回复审核内容') : 4
+      const linkCol = header.includes('飞书链接网址') ? header.indexOf('飞书链接网址') : 6
+      let best: { version: number; reply: string } | null = null
+      for (const r of records.slice(1)) {
+        const link = r[linkCol] ?? ''
+        if (!link || !tokens.some((t) => link.includes(t))) continue
+        const reply = r[replyCol] ?? ''
+        if (this.extractDraftVerdict(reply) !== 'red') continue
+        const version = this.extractDraftVersion(reply)
+        if (!best || version > best.version) best = { version, reply }
       }
-      // 无论首次创建还是追加，都重新生成清洗版 viz CSV（含当前工作区全部记录）
-      regenerateDraftReviewVizCsv(getWorkspaceFilesDir(ws.slug))
+      return best ? this.extractMustFixBlock(best.reply) : ''
     } catch (error) {
-      console.warn(`[飞书 Bridge] 追加稿件审核反馈 CSV 失败:`, error)
+      console.warn('[飞书 Bridge] 按链接提取上一版红卡反馈失败:', error)
+      return ''
     }
   }
 
-  /**
-   * 从 bot 审核回复模板中提取"达人：X"作为本次审核的达人归属
-   *
-   * 三态模板（红卡/黄卡/绿卡/审核失败）固定输出"达人：X"行，是本行审核意见的事实归属；
-   * 消息侧达人名提取失败（'未命名'）时以此为准，确保达人/正文/审核意见三者一致。
-   */
-  private extractInfluencerFromReply(reply: string): string {
+  /** 从红卡回复中提取"必须修改"区块（逐条 [位置] 问题 → 建议），作为返工核对基准 */
+  private extractMustFixBlock(reply: string): string {
     if (!reply) return ''
-    const m = reply.match(/达人[：:]\s*([^\n，,。]+)/)
-    return m?.[1]?.trim() ?? ''
+    const idx = reply.indexOf('必须修改')
+    if (idx < 0) return ''
+    const lines = reply.slice(idx).split('\n')
+    const out: string[] = []
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed) break // 空行结束区块
+      if (/^(需你判断|可优化|需修改|稿件可发布|返工项确认)/.test(trimmed)) break
+      out.push(line)
+    }
+    return out.join('\n').trim()
   }
 
   /**
@@ -1185,7 +1260,7 @@ class FeishuBridge {
           try {
             const parsed = JSON.parse(message.content as string) as { text?: string }
             const linkText = parsed.text ?? ''
-            const docLinkId = extractDocxDocumentId(linkText)
+            const docLinkId = await this.resolveFeishuDocId(linkText)
             if (docLinkId) {
               await this.archiveGroupFile(chatId, messageId, 'docx', JSON.stringify({ document_id: docLinkId, doc_name: '飞书云文档' }))
             }
@@ -1298,6 +1373,12 @@ class FeishuBridge {
             text = `${text ? text + '\n' : ''}（群成员分享了云文档「${docName}」，以下是文档内容）\n\n${docContent}`
             // 暂存稿件云文档信息，用于 handleUserMessage 中按版本号入库
             docxDraft = { name: docName, content: docContent }
+            // 抓取云文档内全部图片并合并进图片附件（rawContent 只有纯文本，图片需按块下载），
+            // 后续随消息图片一起保存到工作区并注入 Agent 会话，供视觉审核与 CSV"稿件图片部分"列填写
+            const docImages = await this.fetchFeishuDocxImages(documentId)
+            docImages.forEach((img, idx) => {
+              imageAttachments.push({ imageKey: `docx-${documentId}-${idx}`, data: img.data, mediaType: img.mediaType })
+            })
             console.log(`[飞书 Bridge] 已读取云文档「${docName}」内容 (${docContent.length} 字)`)
           } else {
             await this.sendTextMessage(chatId, `已收到云文档「${docName}」，但无法读取文档内容（可能无读取权限）。`)
@@ -1315,16 +1396,25 @@ class FeishuBridge {
     // 尝试从文本中提取 document_id 并读取内容，成功则注入 docxDraft 走确定性落盘；
     // 读取失败（无读取权限/文档不可访问）时降级——保留链接文本，由 Agent 通过 CDP 浏览器读取。
     if (!docxDraft && text) {
-      const docLinkId = extractDocxDocumentId(text)
+      const docLinkId = await this.resolveFeishuDocId(text)
       if (docLinkId) {
         const docContent = await this.fetchFeishuDocxContent(docLinkId)
         if (docContent) {
           text = `${text}\n\n（群成员分享了云文档「飞书云文档」，以下是文档内容）\n\n${docContent}`
           docxDraft = { name: '飞书云文档', content: docContent }
+          // 同 docx 消息分支：抓取云文档内全部图片合并进图片附件
+          const docImages = await this.fetchFeishuDocxImages(docLinkId)
+          docImages.forEach((img, idx) => {
+            imageAttachments.push({ imageKey: `docx-${docLinkId}-${idx}`, data: img.data, mediaType: img.mediaType })
+          })
           console.log(`[飞书 Bridge] 已识别文本中的云文档链接并读取内容 (${docContent.length} 字)`)
         } else {
           console.warn(`[飞书 Bridge] 云文档链接 ${docLinkId} 读取失败，降级由 Agent 通过 CDP 浏览器读取`)
         }
+      } else {
+        // 文本疑似含飞书链接但未被识别（可能是 /docs/ 旧版、分享卡片、短链等），打印链接供诊断
+        const feishuLink = text.match(/https?:\/\/[^\s，。；、,]+feishu\.cn\/[^\s，。；、,]+/i)?.[0]
+        if (feishuLink) console.warn(`[飞书 Bridge] 未识别的飞书链接形式: ${feishuLink.slice(0, 120)}`)
       }
     }
 
@@ -2067,6 +2157,9 @@ class FeishuBridge {
     // 保存飞书图片和文件到 session 工作目录，构建文件引用
     // 文档类文件（PDF/word/txt 等）额外提取正文文本注入，让 Agent 无需额外工具即可读取文件内容
     const attachedRefs: string[] = []
+    // 图片多模态附件：随 AgentSendInput.attachments 注入会话，让 Agent 真正拿到图片内容
+    //（视觉审核 ma-image-audit 依赖此链路读图；此前只注入文件路径，Agent 看不到图，只能去 Bash 找视觉脚本/配置）
+    const imageFileAttachments: FileAttachment[] = []
     const workspace = binding.workspaceId ? getAgentWorkspace(binding.workspaceId) : undefined
     // 稿件文件抽取文本缓存（首个文档文件，用于审核反馈 CSV"稿件文字部分"）
     let fileExtractedText = ''
@@ -2076,6 +2169,13 @@ class FeishuBridge {
           workspace.slug, binding.sessionId, `feishu-${img.imageKey}`, img.mediaType, img.data,
         )
         attachedRefs.push(`- feishu-${img.imageKey}.${inferExtension(img.mediaType)}: ${savedPath}`)
+        imageFileAttachments.push({
+          id: `feishu-${img.imageKey}`,
+          filename: `feishu-${img.imageKey}.${inferExtension(img.mediaType)}`,
+          mediaType: img.mediaType,
+          localPath: savedPath,
+          size: img.data.length,
+        })
       }
       for (const file of fileAttachments) {
         const savedPath = saveFileToSessionShared(
@@ -2193,12 +2293,26 @@ class FeishuBridge {
           // 硬伤→红卡 @执行-返工；争议→黄卡 @Account-拍板；无硬伤→绿卡 @Account-放行；审核失败→@Account；不输出分数；
           // 判定依据不写入回复（仅黄卡/绿卡"可优化"区块内允许写）；产品名词序/同义变体不得判红卡、不得列入红卡"必须修改"清单（归入黄/绿卡"可优化"）；黄卡/绿卡末尾"可优化（结合 brief 方向，非硬性）"区块必须对照 brief 方向逐一产出建议（每条含优化方向+判定依据，仅确实无方向性差距才"- 无建议"）
           contextParts.push(
-            '[审核硬约束: 硬伤→红卡 @本次稿件提交人（[发送者] 即发稿件的执行方）本人给逐条返工意见（执行方多人时必须 @提交人本人，禁止 @名单中全部执行成员）；无硬伤但有争议→黄卡 @Account成员 拍板；无硬伤无争议→绿卡 @Account成员 确认放行；审核失败（稿件无法自动审核）→@Account成员 转人工；不输出分数；产品名词序/同义变体不得判红卡、不得列入红卡"必须修改"清单（归入黄/绿卡"可优化"）；判定依据不写入回复（仅黄卡/绿卡"可优化"区块内允许写判定依据）；黄卡/绿卡末尾必须输出"可优化（结合 brief 方向，非硬性）"区块并对照 brief 方向逐一产出建议——每条建议对照 brief 方向与稿件内容差距产出，含优化方向+判定依据，仅确实无方向性差距才输出"- 无建议"；必须按 ma-draft-review 三态模板格式输出]',
+            '[审核硬约束: 硬伤→红卡 @本次稿件提交人（[发送者] 即发稿件的执行方）本人给逐条返工意见（执行方多人时必须 @提交人本人，禁止 @名单中全部执行成员）；无硬伤但有争议→黄卡 @Account成员 拍板；无硬伤无争议→绿卡 @Account成员 确认放行；审核失败（稿件无法自动审核）→@Account成员 转人工；不输出分数；产品名词序/同义变体不得判红卡、不得列入红卡"必须修改"清单（归入黄/绿卡"可优化"）；判定依据不写入回复（仅黄卡/绿卡"可优化"区块内允许写判定依据）；黄卡/绿卡末尾必须输出"可优化（结合 brief 方向，非硬性）"区块并对照 brief 方向逐一产出建议——每条建议对照 brief 方向与稿件内容差距产出，含优化方向+判定依据，仅确实无方向性差距才输出"- 无建议"；若注入了"上一版红卡反馈"：先逐条核对硬伤是否已修改，无论是否已修改都必须在"达人：X"行后输出"返工项确认（上版红卡 {F} 处，已修改 {K} 处）"区块（{F} 为上版红卡总条数、{K} 为已修改条数，无修改项填 0），逐条列出已修改项（✅ [{位置}] {硬伤} → 已修改），未修改项继续列入红卡"必须修改"清单；必须按 ma-draft-review 三态模板格式输出]',
           )
 
           const docName = docxDraft?.name ?? fileAttachments[0]?.fileName ?? ''
           const influencer = this.extractInfluencerName(userText, docName)
           if (influencer) {
+            // 上一版红卡反馈（返工核对）：该达人最近一次红卡审核的"必须修改"清单，
+            // Agent 审核本版时先逐条核对硬伤是否已修改，并在回复中输出"返工项确认"区块（无论是否已修改都必须输出）
+            if (workspace) {
+              let lastRedFeedback = this.extractLastRedFeedback(workspace.slug, influencer)
+              // 兜底：达人名未识别（"未命名"/"飞书云文档"）或按名未命中时，按消息中的飞书链接匹配 CSV「飞书链接网址」列
+              if (!lastRedFeedback) {
+                lastRedFeedback = this.extractLastRedFeedbackByLinks(workspace.slug, userText)
+              }
+              if (lastRedFeedback) {
+                contextParts.push(
+                  `[上一版红卡反馈: ${lastRedFeedback}]（审核本版前先逐条核对这些硬伤是否已修改：无论是否已修改，都必须在回复中输出"返工项确认（上版红卡 {F} 处，已修改 {K} 处）"区块，{F} 为上版红卡总条数、{K} 为已修改条数（无修改项填 0），并逐条列出已修改项（✅ [{位置}] {硬伤} → 已修改）；仍未修改的硬伤继续列入红卡"必须修改"清单）`,
+                )
+              }
+            }
             const brief = this.readInfluencerBrief(binding.workspaceId, influencer)
             if (brief) {
               const briefPreview = brief.length > 3000 ? `${brief.slice(0, 3000)}…（brief 过长已截断）` : brief
@@ -2251,19 +2365,14 @@ class FeishuBridge {
       const modelId = this.botConfig.defaultModelId || latestSettings.agentModelId || binding.modelId
 
       // 稿件审核消息：注入 mentionedSkills 让编排层提示 Agent 主动调用 ma-draft-review Skill，
-      // 使完整 SKILL 正文（含 Step 2.5 落盘要求）进入 Agent 上下文——与 bridge 确定性落盘构成双保险
+      // 使完整 SKILL 正文（含 Step 2.5 归档 / Step 6.5 反馈 CSV 落盘要求）进入 Agent 上下文
       const isDraftMsg = this.isDraftReviewMessage(userText, hasAnyAttachment || !!docxDraft)
 
-      // 稿件审核反馈 CSV：收集稿件信息（达人名/稿件文字/稿件图片），session 完成时与 bot 回复一并写入工作区 CSV
+      // 稿件审核反馈 CSV：仅确保表头就绪（标准 7 列，旧格式一次性迁移），数据行由 Agent 审核回复后
+      // 自行追加落盘（SKILL Step 6.5）——稿件全文/图片真值只在 Agent 会话里，bridge 只读到消息文本，
+      // 代写会产出假数据（"审核"顶替正文的假数据坑已出现两次），故 bridge 不再收集稿件信息写行
       if (isDraftMsg && workspace) {
-        const docName = docxDraft?.name ?? fileAttachments[0]?.fileName ?? ''
-        const influencer = this.extractInfluencerName(userText, docName)
-        // 注意：空字符串/降级（docxDraft 为 null、文件文本为空）时用 || 逐级兜底到消息文本，禁止用 ??（只跳过 null/undefined）
-        const textPart = docxDraft?.content || fileExtractedText || userText
-        const imagePart = imageAttachments.length > 0
-          ? imageAttachments.map((img) => `feishu-${img.imageKey}.${inferExtension(img.mediaType)}`).join('; ')
-          : ''
-        this.pendingDraftFeedback.set(binding.sessionId, { influencer, textPart, imagePart })
+        this.ensureDraftReviewFeedbackCsv(workspace.slug)
       }
 
       const input: AgentSendInput = {
@@ -2274,6 +2383,8 @@ class FeishuBridge {
         workspaceId: binding.workspaceId,
         permissionModeOverride: 'bypassPermissions',
         isHeadless: true,
+        // 多模态图片附件：让 Agent 会话拿到图片内容（视觉审核 ma-image-audit 依赖），避免只给路径无法看图
+        ...(imageFileAttachments.length > 0 ? { attachments: imageFileAttachments } : {}),
         ...(customMcpServers && { customMcpServers }),
         ...(isDraftMsg ? { mentionedSkills: ['ma-draft-review'] } : {}),
       }
@@ -2357,7 +2468,6 @@ class FeishuBridge {
           this.sendCardMessage(chatId, buildErrorCard(`${prefix}${aMsg.error.message}`)).catch(console.error)
         }
         this.sessionBuffers.delete(sessionId)
-        this.pendingDraftFeedback.delete(sessionId)
       }
     }
 
@@ -2532,8 +2642,13 @@ class FeishuBridge {
       this.sendAgentReply(chatId, result).catch(console.error)
     }
 
-    // 稿件审核反馈 CSV：Agent 完成时把稿件信息 + bot 回复追加到工作区 CSV（绝对路径）
-    this.recordDraftFeedbackCsv(sessionId, cleanedText)
+    // 稿件审核反馈 CSV：数据行由 Agent 审核回复后自行追加（SKILL Step 6.5，稿件全文/图片真值只在会话里，
+    // bridge 只读到消息文本、不再代写假数据），此处仅重新生成清洗版 viz CSV（幂等整体重写，纳入 Agent 新落盘的行）
+    const vizBinding = chatId ? this.chatBindings.get(chatId) : undefined
+    const vizWs = vizBinding?.workspaceId ? getAgentWorkspace(vizBinding.workspaceId) : undefined
+    if (vizWs && existsSync(join(getWorkspaceFilesDir(vizWs.slug), 'draft-review-feedback.csv'))) {
+      regenerateDraftReviewVizCsv(getWorkspaceFilesDir(vizWs.slug))
+    }
 
     this.sessionBuffers.delete(sessionId)
   }

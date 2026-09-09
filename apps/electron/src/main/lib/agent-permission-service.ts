@@ -24,6 +24,7 @@ import {
   hasDangerousStructure,
 } from '@ma-proma/shared'
 import { appendWebBridgeAudit } from './web-bridge-audit-service'
+import { getSettings } from './settings-service'
 
 /** SDK PermissionBehavior */
 type PermissionBehavior = 'allow' | 'deny'
@@ -169,6 +170,14 @@ export class AgentPermissionService {
       // 会话白名单检查（用户之前选择了"始终允许"）
       if (!requiresPerActionApproval && this.isWhitelisted(sessionId, toolName, input)) return allow()
 
+      // 持久化 Bash 放行规则（settings.json agentBashAllowRules，命令前缀白名单，命中即免人工确认）。
+      // 针对"固化的标准脚本"（如 CDP 抓图脚本）配置，避免每次审核都弹确认；
+      // 仍过危险结构/危险命令兜底检查，防止规则前缀被拼接注入。
+      if (toolName === 'Bash') {
+        const command = typeof input.command === 'string' ? input.command : ''
+        if (this.isAllowedByPersistedBashRule(command)) return allow()
+      }
+
       // auto 模式本地 classifier：只读工具（Read/Glob/Grep/WebSearch/WebFetch 及只读 Bash 命令）自动放行
       // 原因：CLI 的 --permission-prompt-tool stdio 会把每次 tool 调用都转发给 canUseTool，
       // SDK 的 auto classifier 对只读操作未必真的放行，这里做本地兜底避免用户被无意义的审批打扰
@@ -287,6 +296,16 @@ export class AgentPermissionService {
     if (isDangerousCommand(command)) return false
     const baseCommand = this.extractBaseCommand(command)
     return whitelist.allowedBashCommands.has(baseCommand)
+  }
+
+  /**
+   * 判断命令是否命中持久化 Bash 放行规则（settings.json agentBashAllowRules）
+   *
+   * 规则为命令前缀（如 "python3 scripts/kol_collector.py"），命中任意一条即放行。
+   * 仍做危险结构/危险命令兜底检查，防止规则前缀之后被拼接注入。
+   */
+  private isAllowedByPersistedBashRule(command: string): boolean {
+    return matchesBashAllowRule(command, getSettings().agentBashAllowRules ?? [])
   }
 
   /**
@@ -485,6 +504,24 @@ function extractUrlHost(url: string | undefined): string | undefined {
   } catch {
     return undefined
   }
+}
+
+/**
+ * 判断 Bash 命令是否命中持久化放行规则（命令前缀白名单，纯函数便于测试）
+ *
+ * - 规则为命令前缀（如 "python3 scripts/kol_collector.py"），命令与其完全相等或以"规则 + 空格"开头即命中
+ * - 仍做危险结构/危险命令兜底检查，防止规则前缀之后被拼接注入（如 `... ; rm -rf`、`... && curl ...`）
+ */
+export function matchesBashAllowRule(command: string, rules: readonly string[]): boolean {
+  const trimmed = command.trim()
+  if (!trimmed) return false
+  if (hasDangerousStructure(trimmed)) return false
+  if (isDangerousCommand(trimmed)) return false
+  return rules.some((rule) => {
+    const r = rule.trim()
+    if (!r) return false
+    return trimmed === r || trimmed.startsWith(`${r} `)
+  })
 }
 
 /** 全局权限服务实例 */
