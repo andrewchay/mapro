@@ -1,13 +1,14 @@
 ---
 name: "ma-kol-scraper"
-description: "从蒲公英平台按条件批量采集 KOL 数据并输出 CSV，并内置完整 8 阶段筛选流水线（采集→初筛→删互动<100→top-8采集→沪杭复核+CPM/CPE估算→拆分→CPE硬性过滤→4维度打分→清洗）。支持以某达人为种子的「寻找相似」（kolSimilar）扩量模式：先按昵称搜到种子达人，即可批量拉取其相似达人列表并套用同一套筛选流水线。通过 CDP 连接 Chrome，用通用采集器 kol_collector.py + config JSON 采集，用 scripts/ 流水线脚本筛选打分。也可走可选 LLM 圈选校验（kol_screening.py）。当用户提到采集/爬虫/蒲公英/KOL 数据/批量导出达人/达人圈选/达人评分卡/筛选打分/寻找相似/相似达人/以某达人为种子/找同类博主/同类达人/lookalike/达人扩量或类似表述时触发。"
-version: "2.5.4"
+description: "从蒲公英平台按条件批量采集 KOL 数据并输出 CSV，并内置完整 8 阶段筛选流水线（采集→初筛→删互动<100→top-8采集→沪杭复核+CPM/CPE估算→拆分→CPE硬性过滤→4维度打分→清洗）。支持以某达人为种子的「寻找相似」（kolSimilar）扩量模式：先按昵称搜到种子达人，即可批量拉取其相似达人列表并套用同一套筛选流水线。通过 CDP 连接 Chrome，用通用采集器 kol_collector.py + config JSON 采集，用 scripts/ 流水线脚本筛选打分。也可走可选 LLM 圈选校验（kol_screening.py）。内含阶段9 互暖排查：对筛选跑完全流程后输出的最终 CSV 名单，用 collect_creator_xhs.py（站内采集，xhshow 签名）+ koc_detect.py（三层评分 + 红线条）做评论区互暖（KOC 互暖群）排查，排除虚假互动，输出带互暖分/结论的排查结果 CSV。当用户提到采集/爬虫/蒲公英/KOL 数据/批量导出达人/达人圈选/达人评分卡/筛选打分/寻找相似/相似达人/以某达人为种子/找同类博主/同类达人/lookalike/达人扩量/互暖排查/互暖检测/虚假互动/KOC互暖/评论交叉检测或类似表述时触发。"
+version: "2.6.0"
 ---
 
-# 蒲公英 KOL 采集 + 完整筛选流水线（v2.5）
+# 蒲公英 KOL 采集 + 完整筛选流水线 + 互暖排查（v2.6）
 
-## 设计原则（v2.3 变更）
+## 设计原则（v2.6 新增互暖排查）
 
+0. **阶段9 互暖排查（v2.6 新增）**：在 8 阶段筛选出最终 CSV 名单后，可对名单做小红书站内互暖排查——用 `collect_creator_xhs.py` 抓评论区，`koc_detect.py` 三层评分（评论者跨达人重合 60% + 黑名单命中 30% + KOC 画像 10%，模板率>20% 一票否决），筛出互暖群成员，避免投放给虚假互动的达人。黑名单**双文件存储**（skill 默认基线只读 + `~/.mapro/koc-blacklist.json` 本地累积），评分合并两者取并集。主流程见 `Step 6`，细节见 `references/koc_detect_guide.md`。
 1. **内置完整 8 阶段筛选流水线**：主采集 → 初筛 → 删互动<100 → top-8 采集 → 沪杭复核+CPM/CPE 估算 → 拆分 → CPE 硬性过滤（>50 淘汰） → 4 维度打分+清洗。流水线脚本已随 skill 提供（`scripts/`），Agent 按序执行即可，细节见 `references/pipeline.md`。
 2. **严格 a AND b 交叉验证**（v2.3）：内容类目命中 `strict_categories` **且** 主页标签命中 `strict_home_tags` 才通过；纯旅游/纯美妆仅当内容类目不命中任一目标类目才排除。
 3. **4 维度确定性打分**（推荐）：CPE(50) + 点赞率(20) + 赞评比(20) + 爆文率(10)，满分 100，可复现；与 LLM 圈选校验（`kol_screening.py`）**二选一，勿混合计分**。
@@ -21,6 +22,8 @@ version: "2.5.4"
 <workspace>/skills/ma-kol-scraper/
 ├── SKILL.md                          ← 本文件（编排总纲）
 ├── references/pipeline.md            ← 完整流水线细节（筛选条件/打分/易错点/38列表头/命令示例）
+├── references/koc_detect_guide.md    ← 互暖排查手册（阶段9：评分逻辑/数据schema/分步命令）
+├── blacklist.json                    ← 互暖黑名单·出厂默认基线（随版本分发，只读）
 ├── scripts/
 │   ├── kol_collector.py              ← 通用采集器（v2.3）
 │   ├── kol_screening.py              ← 可选 LLM 圈选校验引擎
@@ -34,7 +37,10 @@ version: "2.5.4"
 │   ├── add_ratio_cols.py             ← 加「阅读与点赞占比(=点赞÷阅读)」「赞评比」列
 │   ├── filter_cpe.py                 ← 阶段7 CPE 硬性过滤（预估CPE>50 淘汰，打分前）
 │   ├── score_kols.py                 ← 阶段8 4 维度打分（满分100）
-│   └── clean_final.py                ← 阶段8 清洗（删非美食/果切）
+│   ├── clean_final.py                ← 阶段8 清洗（删非美食/果切）
+│   ├── collect_creator_xhs.py        ← 阶段9 站内采集（移植自 MediaCrawler，CDP 登录态 + xhshow 签名 → JSONL）
+│   ├── koc_detect.py                 ← 阶段9 互暖检测（三层评分 + 红线条，移植自 MediaCrawler）
+│   └── mutual_warm_pipeline.py       ← 阶段9 编排（读清洗后CSV→关联ID→采集→检测→合并结果CSV）
 ├── screening_rules.json              ← LLM 校验规则配置（价格带/权重/阈值/提示词，品牌已中性化）
 ├── examples/
 │   ├── config-hanghai-food-tandian.json    ← 沪杭·生活美食探店示例（含 v2.3 字段，推荐）
@@ -55,6 +61,7 @@ version: "2.5.4"
 - 用户需要从蒲公英批量采集/导出达人数据
 - 用户有筛选需求（城市/粉丝量/报价/关键词/内容类目/主页标签）
 - 需要按完整流水线筛选到最终名单（含 CPM/CPE 估算、4 维度打分）
+- 需要对筛选后的最终名单做互暖排查（评论区交叉检测，排除互暖群/低质水军）
 
 **❌ 不合适**
 - 只需单个 KOL 详情 → 用 `ma-kol-crm`
@@ -185,6 +192,28 @@ python3 <skill>/scripts/kol_collector.py --config <workspace>/workspace-files/co
 python3 <skill>/scripts/kol_screening.py --csv ... --samples ... --rules <skill>/screening_rules.json --out ..._scorecard.json --category 美食探店 --city 上海
 ```
 
+### Step 6 · 互暖排查（可选，v2.6 新增）——筛选名单的虚假互动清理
+
+在跑完全流程得到最终清洗后 CSV（`{产品}{城市}_清洗后.csv`）后，可对名单做**小红书站内互暖排查**，剔除互暖群 / 低质水军，避免投放给虚假互动的达人。
+
+```bash
+python3 <skill>/scripts/mutual_warm_pipeline.py \
+    --csv {产品}{城市}_清洗后.csv \
+    --id-column userId \
+    --data-dir <workspace>/workspace-files/互暖数据 \
+    --blacklist <skill>/blacklist.json \
+    --cdp-port 9222 \
+    --output {产品}{城市}_互暖排查结果.csv
+```
+
+> **关键概念（务必先读 `references/koc_detect_guide.md`）**：
+> - 蒲公英筛选出的 `userId` **不是**站内 user_id（24 位 hex）。需先做 ID 关联：蒲公英 blogger 详情页可复制的"小红书号"可整理成映射文件，用 `--id-mapping` 传入；若无映射则默认把该列直接当站内 id 用（风险提示）。
+> - 三层评分：评论者跨达人重合 60% + 黑名单命中 30% + KOC 画像 10%；模板率 >20% 一票否决。≥60 排除 / 40-60 复核 / <40 通过。
+> - `koc_detect.py` 每轮把新实锤的互暖号累积写入 `~/.mapro/koc-blacklist.json`（本地），并与 skill 的 `blacklist.json`（默认基线）合并评分。
+> - 前置条件：Chrome CDP（`--remote-debugging-port=9222`）已登录**小红书站内**（www.xiaohongshu.com），`pip install playwright httpx tenacity pyhumps xhshow>=0.2.0`。
+
+Agent 在用户明确要求"互暖排查 / 排除互暖号 / 虚假互动清理 / 评论交叉检测 / KOC 互暖"时执行本步骤；否则跑完阶段8 即可交付。
+
 ## 产出物（全部在 workspace-files/，命名与 `examples/pipeline_similar.sh` 一致）
 
 | 文件 | 说明 |
@@ -200,6 +229,7 @@ python3 <skill>/scripts/kol_screening.py --csv ... --samples ... --rules <skill>
 | `{产品}{城市}_打分输入.csv` | 阶段7 CPE 硬性过滤后（打分输入） |
 | `{产品}{城市}_打分.csv` | 阶段8 打分名单（38列） |
 | `{产品}{城市}_清洗后.csv` | **最终名单（交付）** |
+| `{产品}{城市}_互暖排查结果.csv` | 阶段9 互暖排查结果（在原名单追加 互暖分/模板率/互暖结论 列，可选） |
 
 ## CSV 字段清单
 
@@ -238,6 +268,14 @@ python3 <skill>/scripts/kol_collector.py --config <workspace>/workspace-files/co
 
 ## 版本历史
 
+- **v2.6.0**（2026-08-23）：新增**阶段9 互暖排查**——移植自 MediaCrawler 的互暖检测体系，MAPro skill 完全自包含，不再依赖 MediaCrawler 项目：
+  - `scripts/collect_creator_xhs.py`：小红书站内 KOL 笔记+评论采集（复用 CDP 登录态 + xhshow 纯算法签名），产出与 MediaCrawler 一致的 `creator_{contents,comments}_*.jsonl`
+  - `scripts/koc_detect.py`：互暖三层评分（评论者跨达人重合60% + 黑名单命中30% + KOC画像10%，模板率>20%一票否决），双文件黑名单：默认版只读基线 + 本地累积版
+  - `scripts/mutual_warm_pipeline.py`：阶段9 编排（读清洗后CSV→关联蒲公英ID→采集→检测→合并互暖分/结论写回CSV）
+  - `blacklist.json`：互暖黑名单·出厂默认基线（随版本分发，只读，含既有 17 个已实锤互暖号）
+  - 黑名单**双文件存储**：评分合并 `blacklist.json`（基线）+ `~/.mapro/koc-blacklist.json`（本地累积，koc_detect 每轮把新实锤号写回），不被 skill 更新覆盖
+  - `references/koc_detect_guide.md`：互暖排查手册（评分逻辑/数据schema/分步命令/黑名单）
+  - SKILL.md 新增 Step 6 / 产出物新行 / 何时使用补充互暖应用场景
 - **v2.5.4**（2026-08-13）：修正阶段5 输入口径——`estimate_cpe_cpm.py --csv` 必须用**阶段3 健康名单**（`健康.csv`），示例 `pipeline_similar.sh` 由阶段2 筛选后名单修正为健康名单，pipeline.md 阶段5 章节强调 + 易错点扩至 14 条；顺带修正 Step 4 概览「7 阶段」→「8 阶段」。
 - **v2.5.3**（2026-08-13）：统一「点赞率」口径为**日常笔记**近30日仅自然流量（日常点赞中位数 ÷ 日常阅读中位数）——健康筛选（`filter_health.py` 由合作笔记口径修正为日常笔记口径）、打分（`score_kols.py`，本就日常口径）、CSV「阅读与点赞占比」列（`add_ratio_cols.py`，本就日常口径）三处一致。
 - **v2.5.2**（2026-08-13）：产出物表与 `examples/pipeline_similar.sh` 命名对齐——补齐阶段3-7 中间产物（interact/健康/top8/拆分/打分输入），最终名单明确为 `{产品}{城市}_清洗后.csv`。
