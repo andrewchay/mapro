@@ -18,6 +18,8 @@ const audit: ContentAudit = {
   complianceScore: 90,
   brandAlignmentScore: 85,
   qualityScore: 88,
+  brandImageScore: 0,
+  dataVerifiabilityScore: 0,
   overallScore: 88,
   auditReport: '符合品牌调性',
   auditor: 'ai',
