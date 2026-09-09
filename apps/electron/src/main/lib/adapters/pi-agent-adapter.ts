@@ -9,7 +9,7 @@
 import type { AgentProviderAdapter, AgentQueryInput, SDKMessage } from '@ma-proma/shared'
 import type { AgentMessage as PiAgentMessage } from '@earendil-works/pi-agent-core'
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent'
-import { enrichMessageWithDocuments } from '../agent-runtime/attachment-enrichment'
+import { enrichMessageWithDocuments, getImageAttachmentData } from '../agent-runtime/attachment-enrichment'
 import { convertPiMessagesToSDKMessages, convertSDKMessagesToPiMessages } from './pi-message-adapter'
 import { registerPiModelFromChannel } from './pi-model-registry'
 import { loadPiCodingAgent } from './pi-sdk-loader'
@@ -49,7 +49,7 @@ export class PiAgentAdapter implements AgentProviderAdapter {
     const settingsManager = SettingsManager.inMemory({
       compaction: { enabled: false },
       retry: { enabled: true, maxRetries: 2 },
-      images: { blockImages: true },
+      images: { blockImages: false },
     })
     const resourceLoader = new DefaultResourceLoader({
       cwd,
@@ -90,7 +90,15 @@ export class PiAgentAdapter implements AgentProviderAdapter {
 
     try {
       const enrichedPrompt = await enrichMessageWithDocuments(prompt, attachments)
-      await session.prompt(enrichedPrompt, { expandPromptTemplates: false })
+      const images = getImageAttachmentData(attachments).map((image) => ({
+        type: 'image' as const,
+        data: image.data,
+        mimeType: image.mediaType,
+      }))
+      await session.prompt(enrichedPrompt, {
+        expandPromptTemplates: false,
+        ...(images.length > 0 ? { images } : {}),
+      })
       const outputMessages = convertPiMessagesToSDKMessages(finalMessages, sessionId, model)
       for (const message of outputMessages) {
         yield message

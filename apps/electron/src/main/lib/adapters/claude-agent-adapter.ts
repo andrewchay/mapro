@@ -26,6 +26,7 @@ import {
 } from '@ma-proma/shared'
 import type { CanUseToolOptions, PermissionResult } from '../agent-permission-service'
 import { TRANSIENT_NETWORK_PATTERN } from '../error-patterns'
+import { getImageAttachmentData } from '../agent-runtime/attachment-enrichment'
 import { spawn as spawnChild, execFileSync } from 'node:child_process'
 import { loadClaudeAgentSdk } from '../claude-sdk-loader'
 
@@ -41,6 +42,39 @@ function toSDKPermissionMode(mode: MAProPermissionMode): import('@anthropic-ai/c
 
 /** SDK 用户消息类型 */
 type SDKUserMessage = import('@anthropic-ai/claude-agent-sdk').SDKUserMessage
+type ClaudeImageMediaType = import('@anthropic-ai/sdk/resources/messages').Base64ImageSource['media_type']
+
+const CLAUDE_IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+])
+
+function isClaudeImageMediaType(mediaType: string): mediaType is ClaudeImageMediaType {
+  return CLAUDE_IMAGE_MEDIA_TYPES.has(mediaType)
+}
+
+function buildClaudeUserContent(
+  prompt: string,
+  attachments: AgentQueryInput['attachments'],
+): SDKUserMessage['message']['content'] {
+  const images = getImageAttachmentData(attachments).flatMap((image) => {
+    if (!isClaudeImageMediaType(image.mediaType)) return []
+    return [{
+      type: 'image' as const,
+      source: {
+        type: 'base64' as const,
+        media_type: image.mediaType,
+        data: image.data,
+      },
+    }]
+  })
+
+  return images.length > 0
+    ? [{ type: 'text', text: prompt }, ...images]
+    : prompt
+}
 
 // ============================================================================
 // 长生命周期消息通道
@@ -805,7 +839,7 @@ export class ClaudeAgentAdapter implements AgentProviderAdapter {
         session_id: options.sessionId,
         message: {
           role: 'user' as const,
-          content: options.prompt,
+          content: buildClaudeUserContent(options.prompt, options.attachments),
         },
         parent_tool_use_id: null,
       } as import('@anthropic-ai/claude-agent-sdk').SDKUserMessage)
