@@ -70,7 +70,7 @@ version: "1.1.45"
 
 **docx 云文档一律文字+图片同审**：文字以系统注入的正文为准（bridge 已读取 docx 纯文本，未注入时以快速抓取的 `text.txt` 为准），配图一律用下方**快速脚本**（`fetch_feishu_fast.py`，单份约 5 秒）抓取，保证懒加载配图不遗漏；wiki / 网页链接同理（正文以 `WebBridgeSnapshot` 核对完整性）。
 
-本步命令已配置 Bash 放行规则（免人工确认）；**不要用 `curl` 检查 CDP**（curl 属危险命令会触发人工确认，且不属于固化流程）。
+持久化 Bash 放行规则默认不启用。只有用户已在 `settings.json` 的 `agentBashAllowRules` 中显式加入对应脚本命令前缀时，本步才能免人工确认；未配置时必须正常发起权限确认。**不要用 `curl` 检查 CDP**（curl 属危险命令会触发人工确认，且不属于固化流程）。
 
 1. **自检**：`python3 scripts/kol_collector.py --check --port 9222`，需 `[OK] CDP 已开启` + `[OK] 飞书登录态正常`；未开启 → 群内引导用户启动并登录飞书，二选一：
    - A（隔离配置）：`/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome_pgy_debug`
