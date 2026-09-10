@@ -1094,7 +1094,7 @@ export interface ElectronAPI {
   /** 生成复盘报告 */
   generatePhaseReport: (input: import('@ma-proma/shared').GeneratePhaseReportInput) => Promise<import('@ma-proma/shared').CampaignPhaseReport>
   /** 更新复盘报告 */
-  updatePhaseReport: (id: string, updates: Partial<Pick<import('@ma-proma/shared').CampaignPhaseReport, 'aiSummary' | 'aiFindings' | 'aiRecommendations' | 'aiScaleAdvice' | 'status'>>) => Promise<import('@ma-proma/shared').CampaignPhaseReport | null>
+  updatePhaseReport: (id: string, updates: Partial<Pick<import('@ma-proma/shared').CampaignPhaseReport, 'aiSummary' | 'aiFindings' | 'aiDecisions' | 'aiRecommendations' | 'aiScaleAdvice' | 'status'>>) => Promise<import('@ma-proma/shared').CampaignPhaseReport | null>
   /** 定稿复盘报告 */
   finalizePhaseReport: (id: string) => Promise<import('@ma-proma/shared').CampaignPhaseReport | null>
   /** 删除复盘报告 */
@@ -2456,7 +2456,7 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(PHASE_REPORT_IPC_CHANNELS.GENERATE, input)
   },
 
-  updatePhaseReport: (id: string, updates: Partial<Pick<import('@ma-proma/shared').CampaignPhaseReport, 'aiSummary' | 'aiFindings' | 'aiRecommendations' | 'aiScaleAdvice' | 'status'>>) => {
+  updatePhaseReport: (id: string, updates: Partial<Pick<import('@ma-proma/shared').CampaignPhaseReport, 'aiSummary' | 'aiFindings' | 'aiDecisions' | 'aiRecommendations' | 'aiScaleAdvice' | 'status'>>) => {
     return ipcRenderer.invoke(PHASE_REPORT_IPC_CHANNELS.UPDATE, id, updates)
   },
 

@@ -165,6 +165,15 @@ function DataTable({ data }: DataTableProps): React.ReactElement {
 
 /* ===================== AI 复盘展示 ===================== */
 
+/** 三分决策的展示配置（保持放大 / 停止 / 新开始） */
+const DECISION_META = {
+  keep: { label: '保持放大', badge: 'text-emerald-600 bg-emerald-50 border-emerald-200', dot: 'bg-emerald-500' },
+  stop: { label: '停止', badge: 'text-red-600 bg-red-50 border-red-200', dot: 'bg-red-500' },
+  start: { label: '新开始', badge: 'text-blue-600 bg-blue-50 border-blue-200', dot: 'bg-blue-500' },
+} as const
+
+type DecisionKey = keyof typeof DECISION_META
+
 interface AIReviewSectionProps {
   report: CampaignPhaseReport
 }
@@ -182,6 +191,35 @@ function AIReviewSection({ report }: AIReviewSectionProps): React.ReactElement {
           <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
             {report.aiSummary}
           </p>
+        </div>
+      )}
+
+      {/* 决策总表：保持 / 停止 / 新开始（结论先行） */}
+      {report.aiDecisions.length > 0 && (
+        <div className="p-4 rounded-xl border border-border bg-background">
+          <div className="flex items-center gap-2 mb-3">
+            <CheckCircle size={14} className="text-foreground" />
+            <span className="text-xs font-semibold">决策总表 · 保持 / 停止 / 新开始</span>
+          </div>
+          <div className="space-y-2">
+            {report.aiDecisions.map((d, i) => {
+              const meta = DECISION_META[(d.decision in DECISION_META ? d.decision : 'start') as DecisionKey]
+              return (
+                <div key={i} className="flex items-start gap-2 text-sm">
+                  <span className={cn('mt-1.5 h-2 w-2 rounded-full flex-shrink-0', meta.dot)} />
+                  <div className="min-w-0">
+                    <span className={cn('text-[10px] px-1.5 py-0.5 rounded border mr-1.5 whitespace-nowrap', meta.badge)}>
+                      {meta.label}
+                    </span>
+                    <span className="font-medium">{d.element}</span>
+                    {d.evidence && <span className="text-muted-foreground"> · {d.evidence}</span>}
+                    {d.reason && <div className="text-[12px] text-muted-foreground mt-0.5">{d.reason}</div>}
+                    {d.nextAction && <div className="text-[12px] mt-0.5">→ {d.nextAction}</div>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 

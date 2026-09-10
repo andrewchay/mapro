@@ -19,7 +19,7 @@ MAPro 是一个本地优先的 AI 桌面应用，把多模型 Chat、通用 Agen
 - **@goal 目标**：在 Agent 输入框以 `@goal <目标>` 创建长程目标（proma / ai-sdk runtime），Goal Runtime 负责状态机推进、检查点校验与重启恢复。
 - **Web Bridge 与 Computer Use**：Web Bridge 提供受管浏览器（每会话可见窗口或连接用户 Chrome CDP），适合交互式浏览器自动化；macOS 上另有 OS 级 Computer Use（CGEvent 输入 + 截图 + TCC 授权），可操控桌面应用。两者均有本地操作审计与安全限制。
   - **站点级会话信任**：Web Bridge 的导航 / 点击 / 输入 / 下载默认逐次确认；在权限横幅点"本会话信任 {域名}"后，同站点操作在当前会话内自动放行（跨域名仍需确认，信任随会话结束清空，授权行为写入本地审计）。`WebBridgeUpload` 与 Computer Use 写操作始终逐次确认，安全模式下站点信任不生效。
-- **Campaign 项目管理（Web & 桌面端）**：KOL 投放项目、13 步标准工作流、产物校验、KOL 候选池、达人 Brief 生成、AI 内容审核、内容数据追踪与投流分析。
+- **Campaign 项目管理（Web & 桌面端）**：KOL 投放项目、13 步标准工作流、产物校验、KOL 候选池、达人 Brief 生成、AI 内容审核、内容数据追踪与投流分析、投放复盘（阶段复盘报告自动生成三分决策总表：保持放大 / 停止 / 新开始，配套 `ma-campaign-review` 复盘 Skill 与 `ma-phase-reviewer` Chat 工具）。
 - **SubAgent / Tasks**：复杂任务可以通过 Claude Agent SDK 的 Agent 工具拆分为子 Agent / Task，并在消息流中展示调用过程和结果。
 - **Skills & MCP**：每个工作区可以独立配置 Skills、MCP Server 和工作区文件，适合沉淀可复用能力。
 - **远程机器人**：支持飞书 / Lark 机器人桥接，并已提供钉钉、微信桥接入口，用手机或群聊触发本机 Agent 工作流。

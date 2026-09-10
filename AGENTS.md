@@ -43,9 +43,9 @@ proma-v2/
 
 ### 包职责详解
 
-#### @ma-proma/shared (v0.1.32)
+#### @ma-proma/shared (v0.1.35)
 - **导出模块**：`./types`、`./config`、`./utils`、`./constants/permission-rules`
-- **关键类型**：`AgentMessage`、`ChatMessage`、`Channel`、`PermissionRequest`、`FeishuConfig`、`Campaign`、`ContentAudit`、`AgentRuntime`（`'claude' | 'proma' | 'pi' | 'ai-sdk'`）、`AGENT_RUNTIME_CAPABILITIES` / `AGENT_RUNTIME_HISTORY_SEMANTICS` / `AGENT_PROVIDER_RUNTIME_CAPABILITIES`（11 个 Provider 的 runtime 能力矩阵）、`resolveAgentRuntimeBaseUrl`
+- **关键类型**：`AgentMessage`、`ChatMessage`、`Channel`、`PermissionRequest`、`FeishuConfig`、`Campaign`、`ContentAudit`、`PhaseDecision`（复盘三分决策：keep 保持放大 / stop 停止 / start 新开始）、`AgentRuntime`（`'claude' | 'proma' | 'pi' | 'ai-sdk'`）、`AGENT_RUNTIME_CAPABILITIES` / `AGENT_RUNTIME_HISTORY_SEMANTICS` / `AGENT_PROVIDER_RUNTIME_CAPABILITIES`（11 个 Provider 的 runtime 能力矩阵）、`resolveAgentRuntimeBaseUrl`
 - **依赖**：无运行时依赖（仅 TypeScript）
 
 #### @ma-proma/core (v0.2.11)
@@ -92,7 +92,7 @@ proma-v2/
   - `components/agent/PermissionBanner.tsx` / `AskUserBanner.tsx` / `ExitPlanModeBanner.tsx`
 - **依赖**：`@ma-proma/shared`、Jotai、Radix UI、Tailwind CSS（不依赖 `@ma-proma/ui` / `@ma-proma/core`）
 
-#### @ma-proma/electron (v0.1.32)
+#### @ma-proma/electron (v0.1.65)
 - **职责**：Electron 桌面应用主体，集成所有包
 - **关键依赖**：
   - `@anthropic-ai/claude-agent-sdk@0.3.143` - Agent SDK（claude runtime）
@@ -245,7 +245,7 @@ bun run generate:icons    # 生成应用图标
 
 | 服务 | 职责 |
 |------|------|
-| `campaign-manager.ts` | Campaign 项目数据服务：SQLite 存储（`~/.mapro/campaign-database.sqlite`）、Campaign CRUD、KOL 候选池、Brief、阶段推进、内容审核、KOL 数据库连接（双引擎适配 `bun:sqlite` / `better-sqlite3`） |
+| `campaign-manager.ts` | Campaign 项目数据服务：SQLite 存储（`~/.mapro/campaign-database.sqlite`）、Campaign CRUD、KOL 候选池、Brief、阶段推进、内容审核、阶段复盘报告（AI 生成 + 三分决策总表：保持放大/停止/新开始，`campaign_phase_reports.ai_decisions` 列，老库自动补列）、KOL 数据库连接（双引擎适配 `bun:sqlite` / `better-sqlite3`） |
 | `campaign-workflow-service.ts` | Campaign 13 步工作流状态机（Electron 本地实现）：工作流 JSON 持久化、标准产物目录管理、语义锚点校验（`artifactRequirements` + `minArtifactLength`）、兜底落盘、执行历史（`history.md`）、`todo.md` 同步 |
 | `agent-workspace-manager.ts` | Agent 工作区 CRUD、默认营销工作区初始化（`ensureDefaultWorkspace`）、默认 Skills 同步、`chat-tools.json` 预配置（含 KOL Data MCP 默认启用） |
 | `ma-tools/` | MA 营销工具集（17 个 Chat Tool）：strategy-iq、match-ai、connect-bot、creative-pilot、script-studio、kol-search、kol-crm、kol-portal、kol-data-mcp、kol-data-service、campaign-agent、campaign-optimizer、campaign-tester、content-audit、llm-service 等，通过 `ChatToolMeta` + `ToolDefinition` 注册到 Chat 模式 |
@@ -332,7 +332,7 @@ bun run generate:icons    # 生成应用图标
 
 - **`app-shell/`**：三面板布局（LeftSidebar | NavigatorPanel | MainContentPanel），侧边栏含模式切换、置顶对话、日期分组列表、Campaign 列表、流式指示器
 - **`chat/`**：聊天核心 — ChatView（消息加载/流式订阅）、ChatHeader（模型选择/上下文设置）、ChatInput（Tiptap 富文本编辑器）、ChatMessages（消息列表/自动滚动）、ParallelChatMessages（并排模式）
-- **`agent/`**：Agent 模式 — AgentView（纯展示 + 交互，IPC 监听已提升到全局；内含 AgentRuntimeSelector 按会话选择 claude / proma / pi / ai-sdk runtime、`@goal` 目标创建提示横幅）、AgentHeader（渠道/模型选择）、AgentMessages（消息列表 + 工具活动）、ToolActivityItem（工具调用展示）、TurnFileChangesSummary（Assistant Turn 文件改动汇总）、WorkspaceSelector（工作区切换）、PermissionBanner/AskUserBanner/ExitPlanModeBanner/McpOAuthBanner（权限/问答/计划审批/MCP OAuth 授权请求 UI；PermissionBanner 对 WebBridge / ComputerUse 写操作逐次确认，AskUserBanner 支持 computer_use_takeover 接管）；`renderer/lib/agent-runtime-channels.ts` 按 runtime 过滤可用渠道；**Campaign 子模块**：CampaignList、CampaignDetail（基本信息 + 三阶段 + 候选池 + 内容追踪）、CampaignWorkflowSteps（13 步工作流执行/校验/重置）、CampaignCreateDialog、CampaignKOLImportDialog、CampaignBriefDialog、ContentAuditDialog、ContentTrackingManager、ContentTrackingList、FilePreviewDialog
+- **`agent/`**：Agent 模式 — AgentView（纯展示 + 交互，IPC 监听已提升到全局；内含 AgentRuntimeSelector 按会话选择 claude / proma / pi / ai-sdk runtime、`@goal` 目标创建提示横幅）、AgentHeader（渠道/模型选择）、AgentMessages（消息列表 + 工具活动）、ToolActivityItem（工具调用展示）、TurnFileChangesSummary（Assistant Turn 文件改动汇总）、WorkspaceSelector（工作区切换）、PermissionBanner/AskUserBanner/ExitPlanModeBanner/McpOAuthBanner（权限/问答/计划审批/MCP OAuth 授权请求 UI；PermissionBanner 对 WebBridge / ComputerUse 写操作逐次确认，AskUserBanner 支持 computer_use_takeover 接管）；`renderer/lib/agent-runtime-channels.ts` 按 runtime 过滤可用渠道；**Campaign 子模块**：CampaignList、CampaignDetail（基本信息 + 三阶段 + 候选池 + 内容追踪）、CampaignWorkflowSteps（13 步工作流执行/校验/重置）、CampaignCreateDialog、CampaignKOLImportDialog、CampaignBriefDialog、ContentAuditDialog、ContentTrackingManager、ContentTrackingList、PhaseReviewPanel（阶段复盘：数据汇总 + AI 分析 + 三分决策总表）、FilePreviewDialog
 - **`settings/`**：设置面板 — GeneralSettings（用户档案）、AppearanceSettings（主题）、ChannelSettings（渠道管理）、ChannelForm（Provider 配置）、AgentSettings（Agent 渠道/工作区/MCP）、McpServerForm（MCP 服务器配置）、AboutSettings（版本/更新）、FeishuSettings（飞书集成）、AutomationSettings（自动化与设备控制：Computer Use 授权状态 + 紧急停止全部受管浏览器 + AI SDK Runtime 诊断）、OperationAuditSettings（操作审计：Web Bridge / Computer Use 本地审计查询导出）；含 `primitives/` 可复用表单组件
 - **`file-browser/`**：文件浏览器 — FileBrowser（工作区文件树浏览）
 - **`diff/`**：Git Diff 展示
@@ -624,7 +624,7 @@ Agent 权限请求、用户追问（AskUserQuestion）、计划模式审批（Ex
 - `AgentSendInput`：发送请求输入
 - `AGENT_IPC_CHANNELS`：Agent 相关 IPC 通道常量
 - `WorkspaceCapabilities`：工作区能力（MCP Server 列表 + Skills 列表）
-- `Campaign` / `CampaignWorkflow` / `CampaignWorkflowStep` / `CampaignKOLPoolItem` / `CampaignBrief` / `ContentAudit`：Campaign 业务类型（`types/campaign.ts`）
+- `Campaign` / `CampaignWorkflow` / `CampaignWorkflowStep` / `CampaignKOLPoolItem` / `CampaignBrief` / `ContentAudit` / `CampaignPhaseReport` / `PhaseDecision`（复盘三分决策）：Campaign 业务类型（`types/campaign.ts`）
 - `CAMPAIGN_IPC_CHANNELS` / `CONTENT_AUDIT_IPC_CHANNELS` / `KOL_DATA_IPC_CHANNELS`：Campaign 相关 IPC 通道常量
 
 ## Campaign 功能架构（fork 后新增）
@@ -698,11 +698,11 @@ Campaign 是在 Agent 模式之上构建的 **KOL 投放项目管理**高层抽�
 
 - **策略类**：strategy-iq、creative-pilot、script-studio
 - **KOL 类**：match-ai、connect-bot、kol-search、kol-crm、kol-portal、kol-data-mcp
-- **Campaign 类**：campaign-agent（8 个子工具）、campaign-optimizer、campaign-tester、budget-forecast
+- **Campaign 类**：campaign-agent（8 个子工具）、campaign-optimizer、campaign-tester、budget-forecast、ma-phase-reviewer（阶段复盘：汇总数据 + AI 分析 + 三分决策总表）
 - **内容类**：content-audit、content-tracker（内容数据回收与投流分析）
 - **基础**：llm-service、kol-data-service
 
-配套 `default-skills/` 下 12 个 `ma-*` Skill（brand-dna、brand-house、creative-concept、kol-pyramid、platform-role-mapper、campaign-tester、content-audit、competitor-analyzer、content-calendar、kol-portal、marketing、ugc-campaign 等）。
+配套 `default-skills/` 下 28 个 `ma-*` Skill。复盘方法论核心是 **`ma-campaign-review`（投放复盘）**：以"验证问题驱动"复盘一批投放，产出三分决策——✅ 保持放大（Keep）/ ⛔ 停止（Stop）/ 🆕 新开始（Start）——每项判定必须带证据数字 + 机制理由，不允许"继续观察"的模糊状态，并输出标准修正与下批可执行指示；`ma-campaign-optimizer` 消费复盘结论产出正式放量方案（触发词已与复盘分工）。其余覆盖 brand-dna、brand-house、creative-concept、kol-pyramid、platform-role-mapper、campaign-tester、content-audit、competitor-analyzer、content-calendar、kol-portal、marketing、ugc-campaign 等。
 
 ## 创作参考
 
@@ -721,8 +721,8 @@ Campaign 是在 Agent 模式之上构建的 **KOL 投放项目管理**高层抽�
 
 - ✅ **多 Provider 支持**：Anthropic、OpenAI、DeepSeek、Kimi、智谱、MiniMax、豆包、通义千问、Google、自定义端点
 - ✅ **Agent SDK 集成**：基于 Claude Agent SDK 的完整 Agent 模式
-- ✅ **Campaign 项目管理**：KOL 投放项目、13 步标准工作流、产物校验、KOL 候选池、Brief 生成、内容审核、内容数据追踪（fork 后新增，详见 Campaign 功能架构段落）
-- ✅ **MA 营销工具集**：19 个 ma-tools Chat Tool + 12 个 `ma-*` default Skills，覆盖品牌 DNA、TA 画像、创意概念、KOL 匹配/建联/搜索/CRM、脚本工坊、内容审核、内容数据追踪等
+- ✅ **Campaign 项目管理**：KOL 投放项目、13 步标准工作流、产物校验、KOL 候选池、Brief 生成、内容审核、内容数据追踪、投放复盘（`ma-campaign-review` Skill + PhaseReviewPanel + `ma-phase-reviewer` 工具，报告含三分决策总表：保持放大/停止/新开始）（fork 后新增，详见 Campaign 功能架构段落）
+- ✅ **MA 营销工具集**：19 个 ma-tools Chat Tool + 28 个 `ma-*` default Skills，覆盖品牌 DNA、TA 画像、创意概念、KOL 匹配/建联/搜索/CRM、脚本工坊、内容审核、内容数据追踪、投放复盘等
 - ✅ **飞书集成**：消息同步、任务通知、OAuth 认证（68KB 核心服务）
 - ✅ **钉钉 / 微信桥接**：机器人消息桥接入口
 - ✅ **语音听写**：豆包 ASR 集成、独立听写窗口
