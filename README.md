@@ -81,6 +81,17 @@ Agent 在工作区里读取文件、推进任务、输出表格化结论，并�
 
 ![MAPro 工作区 Skills](./docs/assets/screenshots/mapro-skills-demo.png)
 
+#### 内置 Skill：ma-wechat-auto（微信自动化）
+
+把微信 4.x（macOS）达人建联的「发消息 + 自动回复」沉淀为内置 Skill，**所有工作区自动可用**（老工作区在下次启动时自动注入）。技术路线为坐标点击 + 按键注入 + 截图 OCR，因为微信无辅助功能树。
+
+- **手动流程**：查收新消息、按话术库回复
+- **全自动定时回复**：`auto_daemon.py` 守护进程按间隔轮询并自动回复，`low` 风险话术直接发送、`high` 风险写入挂起队列等人工确认
+- **数据隔离**：运行数据（台账、配置、日志）落工作区 `workspace-files/wechat-auto/state/`，不随技能升级被覆盖
+- **话术可定制**：优先读本工作区 `skills/ma-kol-outreach/SKILL.md`，缺省回退内置通用模板
+
+Agent 侧通过 Bash 工具管理守护进程（`--once --dry` 演练 / `--start` 启动 / `--status` 巡检 / `--stop` 停止）。
+
 ### Skills & MCP
 
 同一个工作区可以管理 stdio / HTTP MCP Server，按需启用或关闭，让 Agent 在不同项目里获得不同的外部上下文。
