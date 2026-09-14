@@ -704,6 +704,12 @@ Campaign 是在 Agent 模式之上构建的 **KOL 投放项目管理**高层抽�
 
 配套 `default-skills/` 下 30 个 `ma-*` Skill。复盘方法论核心是 **`ma-campaign-review`（投放复盘）**：以"验证问题驱动"复盘一批投放，产出三分决策——✅ 保持放大（Keep）/ ⛔ 停止（Stop）/ 🆕 新开始（Start）——每项判定必须带证据数字 + 机制理由，不允许"继续观察"的模糊状态，并输出标准修正与下批可执行指示；`ma-campaign-optimizer` 消费复盘结论产出正式放量方案（触发词已与复盘分工）。其余覆盖 brand-dna、brand-house、creative-concept、kol-pyramid、platform-role-mapper、campaign-tester、content-audit、competitor-analyzer、content-calendar、kol-portal、marketing、ugc-campaign、kol-outreach、wechat-auto 等。
 
+### ma-kol-outreach Skill（达人建联话术，`default-skills/ma-kol-outreach/`）
+
+达人建联话术库，**话术的唯一来源**。十个章节：品牌侧固定信息（必须先改）、核心术语（水上/水下、报价返点格式）、建联流程（达人主动发信息 / 我方主动要）、各步骤标准话术原文、语气要求、常用话术库、常见问题处理、**自动发送 / 挂起分级契约**、使用流程、铁律与合规。
+
+第八节的 `risk=low|high` 分级 + JSON 输出契约是 `ma-wechat-auto` 守护进程强依赖（`low` 自动发、`high` 挂起等人工），**改动需谨慎**。
+
 ### ma-wechat-auto Skill（微信自动化，`default-skills/ma-wechat-auto/`）
 
 把微信 4.x（macOS）达人建联的「发消息 + 自动回复」沉淀为可复用 Skill，所有工作区自动可用。技术路线为坐标点击（cliclick）+ 按键注入（osascript System Events）+ 截图 OCR（pyobjc Quartz / Vision），因为微信无辅助功能树。
@@ -711,7 +717,7 @@ Campaign 是在 Agent 模式之上构建的 **KOL 投放项目管理**高层抽�
 - **`scripts/paths.py`**：统一路径解析。技能目录 **不可存数据**（升级为 rm + cp 整目录覆盖），所有运行数据落 `<工作区根>/workspace-files/wechat-auto/state/`；工作区根由脚本自身位置反推，不硬编码绝对路径
 - **`scripts/auto_daemon.py`**：全自动定时自动回复守护进程。支持 `--start` / `--status` / `--stop` / `--once` / 前台运行；`--start` 用 `subprocess.Popen(start_new_session=True, stdin=DEVNULL)` 脱离终端，父进程（Agent 的 Bash 工具，同步阻塞 + 30s 超时）立即返回，产出 `daemon.pid` / `daemon.stdio.log`
 - **risk 分级契约**：话术产出必须带 `risk: low|high`，`low` 自动发送，`high` 只写挂起队列等人工确认
-- **话术来源**：优先本工作区 `skills/ma-kol-outreach/SKILL.md`，缺省回退内置 `references/persona-template.md`（通用模板，可覆盖改写）；`--status` 与启动日志会打印实际生效来源
+- **话术来源**：读同级技能 `skills/ma-kol-outreach/SKILL.md`（工作区若自建同名技能则优先读工作区那份）；不再内置兜底模板
 - **`references/troubleshooting.md`**：微信 4.x 坐标 + OCR 路线的踩坑记录
 
 **Agent 植入方式（零主进程代码改动）**：Bash 工具同步阻塞无法托管常驻进程，因此由守护进程自我脱离终端，Agent 侧只需 4 条命令——`--once --dry` 演练、`--start` 启动、`--status` 巡检、`--stop` 停止。Auto 模式需在 `permissions.allow` 放行 `Bash(python3 *)`。

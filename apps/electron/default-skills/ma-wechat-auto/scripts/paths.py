@@ -30,9 +30,10 @@ STOP_FILE = os.path.join(STATE, "daemon.stop")             # 停止标记
 PID_FILE = os.path.join(STATE, "daemon.pid")               # 后台运行时的 pid
 WINDOW_PNG = os.path.join(STATE, "wechat_window.png")      # 调试截图
 
-# 话术来源：优先工作区自建的 ma-kol-outreach，缺省回退本技能内置通用模板
-_OUTREACH_SKILL = os.path.join(WS_ROOT, "skills", "ma-kol-outreach", "SKILL.md")
-PERSONA_TEMPLATE = os.path.join(SKILL_DIR, "references", "persona-template.md")
+# 话术来源：内置技能 ma-kol-outreach（与本技能同级装在 skills/ 下，各自升级互不影响）。
+# 工作区若自建了同名技能，会用工作区那份（技能安装目录优先）。
+PERSONA_SKILL = "ma-kol-outreach"
+_SKILLS_ROOT = os.path.dirname(SKILL_DIR)                  # {工作区}/skills
 
 
 def ensure_state():
@@ -42,5 +43,5 @@ def ensure_state():
 
 
 def persona_path():
-    """返回话术文件路径：工作区品牌话术优先，否则用内置通用模板。"""
-    return _OUTREACH_SKILL if os.path.exists(_OUTREACH_SKILL) else PERSONA_TEMPLATE
+    """返回话术文件路径：本技能同级 skills/ma-kol-outreach/SKILL.md。"""
+    return os.path.join(_SKILLS_ROOT, PERSONA_SKILL, "SKILL.md")

@@ -72,8 +72,8 @@ def load_config():
 
 
 def load_persona():
-    """话术唯一来源。优先工作区自建的 `skills/ma-kol-outreach/SKILL.md`，
-    缺省回退本技能内置 `references/persona-template.md`（通用模板，需按品牌改写）。
+    """话术唯一来源：内置技能 `ma-kol-outreach/SKILL.md`（与本技能同级装在 skills/ 下，
+    工作区若自建同名技能则读工作区那份）。
     统一剥离 YAML frontmatter。"""
     path = paths.persona_path()
     with open(path, encoding="utf-8") as f:

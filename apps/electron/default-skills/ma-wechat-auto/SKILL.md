@@ -1,6 +1,6 @@
 ---
 name: ma-wechat-auto
-version: "1.0.0"
+version: "1.0.1"
 description: 微信达人建联自动化（macOS + 微信 4.x 桌面版）。用「截图 → OCR 定位 → 坐标点击 + 剪贴板粘贴」操控微信：读会话、读消息（含语音转文字）、发消息、列会话、检测新回复，并以内置守护进程实现「全自动定时自动回复」（低风险话术自动发、报价/返点/档期/合同等敏感环节挂起等人工）。适用于"微信自动化/自动回复/自动跟发/自动定时回复/达人建联微信/给达人发微信/读微信消息/看达人回复/微信守护进程/微信消息轮询/建联进度跟踪"等场景。当用户提到微信自动发消息、自动回复达人、定时盯着微信回复、读取微信聊天记录、把达人微信消息汇总、微信建联跟进时触发。
 ---
 
@@ -49,7 +49,6 @@ pip install anthropic          # 仅"自动回复守护进程"需要
 {工作区根}/skills/ma-wechat-auto/          # 本技能（升级会被整目录覆盖，不要放数据）
 ├── SKILL.md
 ├── references/
-│   ├── persona-template.md               # 话术兜底模板
 │   └── troubleshooting.md                # 踩坑记录（改脚本前必读）
 └── scripts/
     ├── wx.py                             # 核心库 + CLI
@@ -60,6 +59,8 @@ pip install anthropic          # 仅"自动回复守护进程"需要
     ├── test_decision.py                  # 合成对话验证风险分级（不碰微信）
     ├── wx_probe.py / wx_ocr.py           # 窗口探测 / OCR 坐标标定
     └── paths.py                          # 统一路径解析
+
+{工作区根}/skills/ma-kol-outreach/SKILL.md # 话术唯一来源（独立的内置技能）
 
 {工作区根}/workspace-files/wechat-auto/state/   # 运行数据（不受技能升级影响）
 ├── daemon_config.json                    # 守护进程配置
@@ -73,8 +74,9 @@ pip install anthropic          # 仅"自动回复守护进程"需要
 └── *.png                                 # 调试截图
 ```
 
-**话术单一来源**：优先读工作区自建的 `skills/ma-kol-outreach/SKILL.md`（品牌话术）；
-缺失时兜底用本技能 `references/persona-template.md`。守护进程与 agent 读同一份，**改话术只需改一处**。
+**话术单一来源**：读同级技能 `skills/ma-kol-outreach/SKILL.md`（品牌话术，先改它的第一节）。
+守护进程与 agent 读同一份，**改话术只需改一处**；工作区若自建同名技能则优先读工作区那份。
+话术文件缺失时 `--status` 与启动日志会直接报错路径。
 
 **台账列**（`kol_ledger.csv`）：`达人昵称,微信号,加好友状态,对话阶段,上次预览,最后互动,备注`
 **加好友清单列**（`add_friends.csv`）：`达人昵称,微信号,验证语`
@@ -185,7 +187,7 @@ python3 <技能>/scripts/auto_daemon.py --stop
 
 ## 相关
 
-- 达人建联话术：`ma-kol-outreach`（本技能优先读取；缺失时用内置兜底模板）
+- 达人建联话术：`ma-kol-outreach`（**话术唯一来源，先改它的第一节品牌信息**）
 - 蒲公英平台邀约与微信号提取：`ma-pgy-invite`
 - 达人数据采集：`ma-kol-scraper`
 - 发布后数据追踪：`ma-publish-data-track`
