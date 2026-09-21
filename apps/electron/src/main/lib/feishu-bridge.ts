@@ -37,7 +37,7 @@ import {
   getWorkspaceCapabilities,
 } from './agent-workspace-manager'
 import { getFeishuBotBindingsPath, getWorkspaceFilesDir, getConfigDir } from './config-paths'
-import { writeFileSync, readFileSync, existsSync, readdirSync, mkdirSync, appendFileSync } from 'node:fs'
+import { writeFileSync, readFileSync, existsSync, readdirSync, mkdirSync, appendFileSync, unlinkSync } from 'node:fs'
 import { basename, extname, join, dirname } from 'node:path'
 import { regenerateDraftReviewVizCsv } from './draft-review-csv-viz'
 import { extractTextFromFile, isSupportedDocumentExtension } from './document-parser'
@@ -151,6 +151,36 @@ interface GroupAuditStandard {
 }
 
 /**
+ * 群品牌信息（用户可维护，按群隔离；品牌维度的业务依据）
+ *
+ * 通过群内指令「品牌：品牌名；产品池：…；必带话题标签：#A、#B；品牌调性：…」由 bridge 确定性录入，
+ * 稿件审核消息转发时确定性注入 `[本群品牌信息: ...]`，
+ * 作为品牌维度（产品池比对/必带话题标签/品牌露出）的判定依据；
+ * 稿件消息内可附「本次审核品牌：…」单次覆盖（优先级最高）。
+ * 不依赖 Agent 从 SKILL.md 记得任一具体品牌硬编码。
+ */
+interface GroupBrandProfile {
+  /** 品牌信息文本（去除指令前缀后的原始内容） */
+  content: string
+  /** 品牌名（content 首段，便于展示） */
+  brandName: string
+  /** 品牌信息更新时间戳 */
+  updatedAt: number
+}
+
+/**
+ * 从稿件审核消息中提取单次品牌信息（人工随稿件消息输入，优先级最高）
+ *
+ * 支持「本次审核品牌：…」「本次品牌：…」两种写法，取冒号后首个非空行；
+ * 返回 null 表示消息中未指定单次品牌信息。
+ */
+function extractPerMessageBrand(text: string): string | null {
+  const match = text.match(/(?:本次审核品牌|本次品牌)\s*[:：]\s*([^\n]+)/)
+  const content = match?.[1]?.trim()
+  return content ? content : null
+}
+
+/**
  * 从文本中提取飞书云文档链接的 document_id
  *
  * 支持 feishu.cn 与 larksuite.com 域名下的 docx 链接（群内分享云文档通常以纯文本链接形式到达）：
@@ -229,17 +259,20 @@ class FeishuBridge {
   /** 群信息缓存有效期（毫秒）：1 小时 */
   private static readonly GROUP_CACHE_TTL = 3600_000
   /**
-   * 默认群审核口径（与 ma-draft-review SKILL.md Step 4 一致）
-   * 用户可通过群内指令「口径：...」按群覆盖，未维护时使用此默认值。
+   * 默认群审核口径（通用，不含任何具体品牌硬编码）
+   * 用户可通过群内指令「口径：...」按群覆盖；品牌业务依据通过「品牌：...」维护或「本次审核品牌：...」单次指定。
+   * 未维护时使用此通用默认值。
    */
   private static readonly DEFAULT_AUDIT_STANDARD =
     '字数 200 字左右即可，不按 brief 字数要求（如 300 字），不强制扩充，不计分、不构成红卡；' +
     '关键词埋点正文语义体现即达标，不强求标题/前 15 字；' +
-    '话题标签 #忘本美学、#vonbon忘本甄果 必须植入（缺失即红卡），数量不限'
+    '话题标签以注入的品牌信息/brief 必带标签为准（未注入必带标签时不因标签缺失判红卡）'
   /** chatId → 群角色名单缓存（用户手动维护，按群隔离） */
   private groupRoleCache = new Map<string, GroupRoleList>()
   /** chatId → 群审核口径缓存（用户可维护，按群隔离） */
   private auditStandardCache = new Map<string, GroupAuditStandard>()
+  /** chatId → 群品牌信息缓存（用户可维护，按群隔离） */
+  private brandProfileCache = new Map<string, GroupBrandProfile>()
 
   /** 消息去重（防止 SDK WebSocket 重复投递） */
   private recentMessageIds = new Set<string>()
@@ -1500,6 +1533,13 @@ class FeishuBridge {
         return
       }
 
+      // 群品牌信息指令（需 @Bot 触发）：品牌：忘本甄果；产品池：…；必带话题标签：#忘本美学、#vonbon忘本甄果…
+      // 由 bridge 确定性存档并按群注入，作为稿件审核品牌维度依据（「本次审核品牌：…」可单次覆盖）
+      if (chatType === 'group' && /^(品牌|设置品牌)\s*[:：]/.test(text)) {
+        await this.handleBrandProfileCommand(msgCtx, text)
+        return
+      }
+
       // 普通消息（文本/图片/文件）→ 转发到会话
       await this.handleUserMessage(msgCtx, text, imageAttachments, fileAttachments, docxDraft)
     } finally {
@@ -1712,6 +1752,93 @@ class FeishuBridge {
       console.error(`[飞书 Bridge] 保存群审核口径失败（${chatId}）:`, error)
       await this.sendTextMessage(chatId, '审核口径保存失败，请稍后重试。')
     }
+  }
+
+  // ===== 群品牌信息（用户可维护，按群隔离；品牌维度审核依据） =====
+
+  /**
+   * 处理群品牌信息指令：品牌：忘本甄果；产品池：…；必带话题标签：#忘本美学、#vonbon忘本甄果…
+   *
+   * 按群（chatId）持久化到 {configDir}/feishu-brand-profiles/{chatId}.json，
+   * 稿件审核消息转发时由 bridge 确定性注入 `[本群品牌信息: ...]`，
+   * 稿件消息内附「本次审核品牌：…」时以单次指定为准（优先级最高）。
+   * 支持「品牌：清除/清空/删除」删除本群品牌信息。
+   */
+  private async handleBrandProfileCommand(msgCtx: FeishuMessageContext, text: string): Promise<void> {
+    const { chatId } = msgCtx
+    const content = text.replace(/^(品牌|设置品牌)\s*[:：]\s*/, '').trim()
+    if (!content) {
+      await this.sendTextMessage(
+        chatId,
+        '未识别到品牌内容，格式：品牌：忘本甄果；产品池：山竹渍百香果/百香果渍山竹；必带话题标签：#忘本美学、#vonbon忘本甄果；品牌调性：…',
+      )
+      return
+    }
+    if (/^(清除|清空|删除)$/.test(content)) {
+      this.clearBrandProfile(chatId)
+      await this.sendTextMessage(chatId, '✅ 已清除本群品牌信息，稿件审核将按默认口径/brief 通用审核（不硬编码任何品牌标签）。')
+      return
+    }
+    const brandName = content.split(/[；;]/)[0]?.trim() ?? content
+    const profile: GroupBrandProfile = { content, brandName, updatedAt: Date.now() }
+    await this.saveBrandProfile(chatId, profile)
+    const preview = content.length > 60 ? `${content.slice(0, 60)}…` : content
+    await this.sendTextMessage(
+      chatId,
+      `✅ 已更新本群品牌信息（品牌：${brandName}）：${preview}。稿件审核品牌维度以此为准；单次审核可用「本次审核品牌：…」覆盖。`,
+    )
+  }
+
+  /** 获取品牌信息文件路径：{configDir}/feishu-brand-profiles/{chatId}.json */
+  private getBrandProfilePath(chatId: string): string {
+    return join(getConfigDir(), 'feishu-brand-profiles', `${chatId}.json`)
+  }
+
+  /** 读取某群品牌信息（带缓存，首次读盘；未维护时返回 null） */
+  private getBrandProfile(chatId: string): GroupBrandProfile | null {
+    const cached = this.brandProfileCache.get(chatId)
+    if (cached) return cached
+
+    try {
+      const path = this.getBrandProfilePath(chatId)
+      if (existsSync(path)) {
+        const raw = JSON.parse(readFileSync(path, 'utf-8')) as GroupBrandProfile
+        this.brandProfileCache.set(chatId, raw)
+        return raw
+      }
+    } catch (error) {
+      console.warn(`[飞书 Bridge] 读取群品牌信息失败（${chatId}）:`, error)
+    }
+    return null
+  }
+
+  /** 持久化群品牌信息并更新缓存 */
+  private async saveBrandProfile(chatId: string, profile: GroupBrandProfile): Promise<void> {
+    try {
+      const dir = join(getConfigDir(), 'feishu-brand-profiles')
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true })
+      }
+      writeFileSync(this.getBrandProfilePath(chatId), JSON.stringify(profile, null, 2), 'utf-8')
+      this.brandProfileCache.set(chatId, profile)
+      console.log(`[飞书 Bridge] 群品牌信息已保存（${chatId}）: ${profile.content.slice(0, 60)}...`)
+    } catch (error) {
+      console.error(`[飞书 Bridge] 保存群品牌信息失败（${chatId}）:`, error)
+      await this.sendTextMessage(chatId, '品牌信息保存失败，请稍后重试。')
+    }
+  }
+
+  /** 清除某群品牌信息（删除文件与缓存） */
+  private clearBrandProfile(chatId: string): void {
+    try {
+      const path = this.getBrandProfilePath(chatId)
+      if (existsSync(path)) {
+        unlinkSync(path)
+      }
+    } catch (error) {
+      console.warn(`[飞书 Bridge] 清除群品牌信息失败（${chatId}）:`, error)
+    }
+    this.brandProfileCache.delete(chatId)
   }
 
   /** 稿件审核特征检测：命中审核关键词或携带附件（文件/云文档/图片） */
@@ -2289,6 +2416,18 @@ class FeishuBridge {
           }
           const standard = this.getAuditStandard(chatId)
           contextParts.push(`[本群审核口径: ${standard.content}]（审核判定时本口径优先于 brief 旧措辞）`)
+          const brand = this.getBrandProfile(chatId)
+          if (brand) {
+            contextParts.push(
+              `[本群品牌信息: ${brand.content}]（品牌：${brand.brandName}；本群稿件审核品牌维度的业务依据：产品池/必带话题标签/品牌调性/品牌露出，优先于默认口径中的品牌条款）`,
+            )
+          }
+          const perMsgBrand = extractPerMessageBrand(userText)
+          if (perMsgBrand) {
+            contextParts.push(
+              `[本次审核品牌信息: ${perMsgBrand}]（人工随本条稿件消息指定的品牌信息，优先级最高，覆盖本群品牌信息与默认口径）`,
+            )
+          }
           // 审核硬约束（与 ma-draft-review SKILL Step 6/格式细节一致，系统确定性注入避免 Agent 自由发挥）：
           // 硬伤→红卡 @执行-返工；争议→黄卡 @Account-拍板；无硬伤→绿卡 @Account-放行；审核失败→@Account；不输出分数；
           // 判定依据不写入回复（仅黄卡/绿卡"可优化"区块内允许写）；产品名词序/同义变体不得判红卡、不得列入红卡"必须修改"清单（归入黄/绿卡"可优化"）；黄卡/绿卡末尾"可优化（结合 brief 方向，非硬性）"区块必须对照 brief 方向逐一产出建议（每条含优化方向+判定依据，仅确实无方向性差距才"- 无建议"）
