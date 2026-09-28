@@ -702,7 +702,7 @@ Campaign 是在 Agent 模式之上构建的 **KOL 投放项目管理**高层抽�
 - **内容类**：content-audit、content-tracker（内容数据回收与投流分析）
 - **基础**：llm-service、kol-data-service
 
-配套 `default-skills/` 下 30 个 `ma-*` Skill。复盘方法论核心是 **`ma-campaign-review`（投放复盘）**：以"验证问题驱动"复盘一批投放，产出三分决策——✅ 保持放大（Keep）/ ⛔ 停止（Stop）/ 🆕 新开始（Start）——每项判定必须带证据数字 + 机制理由，不允许"继续观察"的模糊状态，并输出标准修正与下批可执行指示；`ma-campaign-optimizer` 消费复盘结论产出正式放量方案（触发词已与复盘分工）。其余覆盖 brand-dna、brand-house、creative-concept、kol-pyramid、platform-role-mapper、campaign-tester、content-audit、competitor-analyzer、content-calendar、kol-portal、marketing、ugc-campaign、kol-outreach、wechat-auto 等。
+配套 `default-skills/` 下 33 个 `ma-*` Skill。复盘方法论核心是 **`ma-campaign-review`（投放复盘）**：以"验证问题驱动"复盘一批投放，产出三分决策——✅ 保持放大（Keep）/ ⛔ 停止（Stop）/ 🆕 新开始（Start）——每项判定必须带证据数字 + 机制理由，不允许"继续观察"的模糊状态，并输出标准修正与下批可执行指示；`ma-campaign-optimizer` 消费复盘结论产出正式放量方案（触发词已与复盘分工）。其余覆盖 brand-dna、brand-house、creative-concept、kol-pyramid、platform-role-mapper、campaign-tester、content-audit、competitor-analyzer、content-calendar、kol-portal、marketing、ugc-campaign、kol-outreach、wechat-auto、brief-intake、search-bridge、proposal-phasing 等。启动链路前置门：**`ma-brief-intake`（M0 对齐五类形态假设）→ 研究与创意类 skill → `ma-search-bridge`（搜索调研转获客决策表）→ `ma-proposal-phasing`（M0/M1/M2 分阶段交付与可读性纪律）**，三者用于在方案级工作流中把"反馈中收敛"改为"第 0 步对齐 + 生成即合规"。
 
 ## 创作参考
 
