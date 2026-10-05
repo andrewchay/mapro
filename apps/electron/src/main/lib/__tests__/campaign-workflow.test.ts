@@ -53,6 +53,7 @@ interface WorkflowServiceModule {
     step: { title: string },
     stepIndex: number,
   ) => boolean
+  DEFAULT_WORKFLOW_STEPS: Omit<import('@ma-proma/shared').CampaignWorkflowStep, 'status' | 'completedAt'>[]
   completeStepWithValidation: (
     campaignId: string,
     stepId: string,
@@ -243,6 +244,17 @@ describe('Campaign 工作流测试', () => {
     expect(result.totalChars).toBeGreaterThan(100)
     expect(result.missing).toHaveLength(0)
     expect(result.unmetRequirements).toHaveLength(0)
+  })
+
+  it('新 Campaign 提示词以 M0 为研究边界，并让下游复用同一决策任务', () => {
+    const steps = workflowService.DEFAULT_WORKFLOW_STEPS
+    const byId = (id: string) => steps.find((step) => step.id === id)!
+    expect(byId('market_analysis').agentPrompt).toContain('ma-brief-intake')
+    expect(byId('goal_setting').toolName).toBe('ma-marketing')
+    expect(byId('goal_setting').agentPrompt).toContain('决策任务表')
+    for (const id of ['creative_concept', 'platform_matrix', 'kol_pyramid', 'generate_briefs', 'ab_test']) {
+      expect(byId(id).agentPrompt).toContain('任务 ID')
+    }
   })
 
   // ===== Slice 3: 完成步骤（completeStepWithValidation） =====

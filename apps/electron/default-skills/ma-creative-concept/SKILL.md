@@ -1,7 +1,7 @@
 ---
 name: ma-creative-concept
 description: 创意概念与Big Idea生成专家。基于品牌DNA和TA洞察，生成核心创意概念、Big Idea、内容支柱和品牌宣言。适用于 campaign 创意发想、品牌传播主题制定、内容策略顶层设计。当用户提到"Big Idea"、"创意概念"、"传播主题"、"品牌宣言"、"内容支柱"、"campaign idea"时触发。
-version: "1.0.4"
+version: "1.0.5"
 ---
 
 # 创意概念与 Big Idea 生成
@@ -48,6 +48,8 @@ version: "1.0.4"
 | 概念数量 | 需要生成几个备选概念（建议2-3个） |
 
 ### Step 2 · 概念生成
+
+在 Campaign 全案中先读取 `goal-setting/goal-setting.md` 的决策任务表；每个方向标注任务 ID、要改变的用户判断、证据及来源/置信、期望行动和承接。已有品牌资产可复用，不为局部单条创作强制重跑 M0 或品牌屋；缺任务表时明确标注探索性创意，不冒充已确认策略。
 
 生成多个有明显差异的创意概念，每个包含完整的 Big Idea、洞察、品牌戏剧性、DDB ROI 评分、宣言和内容支柱。
 
