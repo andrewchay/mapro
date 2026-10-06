@@ -18,6 +18,7 @@ import {
   Bot,
   Pencil,
   RefreshCw,
+  ShieldAlert,
 } from 'lucide-react'
 
 const STEP_DIR_MAP: Record<string, string> = {
@@ -271,6 +272,24 @@ export function CampaignWorkflowSteps({
     }
   }
 
+  // 确认/驳回工作流确认项
+  const [confirmingItemId, setConfirmingItemId] = React.useState<string | null>(null)
+  const handleConfirmItem = async (itemId: string, behavior: 'confirm' | 'reject') => {
+    setConfirmingItemId(itemId)
+    try {
+      const updated = await window.electronAPI.confirmCampaignWorkflowItem({
+        campaignId,
+        itemId,
+        behavior,
+      })
+      setWorkflow(updated)
+    } catch (err) {
+      console.error('[WorkflowSteps] 确认失败:', err)
+    } finally {
+      setConfirmingItemId(null)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8 text-muted-foreground">
@@ -298,8 +317,57 @@ export function CampaignWorkflowSteps({
   ).length
   const progress = Math.round((completedCount / workflow.steps.length) * 100)
 
+  // 收集所有未确认的阻断项（工作流级 + 步骤级）
+  const pendingConfirmations = [
+    ...(workflow.confirmations ?? []),
+    ...workflow.steps.flatMap((s) => s.confirmations ?? []),
+  ].filter((item) => item.blocking && item.status === 'pending')
+
   return (
     <div className="space-y-4">
+      {/* 待确认门 */}
+      {pendingConfirmations.length > 0 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 space-y-2">
+          <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+            <ShieldAlert size={14} />
+            <span className="text-xs font-semibold">
+              待确认（{pendingConfirmations.length}）
+            </span>
+          </div>
+          {pendingConfirmations.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-start justify-between gap-2 rounded bg-background/60 px-2 py-1.5"
+            >
+              <div className="min-w-0">
+                <div className="text-[11px] font-medium">{item.label}</div>
+                <div className="text-[10px] text-muted-foreground leading-relaxed">{item.reason}</div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 px-2 text-[10px]"
+                  disabled={confirmingItemId === item.id}
+                  onClick={() => handleConfirmItem(item.id, 'confirm')}
+                >
+                  {confirmingItemId === item.id ? <Loader2 size={10} className="animate-spin" /> : '确认'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-[10px] text-muted-foreground"
+                  disabled={confirmingItemId === item.id}
+                  onClick={() => handleConfirmItem(item.id, 'reject')}
+                >
+                  驳回
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* 进度条头部 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

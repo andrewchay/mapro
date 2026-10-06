@@ -517,6 +517,42 @@ export async function createCampaignRouter(baseContext: AppContext, chatConfig?:
     }
   })
 
+  router.get('/:id/workflow/confirmations', async (req, res) => {
+    try {
+      const items = await commandService.listBlockingConfirmations(req.params.id)
+      res.json({ success: true, items })
+    } catch (error) {
+      console.error('[Campaign API] 确认项获取失败:', error)
+      res.status(500).json({ success: false, error: '获取确认项失败' })
+    }
+  })
+
+  router.post('/:id/workflow/confirmations/:itemId', async (req, res) => {
+    try {
+      const { behavior, confirmedBy, evidence } = req.body ?? {}
+      if (behavior !== 'confirm' && behavior !== 'reject') {
+        res.status(400).json({ success: false, error: 'behavior 必须为 confirm 或 reject' })
+        return
+      }
+      const workflow = await commandService.confirmWorkflowItem({
+        campaignId: req.params.id,
+        itemId: req.params.itemId,
+        behavior,
+        confirmedBy,
+        evidence,
+      })
+      res.json({ success: true, workflow })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error('[Campaign API] 确认项操作失败:', error)
+      if (message.includes('确认项不存在')) {
+        res.status(404).json({ success: false, error: message })
+        return
+      }
+      res.status(500).json({ success: false, error: '确认项操作失败' })
+    }
+  })
+
   router.get('/:id/workflow/current-step', async (req, res) => {
     try {
       const step = await commandService.getCurrentWorkflowStep(req.params.id)

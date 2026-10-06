@@ -169,6 +169,7 @@ import {
   updateWorkflowStep,
   advanceWorkflow,
   resetWorkflow,
+  confirmWorkflowItem,
   getStepAgentPrompt,
   getCurrentStep,
   getCompletedSteps,
@@ -3894,6 +3895,13 @@ export function registerIpcHandlers(): void {
     CAMPAIGN_IPC_CHANNELS.RESET_WORKFLOW,
     async (_, campaignId: string): Promise<import('@ma-proma/shared').CampaignWorkflow> => {
       return resetWorkflow(campaignId)
+    }
+  )
+
+  ipcMain.handle(
+    CAMPAIGN_IPC_CHANNELS.CONFIRM_WORKFLOW_ITEM,
+    async (_, input: import('@ma-proma/shared').ConfirmWorkflowItemInput): Promise<import('@ma-proma/shared').CampaignWorkflow> => {
+      return confirmWorkflowItem(input)
     }
   )
 

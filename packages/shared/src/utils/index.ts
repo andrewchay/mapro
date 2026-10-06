@@ -26,3 +26,16 @@ export {
   buildArtifactPersistenceDirective,
   splitOutputByFiles,
 } from './campaign-prompt'
+export {
+  M0_ALIGNMENT_ITEM_ID,
+  M0_BLOCKED_STEP_IDS,
+  CONFIDENCE_GATE_STEP_IDS,
+  parseConfidenceGate,
+  hasAssumptionMarkers,
+  buildM0Confirmation,
+  evaluateStepConfirmations,
+  mergeConfirmations,
+  collectBlockingConfirmations,
+  findBlockersForStep,
+  applyConfirmation,
+} from './campaign-confirmation'

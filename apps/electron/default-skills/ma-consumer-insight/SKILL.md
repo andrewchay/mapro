@@ -1,7 +1,7 @@
 ---
 name: ma-consumer-insight
 description: 消费者洞察（Consumer Insight）提炼专家。基于用户画像、搜索习惯和品类信息，提炼带张力的人性真相与传播切入点。适用于品牌策略、创意发想、传播概念制定。当用户提到"消费者洞察"、"insight"、"人性洞察"、"传播切入点"、"用户动机"时触发。
-version: "1.0.2"
+version: "1.0.3"
 ---
 
 # 消费者洞察（Consumer Insight）提炼
@@ -64,6 +64,17 @@ version: "1.0.2"
 - 反例成立 → 降级为[待验证假设]，标注验证路径（访谈/搜索/数据补充），禁止以确定语气进入创意与方案
 
 每个洞察标注置信等级：**[已验证]**（有直接证据支撑）/ **[假设]**（逻辑推导待验证）。下游 skill（ma-creative-concept、ma-brand-house）引用时必须继承标注，不得静默转为事实。
+
+**结构化置信门（供工作流引擎读取）**：只要存在 [假设] 级洞察，就在产物文件末尾追加 `confidence_gate` JSON 代码块，引擎据此自动挂起依赖该洞察的下游步骤，用户需在 UI 显式确认后放行；全部洞察为[已验证]时输出 `"confidence": "verified"`。
+
+```json
+{
+  "confidence": "assumption",
+  "gateId": "consumer_insight",
+  "message": "存在未验证洞察，引用前需确认",
+  "blocksStepId": "creative_concept"
+}
+```
 
 ### Step 4 · 任务视角检验（JTBD，必做）
 

@@ -17,9 +17,19 @@ import type {
   CampaignWorkflow,
   CampaignWorkflowStep,
   CampaignWorkflowStepId,
+  ConfirmWorkflowItemInput,
+  ConfirmationItem,
   UpdateWorkflowStepInput,
 } from '@ma-proma/shared'
-import { buildArtifactPersistenceDirective } from '@ma-proma/shared'
+import {
+  buildArtifactPersistenceDirective,
+  applyConfirmation,
+  buildM0Confirmation,
+  collectBlockingConfirmations,
+  evaluateStepConfirmations,
+  findBlockersForStep,
+  mergeConfirmations,
+} from '@ma-proma/shared'
 import type { AppContext } from '../context/types.ts'
 import type { FileProvider } from '../files/types.ts'
 import { getAgentWorkspacePath } from '../context/config-paths.ts'
@@ -735,19 +745,19 @@ export class CampaignWorkflowService {
       if (workflow && Array.isArray(workflow.steps)) {
         if (workflow.steps.length !== DEFAULT_WORKFLOW_STEPS.length) {
           const migrated = this.migrateWorkflow(workflow, campaignId)
-          await this.syncWorkspaceFiles(migrated)
-          return migrated
+          const recomputed = await this.recomputeConfirmations(migrated)
+          return recomputed
         }
-        await this.syncWorkspaceFiles(workflow)
-        return workflow
+        return await this.recomputeConfirmations(workflow)
       }
       // 文件存在但主文件与 .bak 均无法恢复：备份损坏文件后重建，避免进度被静默覆盖
       this.backupCorruptWorkflowFile(path, campaignId)
     }
 
     const workflow = this.createDefaultWorkflow(campaignId)
-    await this.saveWorkflow(workflow)
-    return workflow
+    const recomputed = await this.recomputeConfirmations(workflow)
+    await this.saveWorkflow(recomputed)
+    return recomputed
   }
 
   /** 读取工作流 JSON：主文件失败时回退 .bak 备份，均失败返回 null */
@@ -816,7 +826,111 @@ export class CampaignWorkflowService {
       steps: newSteps,
       createdAt: old.createdAt,
       updatedAt: now,
+      // 确认状态透传：旧文件无该字段时初始化为空数组，不回溯阻断历史步骤
+      confirmations: old.confirmations ?? [],
     }
+  }
+
+  // -----------------------------------------------------------------
+  // 确认状态（M0 对齐门 + confidence_gate）
+  // -----------------------------------------------------------------
+
+  /**
+   * 重算并合并确认项：
+   * - M0 门：工作流级单一确认项（不随步骤重复）
+   * - 置信门：读取各步骤产物，判定是否含未确认判断
+   * 已 confirmed/rejected 的项保留原状态，不被覆盖回 pending。
+   */
+  private async recomputeConfirmations(workflow: CampaignWorkflow): Promise<CampaignWorkflow> {
+    const m0Unresolved = await this.isM0Unresolved(workflow.campaignId)
+    const prevM0 = workflow.confirmations ?? []
+    const prevByStep = new Map(
+      workflow.steps.map((s) => [s.id, (s.confirmations ?? []).filter((i) => i.source !== 'm0')]),
+    )
+
+    const steps = await Promise.all(
+      workflow.steps.map(async (step) => {
+        const artifactText = await this.readStepArtifactText(workflow.campaignId, step.id)
+        const evaluated = evaluateStepConfirmations(step, artifactText)
+        return { ...step, confirmations: mergeConfirmations(prevByStep.get(step.id), evaluated) }
+      }),
+    )
+
+    return {
+      ...workflow,
+      steps,
+      confirmations: mergeConfirmations(prevM0, buildM0Confirmation(m0Unresolved)),
+    }
+  }
+
+  /** 判断 M0 对齐卡是否未决（缺失或含未决问题/假设标注） */
+  private async isM0Unresolved(campaignId: string): Promise<boolean> {
+    const text = await this.readStepArtifactText(campaignId, 'brand_dna').catch(() => '')
+    // M0 对齐卡通常随 brief-intake 产物进入工作区，做宽松检测：
+    // 无任何 M0 相关产物且无 brand-dna 研究起点 → 视为未确认
+    if (!text) return true
+    return /\[(假设|待确认|待验证|工作假设)\]/.test(text) && /M0|对齐卡/.test(text)
+  }
+
+  /** 读取某步骤产物目录下的文本内容（供确认判定使用） */
+  private async readStepArtifactText(
+    campaignId: string,
+    stepId: CampaignWorkflowStepId,
+  ): Promise<string> {
+    const dirName = STEP_DIR_MAP[stepId]
+    if (!dirName) return ''
+    const dirPath = join(this.getWorkspacePath(campaignId), dirName)
+    const exists = await this.files.exists(dirPath)
+    if (!exists) return ''
+    try {
+      const entries = await this.files.listDirectory(dirPath)
+      const parts: string[] = []
+      for (const entry of entries) {
+        if (entry.isDirectory) continue
+        if (!/\.(md|markdown|txt|json)$/i.test(entry.name)) continue
+        try {
+          parts.push(await this.files.readTextFile(entry.path))
+        } catch {
+          // 单个文件读取失败不影响其余判定
+        }
+      }
+      return parts.join('\n')
+    } catch {
+      return ''
+    }
+  }
+
+  /** 应用一次确认/驳回操作并持久化 */
+  async confirmWorkflowItem(input: ConfirmWorkflowItemInput): Promise<CampaignWorkflow> {
+    return this.withWorkflowLock(input.campaignId, () => this.confirmWorkflowItemLocked(input))
+  }
+
+  private async confirmWorkflowItemLocked(input: ConfirmWorkflowItemInput): Promise<CampaignWorkflow> {
+    const workflow = await this.loadCampaignWorkflow(input.campaignId)
+    const exists =
+      (workflow.confirmations ?? []).some((i) => i.id === input.itemId) ||
+      workflow.steps.some((s) => (s.confirmations ?? []).some((i) => i.id === input.itemId))
+    if (!exists) {
+      throw new Error(`确认项不存在: ${input.itemId}`)
+    }
+    const updated = applyConfirmation(
+      workflow,
+      {
+        itemId: input.itemId,
+        behavior: input.behavior,
+        confirmedBy: input.confirmedBy,
+        evidence: input.evidence,
+      },
+      Date.now(),
+    )
+    await this.saveWorkflow(updated)
+    return updated
+  }
+
+  /** 列出工作流中所有阻断中的确认项 */
+  async listBlockingConfirmations(campaignId: string): Promise<ConfirmationItem[]> {
+    const workflow = await this.loadCampaignWorkflow(campaignId)
+    return collectBlockingConfirmations(workflow)
   }
 
   // -----------------------------------------------------------------
@@ -864,6 +978,13 @@ export class CampaignWorkflowService {
       throw new Error(`步骤不存在: ${input.stepId}`)
     }
 
+    const blockers = findBlockersForStep(workflow, input.nextStepId)
+    if (blockers.length > 0) {
+      throw new Error(
+        `步骤被确认门拦截：${blockers.map((b) => b.label).join('、')}。请先在 UI 确认后再推进。`,
+      )
+    }
+
     workflow.steps[stepIndex]!.status = 'completed'
     workflow.steps[stepIndex]!.completedAt = Date.now()
 
@@ -883,8 +1004,9 @@ export class CampaignWorkflowService {
 
   private async resetWorkflowLocked(campaignId: string): Promise<CampaignWorkflow> {
     const workflow = this.createDefaultWorkflow(campaignId)
-    await this.saveWorkflow(workflow)
-    return workflow
+    const recomputed = await this.recomputeConfirmations(workflow)
+    await this.saveWorkflow(recomputed)
+    return recomputed
   }
 
   // -----------------------------------------------------------------

@@ -124,6 +124,14 @@ describe('Campaign 14 步工作流 E2E', () => {
   })
 
   test('依次完成 14 步工作流', async () => {
+    // 新 Campaign 默认 M0 对齐门未确认，先通过 API 确认后再推进
+    const confRes = await fetch(`${baseUrl}/${campaign.id}/workflow/confirmations/m0_alignment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ behavior: 'confirm', confirmedBy: 'e2e' }),
+    })
+    expect(confRes.status).toBe(200)
+
     for (let i = 0; i < DEFAULT_WORKFLOW_STEPS.length; i++) {
       const stepId = DEFAULT_WORKFLOW_STEPS[i]!.id
       writeArtifact(dataDir, campaign.id, stepId)
@@ -183,5 +191,60 @@ describe('Campaign 14 步工作流 E2E', () => {
     expect(resetJson.success).toBe(true)
     expect(resetJson.workflow.currentStepIndex).toBe(-1)
     expect(resetJson.workflow.steps.every((s) => s.status === 'pending')).toBe(true)
+  })
+
+  test('确认门 API: 列出待确认项并可确认放行', async () => {
+    // 用全新 campaign，避免前面测试已写入 brand-dna 产物影响 M0 判定
+    const createRes = await fetch(`${baseUrl}/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'M0 门测试', brand: 'GateBrand', platform: 'xiaohongshu', budget: 30000, durationMonths: 1 }),
+    })
+    const created = (await createRes.json()) as { success: boolean; campaign: Campaign }
+    const gateCampaignId = created.campaign.id
+
+    // 新 Campaign 默认 M0 门挂起
+    const listJson = await httpGetJson<{ success: boolean; items: { id: string; source: string }[] }>(`${baseUrl}/${gateCampaignId}/workflow/confirmations`)
+    expect(listJson.success).toBe(true)
+    const m0 = listJson.items.find((i) => i.source === 'm0')
+    expect(m0).toBeDefined()
+
+    // 未确认时推进被拦截
+    const blockedRes = await fetch(`${baseUrl}/${gateCampaignId}/workflow/advance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stepId: 'market_analysis', nextStepId: 'competitor_analysis' }),
+    })
+    const blockedJson = (await blockedRes.json()) as { success: boolean }
+    expect(blockedJson.success).toBe(false)
+
+    // 确认后不再返回该阻断项
+    const confirmRes = await fetch(`${baseUrl}/${gateCampaignId}/workflow/confirmations/${m0!.id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ behavior: 'confirm' }),
+    })
+    expect(confirmRes.status).toBe(200)
+
+    const listAfter = await httpGetJson<{ items: { id: string }[] }>(`${baseUrl}/${gateCampaignId}/workflow/confirmations`)
+    expect(listAfter.items.some((i) => i.id === m0!.id)).toBe(false)
+  })
+
+  test('确认门 API: 确认不存在的项返回 404', async () => {
+    const res = await fetch(`${baseUrl}/${campaign.id}/workflow/confirmations/not_exist`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ behavior: 'confirm' }),
+    })
+    expect(res.status).toBe(404)
+  })
+
+  test('确认门 API: 非法 behavior 返回 400', async () => {
+    const res = await fetch(`${baseUrl}/${campaign.id}/workflow/confirmations/m0_alignment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ behavior: 'whatever' }),
+    })
+    expect(res.status).toBe(400)
   })
 })

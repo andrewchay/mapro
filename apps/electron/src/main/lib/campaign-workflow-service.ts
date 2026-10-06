@@ -23,7 +23,7 @@
  * 每步完成后 Agent 可以更新状态，用户也可手动标记。
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { getAgentWorkspacePath } from './config-paths'
 import { listAgentWorkspaces } from './agent-workspace-manager'
@@ -32,10 +32,21 @@ import type {
   CampaignWorkflow,
   CampaignWorkflowStep,
   CampaignWorkflowStepId,
+  ConfirmationItem,
+  ConfirmWorkflowItemInput,
   UpdateWorkflowStepInput,
   AdvanceWorkflowInput,
 } from '@ma-proma/shared'
-import { buildArtifactPersistenceDirective, splitOutputByFiles } from '@ma-proma/shared'
+import {
+  buildArtifactPersistenceDirective,
+  splitOutputByFiles,
+  applyConfirmation,
+  buildM0Confirmation,
+  collectBlockingConfirmations,
+  evaluateStepConfirmations,
+  findBlockersForStep,
+  mergeConfirmations,
+} from '@ma-proma/shared'
 
 // =====================================================================
 // 标准目录定义
@@ -950,27 +961,26 @@ export function loadCampaignWorkflow(campaignId: string): CampaignWorkflow {
     if (workflow && Array.isArray(workflow.steps)) {
       // 如果步骤数量不匹配（版本升级），需要合并/更新
       if (workflow.steps.length !== DEFAULT_WORKFLOW_STEPS.length) {
-        const migrated = migrateWorkflow(workflow, campaignId)
-        syncWorkspaceFiles(migrated)
-        return migrated
+        return recomputeConfirmations(migrateWorkflow(workflow, campaignId))
       }
       // 确保目录和 todo.md 存在（旧 Campaign 兼容）
       syncWorkspaceFiles(workflow)
-      return workflow
+      return recomputeConfirmations(workflow)
     }
     // 文件存在但无法恢复：先备份损坏文件再重建，避免用户进度被静默覆盖
     backupCorruptWorkflowFile(path, campaignId)
   }
 
   const workflow = createDefaultWorkflow(campaignId)
+  const recomputed = recomputeConfirmations(workflow)
   try {
-    saveWorkflow(workflow)
+    saveWorkflow(recomputed)
   } catch (err) {
     // 写盘失败（磁盘满 / 权限不足 / 目录被占用）时仍返回内存中的默认工作流，避免 UI 直接「加载失败」。
     console.error('[CampaignWorkflow] 新建工作流写盘失败（返回内存默认值）:', err)
   }
-  syncWorkspaceFiles(workflow)
-  return workflow
+  syncWorkspaceFiles(recomputed)
+  return recomputed
 }
 
 /** 备份损坏的工作流文件（.corrupt-{ts}），便于事后人工恢复 */
@@ -1022,6 +1032,8 @@ function migrateWorkflow(old: CampaignWorkflow, campaignId: string): CampaignWor
     steps: newSteps,
     createdAt: old.createdAt,
     updatedAt: now,
+    // 确认状态透传：旧文件无该字段时初始化为空数组，不回溯阻断历史步骤
+    confirmations: old.confirmations ?? [],
   }
   try {
     saveWorkflow(workflow)
@@ -1048,6 +1060,89 @@ function resolveMigratedCurrentStepIndex(
 
   const nextPendingIndex = steps.findIndex((step) => step.status === 'pending' || step.status === 'failed')
   return nextPendingIndex >= 0 ? nextPendingIndex : -1
+}
+
+// =====================================================================
+// 确认状态（M0 对齐门 + confidence_gate）
+// =====================================================================
+
+/** 读取某步骤产物目录下的文本内容（供确认判定使用） */
+function readStepArtifactText(campaignId: string, stepId: CampaignWorkflowStepId): string {
+  const dirName = STEP_DIR_MAP[stepId]
+  if (!dirName) return ''
+  const dirPath = join(getCampaignArtifactsRoot(campaignId), dirName)
+  if (!existsSync(dirPath)) return ''
+  try {
+    const entries = readdirSync(dirPath)
+    const parts: string[] = []
+    for (const name of entries) {
+      if (!/\.(md|markdown|txt|json)$/i.test(name)) continue
+      try {
+        parts.push(readFileSync(join(dirPath, name), 'utf-8'))
+      } catch {
+        // 单文件读取失败不影响其余判定
+      }
+    }
+    return parts.join('\n')
+  } catch {
+    return ''
+  }
+}
+
+/** 判断 M0 对齐卡是否未决（缺失或含未决问题/假设标注） */
+function isM0Unresolved(campaignId: string): boolean {
+  const text = readStepArtifactText(campaignId, 'brand_dna')
+  if (!text) return true
+  return /\[(假设|待确认|待验证|工作假设)\]/.test(text) && /M0|对齐卡/.test(text)
+}
+
+/** 重算并合并确认项：M0 门（工作流级）+ 各步骤置信门 */
+function recomputeConfirmations(workflow: CampaignWorkflow): CampaignWorkflow {
+  const m0Unresolved = isM0Unresolved(workflow.campaignId)
+  const prevM0 = workflow.confirmations ?? []
+  const prevByStep = new Map(
+    workflow.steps.map((s) => [s.id, (s.confirmations ?? []).filter((i) => i.source !== 'm0')]),
+  )
+
+  const steps = workflow.steps.map((step) => {
+    const artifactText = readStepArtifactText(workflow.campaignId, step.id)
+    const evaluated = evaluateStepConfirmations(step, artifactText)
+    return { ...step, confirmations: mergeConfirmations(prevByStep.get(step.id), evaluated) }
+  })
+
+  return {
+    ...workflow,
+    steps,
+    confirmations: mergeConfirmations(prevM0, buildM0Confirmation(m0Unresolved)),
+  }
+}
+
+/** 应用一次确认/驳回操作并持久化 */
+export function confirmWorkflowItem(input: ConfirmWorkflowItemInput): CampaignWorkflow {
+  const workflow = loadCampaignWorkflow(input.campaignId)
+  const exists =
+    (workflow.confirmations ?? []).some((i) => i.id === input.itemId) ||
+    workflow.steps.some((s) => (s.confirmations ?? []).some((i) => i.id === input.itemId))
+  if (!exists) {
+    throw new Error(`确认项不存在: ${input.itemId}`)
+  }
+  const updated = applyConfirmation(
+    workflow,
+    {
+      itemId: input.itemId,
+      behavior: input.behavior,
+      confirmedBy: input.confirmedBy,
+      evidence: input.evidence,
+    },
+    Date.now(),
+  )
+  saveWorkflow(updated)
+  return updated
+}
+
+/** 列出工作流中所有阻断中的确认项 */
+export function listBlockingConfirmations(campaignId: string): ConfirmationItem[] {
+  return collectBlockingConfirmations(loadCampaignWorkflow(campaignId))
 }
 
 // =====================================================================
@@ -1090,6 +1185,14 @@ export function advanceWorkflow(input: AdvanceWorkflowInput): CampaignWorkflow {
     throw new Error(`步骤不存在: ${input.stepId}`)
   }
 
+  // 确认门拦截：目标步骤存在未确认的阻断项时拒绝推进
+  const blockers = findBlockersForStep(workflow, input.nextStepId)
+  if (blockers.length > 0) {
+    throw new Error(
+      `步骤被确认门拦截：${blockers.map((b) => b.label).join('、')}。请先在 UI 确认后再推进。`,
+    )
+  }
+
   // 标记当前步骤为完成
   workflow.steps[stepIndex]!.status = 'completed'
   workflow.steps[stepIndex]!.completedAt = Date.now()
@@ -1108,8 +1211,9 @@ export function advanceWorkflow(input: AdvanceWorkflowInput): CampaignWorkflow {
 /** 重置工作流 */
 export function resetWorkflow(campaignId: string): CampaignWorkflow {
   const workflow = createDefaultWorkflow(campaignId)
-  saveWorkflow(workflow)
-  return workflow
+  const recomputed = recomputeConfirmations(workflow)
+  saveWorkflow(recomputed)
+  return recomputed
 }
 
 /** 获取某步骤的 Agent 提示词（支持模板替换） */
@@ -1168,8 +1272,6 @@ export function getWorkflowProgress(campaignId: string): number {
 // =====================================================================
 // 产物校验与历史记录
 // =====================================================================
-
-import { readdirSync } from 'node:fs'
 
 /** 检查内容是否满足语义锚点要求（任一 alias 匹配即通过） */
 function checkRequirement(content: string, req: import('@ma-proma/shared').ArtifactRequirement): boolean {

@@ -1,7 +1,7 @@
 ---
 name: ma-brief-intake
 description: 项目启动对齐门（M0）。解析品牌 brief 或客户需求，在策略与内容开发之前强制对齐五类形态假设——交付形态（轻内容 vs 重制作）、平台主次、预算量级与结构、人群颗粒度、品类合规类别——产出 M0 对齐卡与未决问题清单，未确认不进入下游 skill。当用户新建项目、发来 brief、说"开始做方案 / 立项 / 接个需求 / 启动 campaign"时触发。
-version: "1.0.2"
+version: "1.0.3"
 ---
 
 # 项目启动对齐门（Brief Intake）
@@ -101,6 +101,16 @@ version: "1.0.2"
 
 ## 确认后的下一步
 - [待确认项清零后] ma-ta-portrait → ma-consumer-insight → …
+```
+
+**结构化置信门（供工作流引擎读取）**：对齐卡存在 [待确认]/[工作假设] 项或未决问题时，在文件末尾追加 `confidence_gate` JSON 块，引擎据此自动挂起研究到目标设定步骤，客户在 UI 确认后放行；五类假设全部 [已确认] 且无未决问题时输出 `"confidence": "verified"`：
+
+```json
+{
+  "confidence": "assumption",
+  "gateId": "m0_alignment",
+  "message": "M0 对齐卡存在未决问题，需确认后才能推进研究与目标设定"
+}
 ```
 
 ## 与其他 Skill 的分工
