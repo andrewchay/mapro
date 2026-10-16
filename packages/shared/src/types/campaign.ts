@@ -429,8 +429,6 @@ export const CAMPAIGN_IPC_CHANNELS = {
   UPDATE_WORKFLOW_STEP: 'campaign:updateWorkflowStep',
   /** 重置 Campaign 工作流 */
   RESET_WORKFLOW: 'campaign:resetWorkflow',
-  /** 确认/驳回工作流确认项 */
-  CONFIRM_WORKFLOW_ITEM: 'campaign:confirmWorkflowItem',
 } as const
 
 // ===== Campaign 工作流 =====
@@ -512,48 +510,6 @@ export const VIDEO_ASSET_IPC_CHANNELS = {
 /** 工作流步骤状态 */
 export type CampaignWorkflowStepStatus = 'pending' | 'in_progress' | 'completed' | 'skipped' | 'failed'
 
-/** 确认项状态 */
-export type ConfirmationStatus = 'pending' | 'confirmed' | 'rejected'
-
-/** 确认项来源：M0 对齐门 / 产物置信门 */
-export type ConfirmationSource = 'm0' | 'confidence_gate'
-
-/** 确认项：工作流中的待确认/已确认状态单元，由引擎判定并在 UI 显式确认 */
-export interface ConfirmationItem {
-  /** 稳定 ID，如 'm0_alignment' | 'confidence:brand_house' */
-  id: string
-  /** 人类可读标题，如 'M0 对齐卡：五类形态假设' */
-  label: string
-  /** 待确认原因（缺失/置信不足/未决问题） */
-  reason: string
-  /** 状态 */
-  status: ConfirmationStatus
-  /** 来源，用于 UI 分组 */
-  source: ConfirmationSource
-  /** true=阻断下游步骤 */
-  blocking: boolean
-  /** 归属步骤 */
-  stepId?: CampaignWorkflowStepId
-  /** 确认时间 */
-  confirmedAt?: number
-  /** 确认人 */
-  confirmedBy?: string
-  /** 确认依据备注（可选） */
-  evidence?: string
-}
-
-/** 结构化置信门：skill 产物声明，供工作流引擎读取 */
-export interface ConfidenceGate {
-  /** 置信等级，对齐 skill 的 [已验证]/[假设] 标注 */
-  confidence: 'verified' | 'assumption'
-  /** 门 ID，需与产物所在步骤对应 */
-  gateId: string
-  /** 人类可读说明 */
-  message: string
-  /** 该门阻断的步骤（缺省为所属步骤的下游） */
-  blocksStepId?: CampaignWorkflowStepId
-}
-
 /** 产物校验要求（每步一组） */
 export interface ArtifactRequirement {
   /** 语义锚点描述，人类可读 */
@@ -588,8 +544,6 @@ export interface CampaignWorkflowStep {
   outputSummary?: string
   /** 用户备注（可选） */
   notes?: string
-  /** 本步骤产生的确认项（可选，向后兼容） */
-  confirmations?: ConfirmationItem[]
 }
 
 /** Campaign 工作流定义 */
@@ -602,8 +556,6 @@ export interface CampaignWorkflow {
   steps: CampaignWorkflowStep[]
   /** 视频素材列表 */
   videoAssets?: CampaignVideoAsset[]
-  /** 工作流级确认项（跨步骤门，如 M0 对齐门）（可选） */
-  confirmations?: ConfirmationItem[]
   /** 创建时间 */
   createdAt: number
   /** 更新时间 */
@@ -624,26 +576,6 @@ export interface AdvanceWorkflowInput {
   campaignId: string
   stepId: CampaignWorkflowStepId
   nextStepId: CampaignWorkflowStepId
-}
-
-/** 确认工作流确认项输入 */
-export interface ConfirmWorkflowItemInput {
-  campaignId: string
-  /** 确认项 ID */
-  itemId: string
-  /** 确认行为：确认放行 / 驳回 */
-  behavior: 'confirm' | 'reject'
-  /** 确认人（可选） */
-  confirmedBy?: string
-  /** 确认依据备注（可选） */
-  evidence?: string
-}
-
-/** 推进/完成被阻断时的结构化结果 */
-export interface WorkflowBlockedResult {
-  blocked: true
-  /** 触发阻断的确认项 */
-  blockedBy: ConfirmationItem[]
 }
 
 export interface ContentAudit {
