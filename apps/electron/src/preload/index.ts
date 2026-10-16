@@ -111,6 +111,7 @@ import type {
   UpdateCampaignInput,
   CampaignWorkflow,
   UpdateWorkflowStepInput,
+  ConfirmWorkflowItemInput,
 } from '@ma-proma/shared'
 import type {
   UserProfile,
@@ -1036,6 +1037,8 @@ export interface ElectronAPI {
   updateCampaignWorkflowStep: (input: UpdateWorkflowStepInput) => Promise<CampaignWorkflow>
   /** 重置 Campaign 工作流 */
   resetCampaignWorkflow: (campaignId: string) => Promise<CampaignWorkflow>
+  /** 确认/驳回工作流确认项 */
+  confirmCampaignWorkflowItem: (input: ConfirmWorkflowItemInput) => Promise<CampaignWorkflow>
 
   // ===== 视频素材 =====
 
@@ -2362,6 +2365,10 @@ const electronAPI: ElectronAPI = {
 
   resetCampaignWorkflow: (campaignId: string) => {
     return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.RESET_WORKFLOW, campaignId)
+  },
+
+  confirmCampaignWorkflowItem: (input: import('@ma-proma/shared').ConfirmWorkflowItemInput) => {
+    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.CONFIRM_WORKFLOW_ITEM, input)
   },
 
   // ===== 视频素材 =====

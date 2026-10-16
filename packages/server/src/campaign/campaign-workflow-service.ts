@@ -17,9 +17,19 @@ import type {
   CampaignWorkflow,
   CampaignWorkflowStep,
   CampaignWorkflowStepId,
+  ConfirmWorkflowItemInput,
+  ConfirmationItem,
   UpdateWorkflowStepInput,
 } from '@ma-proma/shared'
-import { buildArtifactPersistenceDirective } from '@ma-proma/shared'
+import {
+  buildArtifactPersistenceDirective,
+  applyConfirmation,
+  buildM0Confirmation,
+  collectBlockingConfirmations,
+  evaluateStepConfirmations,
+  findBlockersForStep,
+  mergeConfirmations,
+} from '@ma-proma/shared'
 import type { AppContext } from '../context/types.ts'
 import type { FileProvider } from '../files/types.ts'
 import { getAgentWorkspacePath } from '../context/config-paths.ts'
@@ -82,7 +92,7 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
     ],
     agentPrompt: `## 步骤 1: 市场分析
 
-目标：系统分析目标市场的规模、品类趋势与品类痛点，为后续品牌策略提供市场数据支撑。
+目标：基于 Campaign Brief 的业务主目标、活动类型和约束，分析目标市场的规模、品类趋势与品类痛点，为后续品牌策略提供市场数据支撑。先核对 ma-brief-intake 的 M0 对齐卡；若未提供或五类假设仍触发挂起，只能产出标注[工作假设]的探索性研究，不得推进全案。完整 Brief 不等于 M0 已确认。
 
 分析框架：
 1. **市场规模**：大盘数据、品类增速、渗透率、市场容量
@@ -151,7 +161,7 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
     ],
     agentPrompt: `## 步骤 3: 用户分析（TA画像 + 搜索习惯 + 消费者洞察）
 
-目标：基于市场分析和竞品分析，构建精准受众画像，补充搜索习惯，并提炼可用于传播的消费者洞察（Insight）。
+目标：基于 M0 业务问题、市场分析和竞品分析，构建精准受众画像、搜索习惯和可用于传播的消费者洞察（Insight）。记录人群×具体情境、当前判断、行动障碍及可能改变判断的证据；注明来源/反证和[已确认/待验证/工作假设]，不要把推断伪装成用户事实。
 
 分析框架：
 1. **人口统计画像**：年龄、性别、收入、城市、地域、学历、职业
@@ -312,35 +322,35 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
   {
     id: 'goal_setting',
     title: '目标设定',
-    description: '基于品牌诊断，设定总目标、分层目标与量化指标（KPI）',
-    toolName: 'ma-campaign-optimizer',
+    description: '结合 M0、用户研究与品牌诊断，设定目标、决策任务表和分层测量计划',
+    toolName: 'ma-marketing',
     minArtifactLength: 300,
     artifactRequirements: [
       { name: '总目标', aliases: ['总目标', '核心问题', '品类认知', '内容模型', '搜索转化'] },
       { name: '分层目标', aliases: ['分层', '平台', '阶段', '人群', '测试期', '爆文模型'] },
       { name: '量化指标', aliases: ['KPI', '指标', '互动率', 'CPE', '爆文率', '搜索量', 'ROI', '可追踪'] },
+      { name: '决策任务表', aliases: ['决策任务', '任务 ID', '当前判断', '目标判断'] },
+      { name: '承接与证据', aliases: ['承接', '证据来源', '置信', '观察窗口'] },
     ],
-    agentPrompt: `## 步骤 6: 目标设定
+    agentPrompt: `## 步骤 6: 目标设定与决策任务
 
-目标：基于品牌诊断（步骤4产物），设定Campaign的总目标、分层目标与量化指标。
+目标：将 M0 定义的业务问题与用户研究、品牌诊断整合，设定 Campaign 总目标、分层目标、决策任务与测量计划。没有已确认 M0 时先回到 ma-brief-intake 对齐，不以完整 Brief 替代确认。
 
 目标框架：
-1. **总目标**：本阶段要解决的核心问题
-   - 示例：建立品类认知 / 验证内容模型 / 拉动搜索转化
-2. **分层目标**：按平台/阶段/人群拆解
-   - 示例：小红书测试期：找到1组可复制的爆文模型
-3. **量化指标**：KPI必须可追踪、可复盘
-   - 示例：互动率、CPE、爆文率、搜索量、ROI
+1. **总目标**：本阶段要解决的核心业务问题（区分长期记忆建设与短期行动）
+2. **决策任务表**：每条任务有 ID、人群×情境、当前判断→目标判断、障碍、主张、证据及来源/置信标注、期望行动及承接位置/就绪状态、指标/观察窗口；假设不能写成事实，未确认关键主张不得据此铺量
+3. **分层目标与指标**：按任务、人群/阶段分解为交付、认知、行为和可能的增量指标；说明数据来源、基线、判定阈值及不可测事项；平台归因不等于增量，证据不足时不宣称因果
+4. **后续验证**：执行前细化测试设计，活动后观察提前购买、渠道迁移和留存等（按项目可用数据选择）
 
 执行要求：
-1. 使用 ma-campaign-optimizer 工具设定目标
+1. 用 ma-marketing 的策略能力结合已确认 M0 与研究产物设定目标；ma-campaign-optimizer 留给复盘后的正式放量方案
 2. 产出必须保存到：\`goal-setting/\`
 3. 文件命名建议：\`goal-setting.md\`
 4. 完成标准（校验时会检查）：
-   - goal-setting.md 必须包含总目标、分层目标、量化指标（至少300字）
-   - 指标必须具体、可量化、可追踪
+   - goal-setting.md 必须包含总目标、分层目标、量化指标和决策任务表（至少300字）
+   - 指标必须具体、可追踪，注明测量口径、数据来源与证据边界
 
-前置产物：\`brand-dna/\` 目录中的品牌诊断文件
+前置产物：M0 对齐卡及 \`user-analysis/\`、\`brand-dna/\` 目录中的研究/诊断文件
 完成后，请返回 "已完成：目标设定"并附上产物摘要。`,
   },
   {
@@ -361,7 +371,7 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
     ],
     agentPrompt: `## 步骤 7: 生成 Big Idea
 
-目标：基于品牌DNA、Brand Concept和目标设定，生成3个创意方向并推荐最优方案。评估标准参考 DDB ROI 创意原则（Relevance / Originality / Impact）和李奥贝纳 Inherent Drama（品牌内在戏剧性）。
+目标：基于品牌DNA、Brand Concept和 goal-setting/goal-setting.md 的决策任务表，生成3个创意方向并推荐最优方案。每个方向注明对应任务 ID、当前→目标判断、可呈现的可信证据与来源、期望行动及承接；未确认的洞察/主张保持假设，不得铺量。评估参考 DDB ROI 和品牌内在戏剧性。
 
 产出框架：
 1. **Big Idea**：一句话能说清的核心创意概念
@@ -401,7 +411,7 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
     ],
     agentPrompt: `## 步骤 8: 设计平台矩阵
 
-目标：基于 Big Idea 和 TA 画像，为每个平台分配内容角色、KPI 和预算比例。
+目标：基于 Big Idea、TA 画像和决策任务表，为每个平台/触点分配所承担的任务 ID、内容职能、KPI 和预算比例。同一平台可承担多种职能，不预设固定角色；内容排期按 M0 活动类型选择事件节奏或持续覆盖，逐项标注行动承接与验证窗口。
 
 执行要求：
 1. 使用 ma-platform-role-mapper 工具设计平台矩阵
@@ -430,7 +440,7 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
     ],
     agentPrompt: `## 步骤 9: 设计 KOL 金字塔
 
-目标：基于总预算 {budget} 元、平台矩阵、目标人群和品牌人格，设计头部/腰部/尾部 KOL 金字塔，并明确各层级达人承担的"形象角色"。
+目标：基于总预算 {budget} 元、平台矩阵、决策任务表、目标人群和品牌人格，设计适合项目的达人组合，并明确各达人/层级承担的任务 ID、可信证据与行动承接。头腰尾配比是可选规划方式，不预设头部必背书、KOC 必真实体验。
 
 产出框架：
 1. **金字塔结构**：头部 / 腰部 / 尾部（KOC）的比例、数量、预算分配
@@ -482,7 +492,7 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
 5. 完成标准（校验时会检查）：
    - kol-search-results.md 必须包含搜索条件、筛选逻辑、KOL 列表（至少300字）
    - kol-shortlist.md 必须包含精选推荐及推荐理由（至少300字）
-   - 每位 KOL 推荐理由必须包含：数据匹配度、形象契合度、调性契合度、历史数据摘要
+   - 每位 KOL 推荐理由必须包含：数据匹配度、形象契合度、调性契合度、历史数据摘要，以及能否可信承担对应决策任务 ID（未指定任务时说明原因）
    - 每位 KOL 信息包含：ID、名称、平台、粉丝量、互动率、类目、报价、城市
 
 前置产物：\`kol-pyramid/\` 目录中的 KOL 金字塔与形象角色矩阵文件
@@ -537,6 +547,7 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
 目标：为当前 Campaign 候选池中的每位已确认达人（status = confirmed）生成个性化 Brief。Brief 不只是内容方向，还要明确 Tone & Manner、品牌戏剧性植入点、合规要求和交付标准。
 
 产出框架（每个 brief-{kol-id}.md 必须包含）：
+0. **决策任务关联**：引用 goal-setting 中的任务 ID，说明用户当前→目标判断、该达人展示的可核验证据与来源、期望行动及承接页/路径；未确认的主张不得改写为确定性宣传语。任务匹配、证据呈现和行动建议是内容指导，不能擅自升级为稿件审核红卡硬伤，仍按 ma-draft-review 的硬性/建议层分级。
 1. **内容方向**：核心信息、内容角度、必须呈现的场景/卖点
 2. **Tone & Manner 校准**：
    - 该达人的语言风格如何适配品牌全局调性
@@ -584,15 +595,15 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
     ],
     agentPrompt: `## 步骤 13: 投放测试、阶段复盘与放量决策
 
-目标：为 Campaign 设计 A/B 测试方案，并提前建立“测试 → 复盘 → 调优 → 放量/止损”的完整衔接机制。本步骤不能只停留在测试设计，还要明确测试结束后如何读取数据、如何判断是否放量、如何调整达人组合与预算。
+目标：为 Campaign 设计测试方案与“测试 → 复盘 → 调优 → 放量/止损”衔接机制。投放前只预设判定规则，不伪造未发生的测试结果或正式放量方案。
 
 产出框架：
 1. **A/B 测试方案**（保存到 \`ab-test-plan.md\`）
-   - 测试假设与目标：要验证的核心问题（如“腰部达人 vs KOC 的 CPE 差异”）
+   - 测试假设与目标：引用决策任务 ID，验证其障碍/证据/行动中的核心问题；交付、认知、行为与增量证据分层，注明测量窗口与活动后观察计划
    - 测试变量：每次只测一个变量，避免混淆
-   - 分组方案：测试组 / 对照组、受众分配、达人数量
-   - 核心指标与阈值：CPE、互动率、ROI、CTR 等；明确通过/不通过阈值
-   - 样本量与统计显著性：最低样本量、检验功效、显著性水平
+   - 分组方案：测试组 / 对照组、受众分配、达人数量；非随机分组说明选择偏差，不自动声称因果
+   - 核心指标与阈值：按目标选择记忆/正确理解、CPE、互动率、ROI、CTR 等，不强制每项都以销量为 KPI
+   - 样本量与证据边界：说明能否进行显著性检验；不可行时如实说明，不编造检验功效
    - 测试预算与周期：建议为正式预算的 10-20%，周期 7-14 天
    - 止损线：如“前 3 天 CPE > 15 元即暂停该组”
 
@@ -611,16 +622,16 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
    - 若测试未达标：明确止损动作、预算回收、二次测试条件
 
 执行要求：
-1. 使用 ma-campaign-tester 工具设计 A/B 测试方案
-2. 使用 ma-campaign-optimizer 工具生成测试后的调优规则与放量方案
+1. 使用 ma-campaign-tester 工具设计测试方案
+2. 投放前只预设调优规则与放量判定标准；真实数据经 ma-campaign-review / ma-phase-reviewer 复盘后，再由 ma-campaign-optimizer 生成正式放量方案
 3. 测试结束后，使用 ma-phase-reviewer 工具基于真实数据进行阶段复盘
 4. 产出必须保存到：\`ab-test/\`
 5. 文件命名建议：\`ab-test-plan.md\`、\`ab-test-review.md\`、\`scale-up-plan.md\`
 6. 完成标准（校验时会检查）：
    - ab-test-plan.md 必须包含测试目标、变量、分组、指标、样本量、预算、周期、止损线（至少300字）
    - ab-test-review.md 必须包含数据回收清单、分析维度、核心发现模板、目标达成判定（至少300字）
-   - scale-up-plan.md 必须包含调优规则、放量决策标准、正式投放方案、风险预案（至少300字）
-   - 三份文件均与创意概念、平台矩阵、达人金字塔保持一致
+   - scale-up-plan.md 投放前包含调优规则、放量决策标准、正式方案待填模板及风险预案（至少300字）；正式放量方案待真实数据复盘后填写
+   - 三份文件均与决策任务表、创意概念、平台矩阵、达人策略保持一致；尚未投放时不得虚构结果
 
 前置产物：\`creative-concept/\`、\`platform-matrix/\`、\`kol-pyramid/\` 目录中的文件
 完成后，请返回 "已完成：投放测试、阶段复盘与放量决策"并附上产物摘要。`,
@@ -734,19 +745,19 @@ export class CampaignWorkflowService {
       if (workflow && Array.isArray(workflow.steps)) {
         if (workflow.steps.length !== DEFAULT_WORKFLOW_STEPS.length) {
           const migrated = this.migrateWorkflow(workflow, campaignId)
-          await this.syncWorkspaceFiles(migrated)
-          return migrated
+          const recomputed = await this.recomputeConfirmations(migrated)
+          return recomputed
         }
-        await this.syncWorkspaceFiles(workflow)
-        return workflow
+        return await this.recomputeConfirmations(workflow)
       }
       // 文件存在但主文件与 .bak 均无法恢复：备份损坏文件后重建，避免进度被静默覆盖
       this.backupCorruptWorkflowFile(path, campaignId)
     }
 
     const workflow = this.createDefaultWorkflow(campaignId)
-    await this.saveWorkflow(workflow)
-    return workflow
+    const recomputed = await this.recomputeConfirmations(workflow)
+    await this.saveWorkflow(recomputed)
+    return recomputed
   }
 
   /** 读取工作流 JSON：主文件失败时回退 .bak 备份，均失败返回 null */
@@ -815,7 +826,111 @@ export class CampaignWorkflowService {
       steps: newSteps,
       createdAt: old.createdAt,
       updatedAt: now,
+      // 确认状态透传：旧文件无该字段时初始化为空数组，不回溯阻断历史步骤
+      confirmations: old.confirmations ?? [],
     }
+  }
+
+  // -----------------------------------------------------------------
+  // 确认状态（M0 对齐门 + confidence_gate）
+  // -----------------------------------------------------------------
+
+  /**
+   * 重算并合并确认项：
+   * - M0 门：工作流级单一确认项（不随步骤重复）
+   * - 置信门：读取各步骤产物，判定是否含未确认判断
+   * 已 confirmed/rejected 的项保留原状态，不被覆盖回 pending。
+   */
+  private async recomputeConfirmations(workflow: CampaignWorkflow): Promise<CampaignWorkflow> {
+    const m0Unresolved = await this.isM0Unresolved(workflow.campaignId)
+    const prevM0 = workflow.confirmations ?? []
+    const prevByStep = new Map(
+      workflow.steps.map((s) => [s.id, (s.confirmations ?? []).filter((i) => i.source !== 'm0')]),
+    )
+
+    const steps = await Promise.all(
+      workflow.steps.map(async (step) => {
+        const artifactText = await this.readStepArtifactText(workflow.campaignId, step.id)
+        const evaluated = evaluateStepConfirmations(step, artifactText)
+        return { ...step, confirmations: mergeConfirmations(prevByStep.get(step.id), evaluated) }
+      }),
+    )
+
+    return {
+      ...workflow,
+      steps,
+      confirmations: mergeConfirmations(prevM0, buildM0Confirmation(m0Unresolved)),
+    }
+  }
+
+  /** 判断 M0 对齐卡是否未决（缺失或含未决问题/假设标注） */
+  private async isM0Unresolved(campaignId: string): Promise<boolean> {
+    const text = await this.readStepArtifactText(campaignId, 'brand_dna').catch(() => '')
+    // M0 对齐卡通常随 brief-intake 产物进入工作区，做宽松检测：
+    // 无任何 M0 相关产物且无 brand-dna 研究起点 → 视为未确认
+    if (!text) return true
+    return /\[(假设|待确认|待验证|工作假设)\]/.test(text) && /M0|对齐卡/.test(text)
+  }
+
+  /** 读取某步骤产物目录下的文本内容（供确认判定使用） */
+  private async readStepArtifactText(
+    campaignId: string,
+    stepId: CampaignWorkflowStepId,
+  ): Promise<string> {
+    const dirName = STEP_DIR_MAP[stepId]
+    if (!dirName) return ''
+    const dirPath = join(this.getWorkspacePath(campaignId), dirName)
+    const exists = await this.files.exists(dirPath)
+    if (!exists) return ''
+    try {
+      const entries = await this.files.listDirectory(dirPath)
+      const parts: string[] = []
+      for (const entry of entries) {
+        if (entry.isDirectory) continue
+        if (!/\.(md|markdown|txt|json)$/i.test(entry.name)) continue
+        try {
+          parts.push(await this.files.readTextFile(entry.path))
+        } catch {
+          // 单个文件读取失败不影响其余判定
+        }
+      }
+      return parts.join('\n')
+    } catch {
+      return ''
+    }
+  }
+
+  /** 应用一次确认/驳回操作并持久化 */
+  async confirmWorkflowItem(input: ConfirmWorkflowItemInput): Promise<CampaignWorkflow> {
+    return this.withWorkflowLock(input.campaignId, () => this.confirmWorkflowItemLocked(input))
+  }
+
+  private async confirmWorkflowItemLocked(input: ConfirmWorkflowItemInput): Promise<CampaignWorkflow> {
+    const workflow = await this.loadCampaignWorkflow(input.campaignId)
+    const exists =
+      (workflow.confirmations ?? []).some((i) => i.id === input.itemId) ||
+      workflow.steps.some((s) => (s.confirmations ?? []).some((i) => i.id === input.itemId))
+    if (!exists) {
+      throw new Error(`确认项不存在: ${input.itemId}`)
+    }
+    const updated = applyConfirmation(
+      workflow,
+      {
+        itemId: input.itemId,
+        behavior: input.behavior,
+        confirmedBy: input.confirmedBy,
+        evidence: input.evidence,
+      },
+      Date.now(),
+    )
+    await this.saveWorkflow(updated)
+    return updated
+  }
+
+  /** 列出工作流中所有阻断中的确认项 */
+  async listBlockingConfirmations(campaignId: string): Promise<ConfirmationItem[]> {
+    const workflow = await this.loadCampaignWorkflow(campaignId)
+    return collectBlockingConfirmations(workflow)
   }
 
   // -----------------------------------------------------------------
@@ -863,6 +978,13 @@ export class CampaignWorkflowService {
       throw new Error(`步骤不存在: ${input.stepId}`)
     }
 
+    const blockers = findBlockersForStep(workflow, input.nextStepId)
+    if (blockers.length > 0) {
+      throw new Error(
+        `步骤被确认门拦截：${blockers.map((b) => b.label).join('、')}。请先在 UI 确认后再推进。`,
+      )
+    }
+
     workflow.steps[stepIndex]!.status = 'completed'
     workflow.steps[stepIndex]!.completedAt = Date.now()
 
@@ -882,8 +1004,9 @@ export class CampaignWorkflowService {
 
   private async resetWorkflowLocked(campaignId: string): Promise<CampaignWorkflow> {
     const workflow = this.createDefaultWorkflow(campaignId)
-    await this.saveWorkflow(workflow)
-    return workflow
+    const recomputed = await this.recomputeConfirmations(workflow)
+    await this.saveWorkflow(recomputed)
+    return recomputed
   }
 
   // -----------------------------------------------------------------

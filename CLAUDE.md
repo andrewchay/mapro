@@ -498,6 +498,11 @@ React UI 更新
 - ✅ **多模态支持**：图片、文档附件
 - ✅ **Chat 工具**：内置工具系统 + 动态加载
 
+### 关联仓库
+
+- **Gravitas 基座源码：`/Users/chaihao/LLM/proma-mit/`**（本地路径）。营销/达人能力在 `apps/electron/src/main/lib/marketing/`（含 `video/`、`ma-tools/`）与 `apps/electron/src/renderer/components/{marketing,influencer}/`；数据层 `marketing-sqlite-store.ts`。营销全链路开发集中在 `feat/marketing-campaign-full-chain` 分支。
+- ⚠️ `.context/note-daren-mapping.md`（2026-08-10）中"ma-tools 全缺/凭据未配"的记录已过时（2026-10-05 实地核对：ma-tools 已大量迁移、凭据走 video-credential-resolver 渠道配置、Seedance 已 2.5）。
+
 ### 架构亮点
 
 - **并发守卫**：同一会话防止并行请求冲突
