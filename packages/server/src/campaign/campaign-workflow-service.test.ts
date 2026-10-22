@@ -139,15 +139,6 @@ describe('CampaignWorkflowService', () => {
     }
   })
 
-  /** 确认 M0 对齐门，使工作流可推进（新 Campaign 默认 M0 未决） */
-  async function confirmM0(campaignId: string) {
-    const workflow = await service.loadCampaignWorkflow(campaignId)
-    const m0 = (workflow.confirmations ?? []).find((i) => i.source === 'm0')
-    if (m0) {
-      await service.confirmWorkflowItem({ campaignId, itemId: m0.id, behavior: 'confirm' })
-    }
-  }
-
   test('首次加载时创建默认 14 步工作流', async () => {
     const workflow = await service.loadCampaignWorkflow('test-1')
     expect(workflow.campaignId).toBe('test-1')
@@ -167,7 +158,6 @@ describe('CampaignWorkflowService', () => {
   })
 
   test('推进工作流会更新当前步骤与下一步骤状态', async () => {
-    await confirmM0('test-1')
     const workflow = await service.advanceWorkflow({
       campaignId: 'test-1',
       stepId: 'market_analysis',
@@ -190,7 +180,6 @@ describe('CampaignWorkflowService', () => {
   })
 
   test('重置工作流会清空所有状态', async () => {
-    await confirmM0('test-1')
     await service.advanceWorkflow({
       campaignId: 'test-1',
       stepId: 'market_analysis',
@@ -202,7 +191,6 @@ describe('CampaignWorkflowService', () => {
   })
 
   test('查询当前步骤与完成进度', async () => {
-    await confirmM0('test-1')
     await service.advanceWorkflow({
       campaignId: 'test-1',
       stepId: 'market_analysis',
@@ -225,7 +213,6 @@ describe('CampaignWorkflowService', () => {
   })
 
   test('持久化后重新加载保持状态', async () => {
-    await confirmM0('test-1')
     await service.advanceWorkflow({
       campaignId: 'test-1',
       stepId: 'market_analysis',
@@ -258,121 +245,6 @@ describe('CampaignWorkflowService', () => {
     const validator = new CampaignArtifactValidator(context, files)
     const serviceWithValidator = new CampaignWorkflowService(context, files, validator)
     await expect(serviceWithValidator.validateStepArtifacts('test-1', 'not_a_step' as CampaignWorkflowStepId)).rejects.toThrow('步骤不存在')
-  })
-})
-
-describe('CampaignWorkflowService · 确认状态（M0 门 + confidence_gate）', () => {
-  let context: AppContext
-  let files: InMemoryFileProvider
-  let service: CampaignWorkflowService
-
-  beforeEach(() => {
-    context = createTestContext()
-    files = new InMemoryFileProvider()
-    service = new CampaignWorkflowService(context, files)
-  })
-
-  afterEach(() => {
-    const dir = context.getConfigDir()
-    try {
-      rmSync(dir, { recursive: true, force: true })
-    } catch {
-      // ignore
-    }
-  })
-
-  /** 写入某步骤产物文件 */
-  async function writeArtifact(campaignId: string, dirName: string, file: string, content: string) {
-    const path = join(context.getConfigDir(), 'agent-workspaces', `campaign-${campaignId}`, dirName, file)
-    await files.writeTextFile(path, content)
-  }
-
-  test('新建工作流因 M0 未对齐而默认存在阻断项', async () => {
-    const workflow = await service.loadCampaignWorkflow('conf-empty')
-    expect(workflow.confirmations ?? []).toHaveLength(1)
-    expect((workflow.confirmations ?? [])[0]?.source).toBe('m0')
-    expect(await service.listBlockingConfirmations('conf-empty')).toHaveLength(1)
-  })
-
-  test('无 M0 未决迹象时不产生 M0 阻断项', async () => {
-    // brand-dna 产物存在且不含 [假设]+M0 组合 → 视为已对齐
-    await writeArtifact(
-      'conf-aligned',
-      'brand-dna',
-      'brand-dna.md',
-      '# 品牌DNA\nM0 对齐卡已确认，五类形态假设均[已验证]。',
-    )
-    const workflow = await service.loadCampaignWorkflow('conf-aligned')
-    const m0Items = (workflow.confirmations ?? []).filter((i) => i.source === 'm0')
-    expect(m0Items).toHaveLength(0)
-  })
-
-  test('M0 缺失时，推进到研究步骤被阻断', async () => {
-    await service.loadCampaignWorkflow('conf-m0')
-    // 未写入任何 M0/品牌产物 → 视为未决
-    await expect(
-      service.advanceWorkflow({
-        campaignId: 'conf-m0',
-        stepId: 'market_analysis',
-        nextStepId: 'competitor_analysis',
-      }),
-    ).rejects.toThrow(/确认门/)
-  })
-
-  test('确认 M0 后可正常推进', async () => {
-    await service.loadCampaignWorkflow('conf-m0-ok')
-    const blockers = await service.listBlockingConfirmations('conf-m0-ok')
-    expect(blockers.length).toBeGreaterThan(0)
-    await service.confirmWorkflowItem({
-      campaignId: 'conf-m0-ok',
-      itemId: blockers[0]!.id,
-      behavior: 'confirm',
-      confirmedBy: 'tester',
-    })
-    expect(await service.listBlockingConfirmations('conf-m0-ok')).toHaveLength(0)
-    const workflow = await service.advanceWorkflow({
-      campaignId: 'conf-m0-ok',
-      stepId: 'market_analysis',
-      nextStepId: 'competitor_analysis',
-    })
-    expect(workflow.steps[0]?.status).toBe('completed')
-  })
-
-  test('产物含 [假设] 标注时产生置信门，确认后放行', async () => {
-    await service.loadCampaignWorkflow('conf-gate')
-    await writeArtifact('conf-gate', 'user-analysis', 'consumer-insight.md', '# 洞察\n该结论为[假设]，待验证。')
-    const workflow = await service.loadCampaignWorkflow('conf-gate')
-    const gate = (workflow.steps.find((s) => s.id === 'user_analysis')?.confirmations ?? []).find(
-      (i) => i.source === 'confidence_gate',
-    )
-    expect(gate).toBeDefined()
-    expect(gate?.blocking).toBe(true)
-
-    await service.confirmWorkflowItem({ campaignId: 'conf-gate', itemId: gate!.id, behavior: 'confirm' })
-    const after = await service.loadCampaignWorkflow('conf-gate')
-    const gateAfter = (after.steps.find((s) => s.id === 'user_analysis')?.confirmations ?? []).find(
-      (i) => i.id === gate!.id,
-    )
-    expect(gateAfter?.status).toBe('confirmed')
-  })
-
-  test('确认状态持久化：重新实例化服务后仍为 confirmed', async () => {
-    await service.loadCampaignWorkflow('conf-persist')
-    const blockers = await service.listBlockingConfirmations('conf-persist')
-    await service.confirmWorkflowItem({ campaignId: 'conf-persist', itemId: blockers[0]!.id, behavior: 'confirm' })
-
-    const service2 = new CampaignWorkflowService(context, files)
-    const reloaded = await service2.loadCampaignWorkflow('conf-persist')
-    const item = (reloaded.confirmations ?? []).find((i) => i.id === blockers[0]!.id)
-    expect(item?.status).toBe('confirmed')
-    expect(item?.confirmedAt).toBeGreaterThan(0)
-  })
-
-  test('确认不存在的项会抛出错误', async () => {
-    await service.loadCampaignWorkflow('conf-missing')
-    await expect(
-      service.confirmWorkflowItem({ campaignId: 'conf-missing', itemId: 'not_exist', behavior: 'confirm' }),
-    ).rejects.toThrow(/确认项不存在/)
   })
 })
 

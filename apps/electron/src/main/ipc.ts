@@ -4033,7 +4033,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(
     PHASE_REPORT_IPC_CHANNELS.UPDATE,
-    async (_, id: string, updates: Partial<Pick<import('@ma-proma/shared').CampaignPhaseReport, 'aiSummary' | 'aiFindings' | 'aiDecisions' | 'aiRecommendations' | 'aiScaleAdvice' | 'status'>>): Promise<import('@ma-proma/shared').CampaignPhaseReport | null> => {
+    async (_, id: string, updates: Partial<Pick<import('@ma-proma/shared').CampaignPhaseReport, 'aiSummary' | 'aiFindings' | 'aiRecommendations' | 'aiScaleAdvice' | 'status'>>): Promise<import('@ma-proma/shared').CampaignPhaseReport | null> => {
       return updatePhaseReport(id, updates)
     }
   )

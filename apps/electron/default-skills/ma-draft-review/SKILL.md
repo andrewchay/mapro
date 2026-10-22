@@ -1,7 +1,7 @@
 ---
 name: ma-draft-review
 description: 达人稿件三态审核专家（红卡硬伤需修改/黄卡需人工判断/绿卡待确认放行）。读取飞书文档/文件/消息内文案形式的达人稿件，匹配 brief + 本群审核口径（系统注入，优先于 brief）审核：硬伤→红卡 @本次稿件提交人（发对应稿件的执行方）本人-返工；争议→黄卡 @Account-拍板；无硬伤→绿卡 @Account-放行；审核失败→@Account；不输出分数。含 brief 管理与群名单（名单：）。当群聊出现"初稿/改稿/终稿/成片/发布预览/请查收/辛苦审核/审稿/稿件"或"录入brief/导入brief"时触发。
-version: "1.1.49"
+version: "1.1.50"
 ---
 
 # 达人稿件三态审核
@@ -144,7 +144,7 @@ version: "1.1.49"
 
 ### Step 4 · 文字审核（强制，不得跳过）
 
-调用 LLM（复用 ma-content-audit 五维方法论），输入稿件全文 + brief + 本群审核口径，取回 issues（含 `severity`）与 `has_critical`：
+调用 LLM（复用 ma-content-audit 三维方法论），输入稿件全文 + brief + 本群审核口径，取回 issues（含 `severity`）与 `has_critical`：
 
 | 维度 | 要点 |
 |------|------|
@@ -360,7 +360,7 @@ Agent 审核失败（稿件无法自动审核）时，按"⚠️ 审核失败"�
 
 ## 与相关 Skill 的边界
 
-- `ma-content-audit`：提供五维审核方法论（合规/品牌契合/质量/品牌形象一致性/数据可验证性），本 skill 在其基础上增加 brief 对照、图片审核、三态分档、版本标注、投放执行要点
+- `ma-content-audit`：提供三维审核方法论，本 skill 在其基础上增加 brief 对照、图片审核、三态分档、版本标注、投放执行要点
 - `ma-image-audit`：图片视觉审核（Step 5）
 - `ma-publish-data-track`：负责发布后数据（发布记录/报数/异常预警），本 skill 只管审稿
 

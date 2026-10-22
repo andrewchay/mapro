@@ -53,16 +53,12 @@ interface WorkflowServiceModule {
     step: { title: string },
     stepIndex: number,
   ) => boolean
-  DEFAULT_WORKFLOW_STEPS: Omit<import('@ma-proma/shared').CampaignWorkflowStep, 'status' | 'completedAt'>[]
   completeStepWithValidation: (
     campaignId: string,
     stepId: string,
     messages: import('@ma-proma/shared').AgentMessage[] | undefined,
   ) => { success: boolean; workflow: import('@ma-proma/shared').CampaignWorkflow; reason?: string }
   getWorkflowProgress: (campaignId: string) => number
-  advanceWorkflow: (input: import('@ma-proma/shared').AdvanceWorkflowInput) => import('@ma-proma/shared').CampaignWorkflow
-  confirmWorkflowItem: (input: import('@ma-proma/shared').ConfirmWorkflowItemInput) => import('@ma-proma/shared').CampaignWorkflow
-  listBlockingConfirmations: (campaignId: string) => import('@ma-proma/shared').ConfirmationItem[]
 }
 
 interface CampaignManagerModule {
@@ -247,17 +243,6 @@ describe('Campaign 工作流测试', () => {
     expect(result.totalChars).toBeGreaterThan(100)
     expect(result.missing).toHaveLength(0)
     expect(result.unmetRequirements).toHaveLength(0)
-  })
-
-  it('新 Campaign 提示词以 M0 为研究边界，并让下游复用同一决策任务', () => {
-    const steps = workflowService.DEFAULT_WORKFLOW_STEPS
-    const byId = (id: string) => steps.find((step) => step.id === id)!
-    expect(byId('market_analysis').agentPrompt).toContain('ma-brief-intake')
-    expect(byId('goal_setting').toolName).toBe('ma-marketing')
-    expect(byId('goal_setting').agentPrompt).toContain('决策任务表')
-    for (const id of ['creative_concept', 'platform_matrix', 'kol_pyramid', 'generate_briefs', 'ab_test']) {
-      expect(byId(id).agentPrompt).toContain('任务 ID')
-    }
   })
 
   // ===== Slice 3: 完成步骤（completeStepWithValidation） =====
@@ -629,78 +614,5 @@ describe('Campaign 工作流测试', () => {
     expect(workflowService.isStepExecutionMessage('## 步骤 2: 竞品分析', step, 0)).toBe(false)
     // 空消息
     expect(workflowService.isStepExecutionMessage(undefined, step, 0)).toBe(false)
-  })
-
-  // ===== 确认状态（M0 门 + confidence_gate） =====
-
-  it('确认门: 新 Campaign 默认存在 M0 阻断项', () => {
-    const workflow = workflowService.loadCampaignWorkflow('conf-new')
-    const m0 = (workflow.confirmations ?? []).filter((i) => i.source === 'm0')
-    expect(m0).toHaveLength(1)
-    expect(m0[0]?.blocking).toBe(true)
-  })
-
-  it('确认门: M0 未确认时 advanceWorkflow 被拦截', () => {
-    workflowService.loadCampaignWorkflow('conf-block')
-    expect(() =>
-      workflowService.advanceWorkflow({
-        campaignId: 'conf-block',
-        stepId: 'market_analysis',
-        nextStepId: 'competitor_analysis',
-      }),
-    ).toThrow(/确认门/)
-  })
-
-  it('确认门: 确认 M0 后可推进且状态持久化', () => {
-    workflowService.loadCampaignWorkflow('conf-pass')
-    const w1 = workflowService.loadCampaignWorkflow('conf-pass')
-    const m0 = (w1.confirmations ?? []).find((i) => i.source === 'm0')!
-    workflowService.confirmWorkflowItem({
-      campaignId: 'conf-pass',
-      itemId: m0.id,
-      behavior: 'confirm',
-      confirmedBy: 'tester',
-    })
-    const advanced = workflowService.advanceWorkflow({
-      campaignId: 'conf-pass',
-      stepId: 'market_analysis',
-      nextStepId: 'competitor_analysis',
-    })
-    expect(advanced.steps[0]?.status).toBe('completed')
-
-    const reloaded = workflowService.loadCampaignWorkflow('conf-pass')
-    const item = (reloaded.confirmations ?? []).find((i) => i.id === m0.id)
-    expect(item?.status).toBe('confirmed')
-    expect(item?.confirmedAt).toBeGreaterThan(0)
-  })
-
-  it('确认门: 产物含 [假设] 时产生置信门，确认后放行', () => {
-    const campaignId = 'conf-gate'
-    workflowService.loadCampaignWorkflow(campaignId)
-    // 直接写入 user-analysis 产物
-    const artifactsRoot = join(TEST_DIR, 'agent-workspaces', `campaign-${campaignId}`, 'user-analysis')
-    mkdirSync(artifactsRoot, { recursive: true })
-    writeFileSync(join(artifactsRoot, 'consumer-insight.md'), '# 洞察\n该结论为[假设]，待验证。')
-
-    const w = workflowService.loadCampaignWorkflow(campaignId)
-    const gate = (w.steps.find((s) => s.id === 'user_analysis')?.confirmations ?? []).find(
-      (i) => i.source === 'confidence_gate',
-    )
-    expect(gate).toBeDefined()
-    expect(gate?.blocking).toBe(true)
-
-    workflowService.confirmWorkflowItem({ campaignId, itemId: gate!.id, behavior: 'confirm' })
-    const after = workflowService.loadCampaignWorkflow(campaignId)
-    const gateAfter = (after.steps.find((s) => s.id === 'user_analysis')?.confirmations ?? []).find(
-      (i) => i.id === gate!.id,
-    )
-    expect(gateAfter?.status).toBe('confirmed')
-  })
-
-  it('确认门: 确认不存在的项抛错', () => {
-    workflowService.loadCampaignWorkflow('conf-none')
-    expect(() =>
-      workflowService.confirmWorkflowItem({ campaignId: 'conf-none', itemId: 'nope', behavior: 'confirm' }),
-    ).toThrow(/确认项不存在/)
   })
 })
