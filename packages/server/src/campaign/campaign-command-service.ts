@@ -17,8 +17,6 @@ import type {
   CampaignWorkflow,
   CampaignWorkflowStep,
   CampaignWorkflowStepId,
-  ConfirmationItem,
-  ConfirmWorkflowItemInput,
   ContentAudit,
   CreateContentAuditInput,
   CreateContentTrackingInput,
@@ -87,14 +85,6 @@ export class CampaignCommandService {
 
   async resetWorkflow(campaignId: string): Promise<CampaignWorkflow> {
     return this.ensureWorkflowService().resetWorkflow(campaignId)
-  }
-
-  async confirmWorkflowItem(input: ConfirmWorkflowItemInput): Promise<CampaignWorkflow> {
-    return this.ensureWorkflowService().confirmWorkflowItem(input)
-  }
-
-  async listBlockingConfirmations(campaignId: string): Promise<ConfirmationItem[]> {
-    return this.ensureWorkflowService().listBlockingConfirmations(campaignId)
   }
 
   async getCurrentWorkflowStep(campaignId: string): Promise<CampaignWorkflowStep | null> {

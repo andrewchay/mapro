@@ -15,7 +15,7 @@ import type { ChatToolMeta } from '@ma-proma/shared'
 export const PHASE_REVIEWER_TOOL_META: ChatToolMeta = {
   id: 'ma-phase-reviewer',
   name: 'MA阶段复盘',
-  description: '基于 Campaign 阶段投放数据，自动生成复盘报告（汇总数据、AI 分析、三分决策总表：保持放大/停止/新开始、下批指示、放量建议）',
+  description: '基于 Campaign 阶段投放数据，自动生成复盘报告（汇总数据、AI 分析、优化建议、放量建议）',
   params: [
     { name: 'campaign_id', type: 'string', description: 'Campaign ID', required: true },
     { name: 'phase', type: 'string', description: '阶段序号 (1/2/3)', required: true },
@@ -37,12 +37,7 @@ export const PHASE_REVIEWER_TOOL_META: ChatToolMeta = {
 - 计算核心指标：CPM、CPE、CTR、互动率
 - 与基准数据对比，判定性能等级
 - 识别表现最佳/最差的内容和 KOL
-- 输出结构化复盘报告，核心是**三分决策总表**：把本阶段测试过的所有元素（内容格式、视觉风格、达人、关键词埋点、投流出价/人群/素材）逐项判定为——
-  - ✅ keep 保持放大（数据达标 + 机制讲得通，写清怎么放大）
-  - ⛔ stop 停止（数据差，或数据赢但风险不可接受）
-  - 🆕 start 新开始（本阶段发现的新假设，写清小规模验证方式）
-- 每项决策必须带证据数字 + 一句机制理由；样本不足的项明确写"样本不足，不作结论"，归入 start 再验证
-- 另含 AI 分析、共性规律、下批可执行指示、放量建议
+- 输出结构化复盘报告（含 AI 分析、核心发现、优化建议、放量建议）
 
 **参数说明：**
 - campaign_id: Campaign 的唯一 ID
@@ -51,14 +46,14 @@ export const PHASE_REVIEWER_TOOL_META: ChatToolMeta = {
 - cpm_target: 可选，CPM 目标值（如 100）
 - engagement_target: 可选，互动率目标值（如 5 表示 5%）
 
-工具会返回完整的复盘报告，包含数据汇总、AI 分析、三分决策总表（保持/停止/新开始）、下批指示和放量建议。
+工具会返回完整的复盘报告，包含数据汇总、AI 分析、优化建议和放量建议。
 </ma_phase_reviewer_instructions>`,
 }
 
 export const PHASE_REVIEWER_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'ma_generate_phase_report',
-    description: 'Generate a phase review report based on campaign phase data. Summarizes KOL content performance, calculates metrics (CPM, CPE, CTR, engagement rate), and provides AI analysis with a keep/stop/start decision table (which elements to keep & scale, stop, or start new), next-batch instructions and scaling recommendations. Use when the user needs to review campaign phase performance, analyze influencer content data, or get recommendations for the next phase.',
+    description: 'Generate a phase review report based on campaign phase data. Summarizes KOL content performance, calculates metrics (CPM, CPE, CTR, engagement rate), and provides AI analysis with optimization suggestions and scaling recommendations. Use when the user needs to review campaign phase performance, analyze influencer content data, or get recommendations for the next phase.',
     parameters: {
       type: 'object',
       properties: {
@@ -151,16 +146,6 @@ export async function executePhaseReviewerTool(toolCall: ToolCall): Promise<Tool
       parts.push('### 🔍 核心发现')
       for (const finding of report.aiFindings) {
         parts.push(`- ${finding}`)
-      }
-      parts.push('')
-    }
-
-    // 三分决策总表（保持放大 / 停止 / 新开始）
-    if (report.aiDecisions.length > 0) {
-      parts.push('### 🎯 决策总表：保持 / 停止 / 新开始')
-      const DECISION_LABEL = { keep: '✅ 保持放大', stop: '⛔ 停止', start: '🆕 新开始' } as const
-      for (const d of report.aiDecisions) {
-        parts.push(`- **${DECISION_LABEL[d.decision] ?? d.decision} · ${d.element}**：${d.evidence}。${d.reason} → ${d.nextAction}`)
       }
       parts.push('')
     }

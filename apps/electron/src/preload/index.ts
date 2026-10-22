@@ -111,7 +111,6 @@ import type {
   UpdateCampaignInput,
   CampaignWorkflow,
   UpdateWorkflowStepInput,
-  ConfirmWorkflowItemInput,
 } from '@ma-proma/shared'
 import type {
   UserProfile,
@@ -1037,8 +1036,6 @@ export interface ElectronAPI {
   updateCampaignWorkflowStep: (input: UpdateWorkflowStepInput) => Promise<CampaignWorkflow>
   /** 重置 Campaign 工作流 */
   resetCampaignWorkflow: (campaignId: string) => Promise<CampaignWorkflow>
-  /** 确认/驳回工作流确认项 */
-  confirmCampaignWorkflowItem: (input: ConfirmWorkflowItemInput) => Promise<CampaignWorkflow>
 
   // ===== 视频素材 =====
 
@@ -1097,7 +1094,7 @@ export interface ElectronAPI {
   /** 生成复盘报告 */
   generatePhaseReport: (input: import('@ma-proma/shared').GeneratePhaseReportInput) => Promise<import('@ma-proma/shared').CampaignPhaseReport>
   /** 更新复盘报告 */
-  updatePhaseReport: (id: string, updates: Partial<Pick<import('@ma-proma/shared').CampaignPhaseReport, 'aiSummary' | 'aiFindings' | 'aiDecisions' | 'aiRecommendations' | 'aiScaleAdvice' | 'status'>>) => Promise<import('@ma-proma/shared').CampaignPhaseReport | null>
+  updatePhaseReport: (id: string, updates: Partial<Pick<import('@ma-proma/shared').CampaignPhaseReport, 'aiSummary' | 'aiFindings' | 'aiRecommendations' | 'aiScaleAdvice' | 'status'>>) => Promise<import('@ma-proma/shared').CampaignPhaseReport | null>
   /** 定稿复盘报告 */
   finalizePhaseReport: (id: string) => Promise<import('@ma-proma/shared').CampaignPhaseReport | null>
   /** 删除复盘报告 */
@@ -2367,10 +2364,6 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.RESET_WORKFLOW, campaignId)
   },
 
-  confirmCampaignWorkflowItem: (input: import('@ma-proma/shared').ConfirmWorkflowItemInput) => {
-    return ipcRenderer.invoke(CAMPAIGN_IPC_CHANNELS.CONFIRM_WORKFLOW_ITEM, input)
-  },
-
   // ===== 视频素材 =====
 
   listVideoAssets: (campaignId: string) => {
@@ -2463,7 +2456,7 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke(PHASE_REPORT_IPC_CHANNELS.GENERATE, input)
   },
 
-  updatePhaseReport: (id: string, updates: Partial<Pick<import('@ma-proma/shared').CampaignPhaseReport, 'aiSummary' | 'aiFindings' | 'aiDecisions' | 'aiRecommendations' | 'aiScaleAdvice' | 'status'>>) => {
+  updatePhaseReport: (id: string, updates: Partial<Pick<import('@ma-proma/shared').CampaignPhaseReport, 'aiSummary' | 'aiFindings' | 'aiRecommendations' | 'aiScaleAdvice' | 'status'>>) => {
     return ipcRenderer.invoke(PHASE_REPORT_IPC_CHANNELS.UPDATE, id, updates)
   },
 
