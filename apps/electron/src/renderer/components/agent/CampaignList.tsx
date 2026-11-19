@@ -90,16 +90,18 @@ export function CampaignList(): React.ReactElement {
     let workspace = workspaces.find((item) => item.slug === workspaceSlug)
     if (!workspace) {
       try {
-        workspace = await window.electronAPI.createAgentWorkspace(campaign.name, workspaceSlug)
-        setAgentWorkspaces((prev) => [workspace!, ...prev.filter((item) => item.id !== workspace!.id)])
+        // 走 campaign 专用的 ensure 通道：
+        // - 内部对 Campaign 豁免名称查重（品牌名可重复，slug 才是唯一标识）
+        // - 目录已存在但未注册时做自愈（补索引 / plugin manifest / skills）
+        await window.electronAPI.ensureCampaignWorkspace(campaign)
       } catch (error) {
-        // 可能是旧工作区同名或另一个窗口刚刚创建；重新拉取，优先找 campaign slug。
-        console.warn('[CampaignList] 创建 Campaign 工作区失败，尝试复用已有工作区:', error)
-        workspaces = await window.electronAPI.listAgentWorkspaces()
-        setAgentWorkspaces(workspaces)
-        workspace = workspaces.find((item) => item.slug === workspaceSlug)
-          ?? workspaces.find((item) => item.name === campaign.name && item.slug.startsWith('campaign-'))
+        console.warn('[CampaignList] 初始化 Campaign 工作区失败，尝试复用已有工作区:', error)
       }
+      // ensure 之后重新拉取索引，再定位工作区
+      workspaces = await window.electronAPI.listAgentWorkspaces()
+      setAgentWorkspaces(workspaces)
+      workspace = workspaces.find((item) => item.slug === workspaceSlug)
+        ?? workspaces.find((item) => item.name === campaign.name && item.slug.startsWith('campaign-'))
     }
     if (!workspace) return null
 
@@ -144,7 +146,11 @@ export function CampaignList(): React.ReactElement {
     if (!selectedCampaign) return
     ensureCampaignAgent(selectedCampaign)
       .then((result) => {
-        if (!result) return
+        if (!result) {
+          console.error('[CampaignList] 无法发送到 Agent：工作区或模型渠道未就绪')
+          window.alert('无法执行：Agent 工作区或模型渠道未就绪。\n请先在「设置 → 模型渠道」启用一个渠道后重试。')
+          return
+        }
         return window.electronAPI.sendAgentMessage({
           sessionId: result.session.id,
           userMessage: prompt,
@@ -154,7 +160,10 @@ export function CampaignList(): React.ReactElement {
           startedAt: Date.now(),
         })
       })
-      .catch(console.error)
+      .catch((err) => {
+        console.error('[CampaignList] 发送到 Agent 失败:', err)
+        window.alert(`执行失败：${err instanceof Error ? err.message : String(err)}`)
+      })
   }, [ensureCampaignAgent, selectedCampaign])
 
   if (loading) {

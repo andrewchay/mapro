@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, cpSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { getConfigDir, getAgentWorkspacePath } from './config-paths'
-import { createAgentWorkspace, listAgentWorkspaces, deleteAgentWorkspace } from './agent-workspace-manager'
+import { createAgentWorkspace, ensureWorkspaceRegistered, listAgentWorkspaces, deleteAgentWorkspace } from './agent-workspace-manager'
 import { getKOLById, computeKOLScores, recalculateAllScores, type KOLRecord } from './ma-tools/kol-data-service'
 export { recalculateAllScores }
 import { runContentAudit } from './ma-tools/content-audit'
@@ -1072,7 +1072,13 @@ export function ensureCampaignWorkspace(campaign: Campaign): string {
     
     // 如果 Workspace 目录不存在，创建它
     if (!existsSync(workspacePath)) {
-      createAgentWorkspace(campaign.name, workspaceSlug)
+      createAgentWorkspace(campaign.name, workspaceSlug, campaign.projectPath, {
+        skipNameCheck: true,
+      })
+    } else {
+      // 目录存在但可能未注册索引 / skills 缺失（历史遗留：重名导致创建被静默跳过），
+      // 这里做自愈，避免 skill 一直找不到。
+      ensureWorkspaceRegistered(campaign.name, workspaceSlug, campaign.projectPath)
     }
     
     const toolsDir = join(workspacePath, '.campaign-tools')
@@ -1263,7 +1269,10 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
   const workspaceSlug = `campaign-${id}`
   try {
     // 若用户指定了本地项目文件夹，将其绑定为 Campaign Workspace 的 rootPath
-    createAgentWorkspace(campaign.name, workspaceSlug, campaign.projectPath)
+    // skipNameCheck：Campaign slug 是 campaign-{UUID} 天然唯一，name 为品牌名可能重复
+    createAgentWorkspace(campaign.name, workspaceSlug, campaign.projectPath, {
+      skipNameCheck: true,
+    })
 
     // 在 Workspace 中创建 Campaign 工具脚本
     const workspacePath = getAgentWorkspacePath(workspaceSlug)
@@ -1301,7 +1310,8 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
     )
   } catch (err) {
     // 用户指定了本地项目文件夹时，workspace 绑定失败应让创建失败并清理 DB 记录，避免数据不一致；
-    // 未指定 projectPath 时保持原有行为（仅记录、不阻断创建）。
+    // 未指定 projectPath 时不阻断 Campaign 创建，但必须留下可追溯的告警，不能静默吞掉——
+    // 否则会出现「Campaign 建好了但工作区/skills 不存在」，表现为 skill 找不到。
     console.error('[Campaign] 创建 Agent Workspace 失败:', err)
     if (campaign.projectPath) {
       try {
@@ -1310,6 +1320,22 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
         // 忽略回滚失败
       }
       throw err instanceof Error ? err : new Error(String(err))
+    }
+    try {
+      addCampaignBuildLog({
+        campaignId: campaign.id,
+        kind: 'campaign_created',
+        actor: 'system',
+        title: `⚠️ 工作区初始化失败：${campaign.name}`,
+        content: [
+          'Campaign 已创建，但专属 Agent 工作区初始化失败，内置 skill（如市场分析）可能不可用。',
+          '可尝试重新打开该 Campaign 触发自愈，或联系支持排查。',
+          `错误信息：${err instanceof Error ? err.message : String(err)}`,
+        ].join('\n'),
+        meta: { name: campaign.name, error: err instanceof Error ? err.message : String(err) },
+      })
+    } catch {
+      // 记录失败不影响主流程
     }
   }
 

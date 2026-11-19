@@ -7,6 +7,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, cpSync, rmSync, mkdirSync, statSync, renameSync, openSync, readSync, closeSync, realpathSync } from 'node:fs'
+import type { Dirent } from 'node:fs'
 import { writeJsonFileAtomic, readJsonFileSafe } from './safe-file'
 import { safeParseJSON } from './safe-json'
 import { randomUUID } from 'node:crypto'
@@ -21,6 +22,7 @@ import {
   getInactiveSkillsDir,
   getDefaultSkillsDir,
   parseSkillVersion,
+  getAgentWorkspacesDir,
 } from './config-paths'
 import { getMcpClientSecret, setMcpClientSecret, removeMcpClientSecret } from './agent-runtime/mcp-client-secret-store'
 import type { AgentWorkspace, WorkspaceMcpConfig, SkillMeta, SkillImportSource, OtherWorkspaceSkillsGroup, WorkspaceCapabilities, SkillFileNode, SkillFileContent } from '@ma-proma/shared'
@@ -197,12 +199,30 @@ function copyDefaultSkills(workspaceSlug: string): void {
   }
 }
 
-export function createAgentWorkspace(name: string, slug?: string, rootPath?: string): AgentWorkspace {
+export interface CreateAgentWorkspaceOptions {
+  /**
+   * 跳过工作区名称查重。
+   *
+   * Campaign 工作区需要开启：其 slug 为 `campaign-{UUID}` 天然唯一，而 name 取的是
+   * 品牌名，用户完全可能建多个同名品牌的 Campaign。不跳过会导致第二个起就抛
+   * 「工作区名称已存在」，进而 skills 目录不被创建（历史上表现为 skill 找不到）。
+   */
+  skipNameCheck?: boolean
+}
+
+export function createAgentWorkspace(
+  name: string,
+  slug?: string,
+  rootPath?: string,
+  options?: CreateAgentWorkspaceOptions,
+): AgentWorkspace {
   const index = readIndex()
 
-  const duplicate = index.workspaces.find((w) => w.name === name)
-  if (duplicate) {
-    throw new Error(`工作区名称「${name}」已存在`)
+  if (!options?.skipNameCheck) {
+    const duplicate = index.workspaces.find((w) => w.name === name)
+    if (duplicate) {
+      throw new Error(`工作区名称「${name}」已存在`)
+    }
   }
 
   const existingSlugs = new Set(index.workspaces.map((w) => w.slug))
@@ -239,6 +259,68 @@ export function createAgentWorkspace(name: string, slug?: string, rootPath?: str
 
   console.log(`[Agent 工作区] 已创建工作区: ${name} (slug: ${finalSlug})`)
   return workspace
+}
+
+/**
+ * 确保某个工作区已注册到索引，且 skills 目录就绪。用于自愈历史遗留问题。
+ *
+ * 背景：早期 Campaign 创建时若品牌名与已有工作区重名，`createAgentWorkspace` 抛异常
+ * 被 catch 静默吞掉 —— Campaign 落了库、目录也建了，但工作区从未注册、skills 从未
+ * 复制，表现为「找不到 ma-market-analysis 等 skill」。此函数按需补齐。
+ *
+ * @returns 是否做了修复动作
+ */
+export function ensureWorkspaceRegistered(
+  name: string,
+  slug: string,
+  rootPath?: string,
+): boolean {
+  const index = readIndex()
+  const existing = index.workspaces.find((w) => w.slug === slug)
+  let repaired = false
+
+  if (!existing) {
+    const now = Date.now()
+    index.workspaces.unshift({
+      id: randomUUID(),
+      name,
+      slug,
+      ...(rootPath && { rootPath }),
+      createdAt: now,
+      updatedAt: now,
+    })
+    writeIndex(index)
+    console.log(`[Agent 工作区] 已补注册工作区: ${name} (slug: ${slug})`)
+    repaired = true
+  }
+
+  // SDK 以「工作区根目录」作为 local plugin 加载 skills，必须存在
+  // .claude-plugin/plugin.json 才能发现 skills/。历史上创建被跳过时该文件也不会生成，
+  // 缺了它即使 skills/ 存在也不会被加载。
+  const manifestPath = join(getAgentWorkspacePath(slug), '.claude-plugin', 'plugin.json')
+  if (!existsSync(manifestPath)) {
+    ensurePluginManifest(slug, name)
+    console.log(`[Agent 工作区] 已补齐 plugin manifest: ${slug}`)
+    repaired = true
+  }
+
+  // skills 目录缺失或为空时补复制
+  const skillsDir = getWorkspaceSkillsDir(slug)
+  let needSkills = !existsSync(skillsDir)
+  if (!needSkills) {
+    try {
+      needSkills = readdirSync(skillsDir).length === 0
+    } catch {
+      needSkills = true
+    }
+  }
+  if (needSkills) {
+    copyDefaultSkills(slug)
+    console.log(`[Agent 工作区] 已补齐 skills: ${slug}`)
+    repaired = true
+  }
+
+  return repaired
 }
 
 /** 返回 Agent 实际运行目录；已有项目工作区直接在项目根目录运行。 */
@@ -372,6 +454,9 @@ export function upgradeDefaultSkillsInWorkspaces(): void {
     const entries = readdirSync(defaultDir, { withFileTypes: true })
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
+      // 与 copyDefaultSkills 保持一致：营销场景不需要的通用 Skill 不参与注入/升级，
+      // 否则新建工作区 42 个、老工作区被补成 46 个，两边不一致。
+      if (EXCLUDED_DEFAULT_SKILLS.has(entry.name)) continue
       const sourcePath = join(defaultDir, entry.name)
       defaultSkills.set(entry.name, {
         version: parseSkillVersion(sourcePath),
@@ -435,6 +520,60 @@ export function upgradeDefaultSkillsInWorkspaces(): void {
       }
     }
   }
+}
+
+/**
+ * 扫描磁盘上所有 campaign-* 目录，把「目录存在但未注册索引 / skills 缺失」的工作区补齐。
+ *
+ * 用于自愈历史遗留数据：早期 Campaign 若品牌名与已有工作区重名，
+ * `createAgentWorkspace` 会抛异常并被静默吞掉，导致 Campaign 目录存在但工作区
+ * 从未注册、skills 从未复制，用户表现为「找不到 ma-market-analysis 等 skill」。
+ *
+ * 名称取自 `<workspace>/campaign.json` 的 name 字段（与创建时一致）。
+ *
+ * @returns 修复的工作区数量
+ */
+export function repairUnregisteredCampaignWorkspaces(): number {
+  const workspacesRoot = getAgentWorkspacesDir()
+  let entries: Dirent[]
+  try {
+    entries = readdirSync(workspacesRoot, { withFileTypes: true })
+  } catch {
+    return 0
+  }
+
+  let repaired = 0
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith('campaign-')) continue
+    const slug = entry.name
+    const workspacePath = getAgentWorkspacePath(slug)
+    if (!existsSync(workspacePath)) continue
+
+    // 读取 campaign.json 拿 name；读不到就跳过，避免写入错误名称
+    let name: string | undefined
+    try {
+      const manifestPath = join(workspacePath, 'campaign.json')
+      if (!existsSync(manifestPath)) continue
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as { name?: string }
+      name = manifest.name
+    } catch {
+      continue
+    }
+    if (!name) continue
+
+    try {
+      if (ensureWorkspaceRegistered(name, slug)) {
+        repaired++
+      }
+    } catch (err) {
+      console.warn(`[Agent 工作区] 自愈失败 (${slug}):`, err)
+    }
+  }
+
+  if (repaired > 0) {
+    console.log(`[Agent 工作区] 已自愈 ${repaired} 个未注册的 Campaign 工作区`)
+  }
+  return repaired
 }
 
 /**

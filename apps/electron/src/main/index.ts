@@ -107,7 +107,7 @@ import { registerIpcHandlers } from './ipc'
 import { createTray, destroyTray } from './tray'
 import { initializeRuntime } from './lib/runtime-init'
 import { seedDefaultSkills } from './lib/config-paths'
-import { upgradeDefaultSkillsInWorkspaces } from './lib/agent-workspace-manager'
+import { upgradeDefaultSkillsInWorkspaces, repairUnregisteredCampaignWorkspaces } from './lib/agent-workspace-manager'
 import { stopAllAgents, killOrphanedClaudeSubprocesses } from './lib/agent-service'
 import { takePendingMcpOAuth } from './lib/agent-runtime/mcp-oauth-pending'
 import { stopAllGenerations } from './lib/chat-service'
@@ -467,6 +467,9 @@ async function bootstrap(): Promise<void> {
 
   // 升级所有工作区中版本过旧的默认 Skills
   safeRun('upgradeDefaultSkillsInWorkspaces', upgradeDefaultSkillsInWorkspaces)
+
+  // 自愈：补齐历史上因重名未能注册的 Campaign 工作区（含 skills 复制）
+  safeRun('repairUnregisteredCampaignWorkspaces', repairUnregisteredCampaignWorkspaces)
 
   // Create application menu
   const menu = createApplicationMenu()
