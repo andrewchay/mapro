@@ -26,3 +26,13 @@ export {
   buildArtifactPersistenceDirective,
   splitOutputByFiles,
 } from './campaign-prompt'
+export {
+  BRAND_DNA_FIELDS,
+  BRAND_DNA_FILE_PLAN,
+  BRAND_DNA_PREREQUISITE_STEPS,
+  BRAND_DNA_PREREQUISITE_DIRS,
+  BRAND_DNA_PREREQUISITE_LABELS,
+  buildBrandDnaFieldSpec,
+  buildBrandDnaPrerequisiteDirective,
+} from './brand-dna-spec'
+export type { BrandDnaField } from './brand-dna-spec'

@@ -388,6 +388,16 @@ bun run generate:icons    # 生成应用图标
 
 **新增 Skill 不需要先注入 default-skills 目录的旧版本**——`upgradeDefaultSkillsInWorkspaces` 会通过"目标缺失即注入"路径让所有老工作区自动获得。
 
+### Campaign 步骤规格：单一事实来源（易踩坑）
+
+`campaign-workflow-service.ts` 存在**两份独立实现**：`packages/server/src/campaign/` 与 `apps/electron/src/main/lib/`。改任何步骤的 `agentPrompt` / `artifactRequirements` / `requiredFiles` 时，**两处必须同步改**，否则 server 与 Electron 行为分叉。
+
+历史上的真实事故：`ma-brand-dna/SKILL.md` 与 workflow 的 `agentPrompt` 各自维护字段清单且互不覆盖（SKILL 只有价值/人格层，prompt 只有诊断层），导致同一 skill 在不同入口产出两套结构。
+
+现在 `packages/shared/src/utils/brand-dna-spec.ts` 是 brand_dna 的单一事实来源（字段、产物文件划分、前置依赖、prompt 生成函数）。新增类似规格时，优先在 `packages/shared/src/utils/` 建同构模块，**不要在两个 service 里各写一份字面量**。
+
+另外注意：`BRAND_DNA_PREREQUISITE_STEPS` 表示"brand_dna 依赖哪些步骤"，**不是**"哪些步骤有前置依赖"。判断当前步骤要用 `stepId === 'brand_dna'`；用 `.includes(stepId)` 会让被依赖的步骤自己也被检查，导致全链路测试连锁失败。
+
 ## Agent SDK 集成架构
 
 基于 `@anthropic-ai/claude-agent-sdk@0.3.143` 实现 Agent 模式，与 Chat 模式并行。

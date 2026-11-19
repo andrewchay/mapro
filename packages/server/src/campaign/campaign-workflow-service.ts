@@ -19,7 +19,15 @@ import type {
   CampaignWorkflowStepId,
   UpdateWorkflowStepInput,
 } from '@ma-proma/shared'
-import { buildArtifactPersistenceDirective } from '@ma-proma/shared'
+import {
+  buildArtifactPersistenceDirective,
+  BRAND_DNA_FIELDS,
+  BRAND_DNA_PREREQUISITE_STEPS,
+  BRAND_DNA_PREREQUISITE_DIRS,
+  BRAND_DNA_PREREQUISITE_LABELS,
+  buildBrandDnaFieldSpec,
+  buildBrandDnaPrerequisiteDirective,
+} from '@ma-proma/shared'
 import type { AppContext } from '../context/types.ts'
 import type { FileProvider } from '../files/types.ts'
 import { getAgentWorkspacePath } from '../context/config-paths.ts'
@@ -189,38 +197,28 @@ export const DEFAULT_WORKFLOW_STEPS: Omit<CampaignWorkflowStep, 'status' | 'comp
     description: '基于市场/竞品/用户分析，提取品牌核心价值并输出品牌诊断（品牌阶段、产品现状、核心问题、核心目标）',
     toolName: 'ma-brand-dna',
     minArtifactLength: 300,
-    artifactRequirements: [
-      { name: '品牌历史', aliases: ['历史', '创立', '发展', '里程碑', '传承', 'heritage'] },
-      { name: '产品服务', aliases: ['产品', '服务', '功能', '卖点', '价格', '产品线'] },
-      { name: '品牌阶段', aliases: ['起步期', '成长期', '成熟期', '焕新期', '阶段', '定位'] },
-      { name: '产品现状', aliases: ['产品力', '供应链', '价格带', 'SKU', '产品诊断'] },
-      { name: '核心问题', aliases: ['认知问题', '转化问题', '口碑问题', '问题', '定义'] },
-      { name: '核心目标', aliases: ['目标', '优先级', '曝光', '破圈', '拉新', '首要目标'] },
-      { name: '差异化优势', aliases: ['差异化', '优势', '差异', '不同', '独特', '核心竞争力'] },
-    ],
+    requiredFiles: ['brand-dna.md', 'brand-diagnosis.md', 'differentiation.md'],
+    artifactRequirements: BRAND_DNA_FIELDS.map((f) => ({ name: f.name, aliases: f.aliases })),
     agentPrompt: `## 步骤 4: 品牌DNA + 品牌诊断
 
 目标：基于市场分析、竞品分析和用户分析的数据支撑，提取品牌核心价值并输出品牌诊断。
 
-分析框架：
-1. **品牌自身历史**：创立背景、发展历程、里程碑事件、品牌传承
-2. **产品/服务 + 现有传播**：核心产品线、功能卖点、价格带、过往 campaign、slogan、核心文案
-3. **品牌阶段诊断**：起步期 / 成长期 / 成熟期 / 焕新期
-4. **产品现状诊断**：产品力、供应链、价格带、SKU
-5. **核心问题定义**：当前要解决的是认知问题 / 转化问题 / 口碑问题
-6. **核心目标**：基于阶段和问题，确定首要目标（曝光/破圈拉新）及目标优先级
-7. **差异化优势**：结合市场/竞品/用户分析，总结能戳到洞察的核心差异点
+${buildBrandDnaFieldSpec()}
+
+${buildBrandDnaPrerequisiteDirective()}
 
 执行要求：
 1. 使用 ma-brand-dna 工具分析品牌
 2. 产出必须保存到以下目录：\`brand-dna/\`
-3. 文件命名建议：\`brand-dna.md\`、\`brand-diagnosis.md\`、\`differentiation.md\`
+3. 必须产出三个文件（校验会精确检查文件名）：
+   - \`brand-dna.md\` — 品牌传承、用户需求、产品/服务、核心价值、附加价值、品牌人格、品牌语气
+   - \`brand-diagnosis.md\` — 品牌阶段、产品现状、核心问题、核心目标
+   - \`differentiation.md\` — 差异化优势总结
 4. 完成标准（校验时会检查）：
-   - brand-dna.md 必须包含品牌历史、产品/服务、品牌核心价值、差异化优势（至少300字）
-   - brand-diagnosis.md 必须包含品牌阶段、产品现状、核心问题、核心目标（至少300字）
-   - differentiation.md 必须包含差异化优势总结（至少300字）
+   - 三个文件均存在且各自不少于 300 字
+   - 12 项字段全部覆盖，不允许只写诊断层或只写情感层
 
-前置产物：\`market-analysis/\`、\`competitor-analysis/\`、\`user-analysis/\` 目录中的文件
+前置产物：\`market-analysis/\`、\`competitor-analysis/\`、\`user-analysis/\` 目录中的文件（代码层会校验，缺失则无法完成本步骤）
 完成后，请返回 "已完成：品牌DNA + 品牌诊断"并附上产物摘要。`,
   },
   {
@@ -984,6 +982,20 @@ export class CampaignWorkflowService {
       throw new Error(`步骤不存在: ${stepId}`)
     }
 
+    // 前置依赖硬校验：brand_dna 必须基于市场/竞品/用户分析，禁止凭 brief 直接推导
+    const prerequisiteMissing = await this.checkPrerequisites(campaignId, stepId)
+    if (prerequisiteMissing.length > 0) {
+      const reason = `前置产物缺失，无法完成本步骤：${prerequisiteMissing.join('、')}。请先完成对应步骤。`
+      const failedWorkflow = await this.updateWorkflowStepLocked({
+        campaignId,
+        stepId,
+        status: 'failed',
+        outputSummary: reason,
+      })
+      await this.appendHistory(campaignId, stepId, step.title, 'failed', reason)
+      return { success: false, workflow: failedWorkflow, reason }
+    }
+
     await this.validator.materializeAssistantOutputIfNeeded(campaignId, stepId, step.title, messages, step.requiredFiles ?? [])
     const validation = await this.validator.validateStepArtifacts(campaignId, stepId, step)
     const outputSummary = await this.validator.extractOutputSummary(messages)
@@ -1013,6 +1025,45 @@ export class CampaignWorkflowService {
     })
     await this.appendHistory(campaignId, stepId, step.title, 'completed', finalSummary)
     return { success: true, workflow: completedWorkflow }
+  }
+
+  /**
+   * 检查步骤的前置依赖是否已产出。
+   *
+   * 目前只有 brand_dna 有硬前置：必须存在 market-analysis / competitor-analysis /
+   * user-analysis 三个目录的可读产物。返回缺失项的中文描述列表（空数组表示通过）。
+   */
+  private async checkPrerequisites(
+    campaignId: string,
+    stepId: CampaignWorkflowStepId,
+  ): Promise<string[]> {
+    // 注意：BRAND_DNA_PREREQUISITE_STEPS 是「brand_dna 依赖哪些步骤」，
+    // 不是「哪些步骤有前置依赖」。这里判断的是当前步骤本身。
+    if (stepId !== 'brand_dna') {
+      return []
+    }
+    const workspaceRoot = this.getWorkspacePath(campaignId)
+    const missing: string[] = []
+    for (const prereqId of BRAND_DNA_PREREQUISITE_STEPS) {
+      const dirName = BRAND_DNA_PREREQUISITE_DIRS[prereqId]
+      const label = BRAND_DNA_PREREQUISITE_LABELS[prereqId]
+      if (!dirName || !label) continue
+      const dirPath = join(workspaceRoot, dirName)
+      const exists = await this.files.exists(dirPath)
+      if (!exists) {
+        missing.push(`${label}（${dirName}/）`)
+        continue
+      }
+      // 与 electron 侧 readTextFiles(recursive) 保持一致：递归查找文本产物
+      const entries = await this.files.listDirectoryRecursive(dirPath)
+      const hasContent = entries.some(
+        (e) => !e.isDirectory && /\.(md|txt|json)$/i.test(e.name),
+      )
+      if (!hasContent) {
+        missing.push(`${label}（${dirName}/ 为空）`)
+      }
+    }
+    return missing
   }
 
   private async appendHistory(

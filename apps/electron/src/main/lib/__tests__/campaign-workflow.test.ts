@@ -392,6 +392,13 @@ describe('Campaign 工作流测试', () => {
     rmSync(dir, { recursive: true, force: true })
     mkdirSync(dir, { recursive: true })
 
+    // brand_dna 有硬前置：需要市场/竞品/用户分析产物先存在
+    for (const prereqDir of ['market-analysis', 'competitor-analysis', 'user-analysis']) {
+      const p = join(workspaceDir, prereqDir)
+      mkdirSync(p, { recursive: true })
+      writeFileSync(join(p, `${prereqDir}.md`), '# 前置产物\n\n' + '前置分析内容。'.repeat(60), 'utf-8')
+    }
+
     workflowService.updateWorkflowStep({
       campaignId: testCampaignId,
       stepId: 'brand_dna',
@@ -399,13 +406,37 @@ describe('Campaign 工作流测试', () => {
     })
 
     const content = [
-      '品牌历史：品牌创立于 2018 年，从社区水果店起步，发展至今已有六年历程，传承每日鲜果理念。',
-      '产品服务：核心产品线包括鲜切水果盒、季节果篮，功能卖点为当日鲜切、冷链配送，价格带 29-99 元。',
-      '品牌阶段：当前品牌处于成长期，已完成从单店到连锁的阶段定位，正向品牌化阶段过渡。',
-      '产品现状：产品力稳定，供应链诊断显示冷链成熟，价格带 29-99 元，SKU 约 30 个，产品诊断良好。',
-      '核心问题：当前首要解决的是认知问题，目标用户对品牌心智不足，定义为本阶段核心问题。',
-      '核心目标：基于成长期阶段和认知问题，首要目标是曝光和破圈拉新，目标优先级为声量优先。',
-      '差异化优势：我们的差异化在于鲜切即食加场景化套餐，核心竞争力是供应链稳定，与竞品最核心的差异在场景绑定。',
+      '# brand-dna.md',
+      '## 品牌传承',
+      '品牌创立于 2018 年，从社区水果店起步，发展至今已有六年历程，传承每日鲜果理念，积累了稳定口碑与选品经验。',
+      '## 用户需求',
+      '用户处境是下班后没精力挑选，痛点是决策成本高，核心矛盾是想要品质确定却不愿花时间，引用用户分析洞察。',
+      '## 产品/服务',
+      '核心产品线包括鲜切水果盒、季节果篮，功能卖点为当日鲜切、冷链配送，价格带 29-99 元，SKU 约 30 个，现有传播以门店促销为主。',
+      '## 核心价值',
+      '核心价值是确定性、省心与场景适配，每条都能落到用户可感知的体验点。',
+      '## 附加价值',
+      '附加价值是悦己与自我照顾，情感价值体现在忙碌工作日里被认真对待的片刻，生活方式层面把吃水果变成轻量仪式。',
+      '## 品牌人格',
+      '品牌人格是干净利落、可靠、温和体贴，三个形容词都有清晰画面感。',
+      '## 品牌语气',
+      '品牌语气像一个做过多年水果生意的邻家店主，说话实在、不夸张，只讲今天什么好。',
+      '',
+      '# brand-diagnosis.md',
+      '## 品牌阶段',
+      '当前品牌处于成长期，判定依据是已完成从单店到连锁的定位，正向品牌化阶段过渡。',
+      '## 产品现状',
+      '产品力稳定，供应链诊断显示冷链成熟，价格带 29-99 元，SKU 约 30 个，产品诊断良好。',
+      '## 核心问题',
+      '当前首要解决的是认知问题，目标用户对品牌心智不足，界定理由为搜索量偏低。',
+      '## 核心目标',
+      '基于成长期阶段和认知问题，首要目标是曝光和破圈拉新，目标优先级为声量优先。',
+      '',
+      '# differentiation.md',
+      '## 差异化优势',
+      '差异化在于鲜切即食加场景化套餐，核心竞争力是供应链稳定，与竞品最核心的差异在场景绑定。',
+      '## 为什么竞品难以复制',
+      '该优势依赖六年积累的产地关系与冷链投入，竞品即使加大预算也需时间重建。',
     ].join('\n')
 
     const result = workflowService.completeStepWithValidation(
@@ -417,6 +448,25 @@ describe('Campaign 工作流测试', () => {
     expect(result.success).toBe(true)
     expect(existsSync(join(dir, 'agent-output.md'))).toBe(true)
     expect(result.workflow.steps.find((s) => s.id === 'brand_dna')?.status).toBe('completed')
+  })
+
+  it('Slice 3d: brand_dna 缺少前置产物 → 拒绝完成并给出可读原因', () => {
+    const workspaceDir = join(TEST_DIR, 'agent-workspaces', `campaign-${testCampaignId}`)
+    // 清空前置产物
+    for (const prereqDir of ['market-analysis', 'competitor-analysis', 'user-analysis']) {
+      rmSync(join(workspaceDir, prereqDir), { recursive: true, force: true })
+    }
+
+    const result = workflowService.completeStepWithValidation(
+      testCampaignId,
+      'brand_dna',
+      [{ id: 'msg-x', role: 'assistant', content: '已完成', createdAt: Date.now() }],
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.reason).toContain('前置产物缺失')
+    expect(result.reason).toContain('市场分析')
+    expect(result.workflow.steps.find((s) => s.id === 'brand_dna')?.status).toBe('failed')
   })
 
   // ===== Slice 4: outputSummary 提取 =====
